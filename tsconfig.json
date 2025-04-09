@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "module": "NodeNext",
+        "target": "ES2022",
+        "moduleResolution": "nodenext",
+        "declaration": false,
+        "outDir": "www",
+        "types": [
+            "@material/web/all.d.ts",
+            "@vandeurenglenn/lite"
+        ]
+    },
+    "include": [
+        "src/**/*.ts"
+    ],
+}
