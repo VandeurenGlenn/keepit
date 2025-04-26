@@ -17,17 +17,20 @@ export class ChipField extends LiteElement {
   ]
 
   async _addChip() {
-    const newChip = prompt('Enter a new chip label:')
-    if (newChip) {
-      this.chips = [...this.chips, newChip]
-    }
-    await fetch('/api/chips', {
+    const label = prompt('Enter a new chip label:')
+    if (!label) return;
+
+    const response = await fetch('/api/chips', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ type: '', label: newChip })
+      body: JSON.stringify({ type: '', label })
     })
+
+    if (response.status === 200) {
+      this.chips = [...this.chips, label]
+    }
   }
 
   render() {
