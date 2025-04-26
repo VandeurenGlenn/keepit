@@ -1,0 +1,52 @@
+:host {
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface-container);
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+}
+
+.hero {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-container-high);
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  min-width: 240px;
+  max-width: 360px;
+}
+h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--md-sys-color-primary);
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+.step-info {
+  margin-bottom: 32px;
+}
+footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  width: 100%;
+  margin-top: 32px;
+}
+
+:host([is-first-step]) footer {
+  justify-content: flex-end;
+}

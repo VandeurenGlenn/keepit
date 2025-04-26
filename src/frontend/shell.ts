@@ -1,4 +1,5 @@
 import { LiteElement, customElement, css, html, property } from '@vandeurenglenn/lite'
+import { render } from 'lit-html'
 import '@vandeurenglenn/lite-elements/theme.js'
 import '@vandeurenglenn/flex-elements/container.js'
 import '@vandeurenglenn/flex-elements/wrap-around.js'
@@ -19,7 +20,7 @@ export class AppShell extends LiteElement {
 
   @property({ type: String }) accessor selected = 'invoices'
 
-  @property({ type: Boolean }) accessor userSignedIn = false
+  @property({ type: Boolean }) accessor userSignedIn
 
   @property({type: Boolean, provides: true}) accessor darkMode
 
@@ -75,12 +76,47 @@ export class AppShell extends LiteElement {
     onhashchange = _onhashchange
     if (!location.hash) location.hash = '#!/home'
     _onhashchange()
+    this.checkUserStatus()
   }
 
-  setUser(user) {
+  checkUserStatus() {
+    const token = localStorage.getItem('token')
+    if (token) {
+      this.setUser(token)
+    } else {
+      render(html`  <div
+      id="g_id_onload"
+      data-client_id="108028336132-s1j25jmsu1d222ovrabdk2kcbvkie474.apps.googleusercontent.com"
+      data-context="use"
+      data-callback="onSignIn"
+      data-auto_select="true"
+      data-itp_support="true"></div>`, document.body)
+
+      const script = document.createElement('script')
+      script.src = 'https://accounts.google.com/gsi/client'
+     
+      script.dataset.use_fedcm_for_prompts = 'true'
+      document.head.appendChild(script)
+    }
+  }
+
+  _decodeToken(credential) {
+    const decodedCredential =  JSON.parse(atob(credential.split('.')[1]))
+    return{
+      id: decodedCredential.sub,
+      name: decodedCredential.name,
+      image: decodedCredential.picture,
+      email: decodedCredential.email
+    }
+
+  }
+  setUser(credential) {
+    const token = localStorage.getItem('token')
+    if (token && token !== credential || !token) 
+      localStorage.setItem('token', credential)
+
+    this.user = this._decodeToken(credential)
     this.userSignedIn = true
-    this.user = user
-    globalThis.pubsub.publish('user-signed-in', user)
   }
 
   static styles = [styles]
@@ -153,7 +189,7 @@ export class AppShell extends LiteElement {
       </aside>
 
       <main>
-        <flex-container> ${this.renderSelectedView()} </flex-container>
+        <flex-container center-center> ${this.renderSelectedView()} </flex-container>
       </main>
     `
   }

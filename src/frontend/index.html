@@ -11,35 +11,58 @@
       name="google-signin-scope"
       content="profile email" />
     <meta />
-
-    <script
-      data-use_fedcm_for_prompts="true"
-      src="https://accounts.google.com/gsi/client"
-      async></script>
-    <!-- <script
-      src="https://apis.google.com/js/platform.js"
-      async
-      defer
-      onload></script> -->
+    <script>
+      ;((g) => {
+        var h,
+          a,
+          k,
+          p = 'The Google Maps JavaScript API',
+          c = 'google',
+          l = 'importLibrary',
+          q = '__ib__',
+          m = document,
+          b = window
+        b = b[c] || (b[c] = {})
+        var d = b.maps || (b.maps = {}),
+          r = new Set(),
+          e = new URLSearchParams(),
+          u = () =>
+            h ||
+            (h = new Promise(async (f, n) => {
+              await (a = m.createElement('script'))
+              e.set('libraries', [...r] + '')
+              for (k in g)
+                e.set(
+                  k.replace(/[A-Z]/g, (t) => '_' + t[0].toLowerCase()),
+                  g[k]
+                )
+              e.set('callback', c + '.maps.' + q)
+              a.src = `https://maps.${c}apis.com/maps/api/js?` + e
+              d[q] = f
+              a.onerror = () => (h = n(Error(p + ' could not load.')))
+              a.nonce = m.querySelector('script[nonce]')?.nonce || ''
+              m.head.append(a)
+            }))
+        d[l]
+          ? console.warn(p + ' only loads once. Ignoring:', g)
+          : (d[l] = (f, ...n) => r.add(f) && u().then(() => d[l](f, ...n)))
+      })({
+        key: 'AIzaSyCC1C0LkGiZb6JSGb9QqS_nLK7wM2kpEAI',
+        v: 'weekly'
+        // Use the 'v' parameter to indicate the version to use (weekly, beta, alpha, etc.).
+        // Add other bootstrap parameters as needed, using camel case.
+      })
+    </script>
   </head>
   <body>
     <script>
       function onSignIn(response) {
         if (response.credential) {
           // Decode the JWT token to obtain the user profile information
-          const decodedCredential = JSON.parse(atob(response.credential.split('.')[1]))
-          console.log('ID: ', decodedCredential.sub)
-          console.log('Name: ', decodedCredential.name)
-          console.log('Image URL: ', decodedCredential.picture)
-          console.log('Email: ', decodedCredential.email)
-          console.log(decodedCredential)
+          console.log(response.credential)
+          localStorage.setItem('token', response.credential)
 
-          document.querySelector('app-shell').setUser({
-            id: decodedCredential.sub,
-            name: decodedCredential.name,
-            image: decodedCredential.picture,
-            email: decodedCredential.email
-          })
+          document.querySelector('app-shell').setUser(response.credential)
         }
       }
       function signOut() {
@@ -78,13 +101,6 @@
       }
     </script>
     <app-shell></app-shell>
-    <div
-      id="g_id_onload"
-      data-client_id="108028336132-s1j25jmsu1d222ovrabdk2kcbvkie474.apps.googleusercontent.com"
-      data-context="use"
-      data-callback="onSignIn"
-      data-auto_select="true"
-      data-itp_support="true"></div>
 
     <script
       src="shell.js"

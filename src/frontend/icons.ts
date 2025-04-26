@@ -9,6 +9,10 @@ export default html` <custom-icon-set>
     <span name="cameraswitch">@symbol-cameraswitch</span>
     <span name="menu">@symbol-menu</span>
     <span name="home">@symbol-home</span>
+    <span name="location_on">@symbol-location_on</span>
+    <span name="search">@symbol-search</span>
+    <span name="close">@symbol-close</span>
+    <span name="check">@symbol-check</span>
 
     <span name="inventory2">@symbol-inventory_2</span>
     <span name="receipt">@symbol-receipt</span>
