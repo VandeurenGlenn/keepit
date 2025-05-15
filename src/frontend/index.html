@@ -58,46 +58,8 @@
     <script>
       function onSignIn(response) {
         if (response.credential) {
-          // Decode the JWT token to obtain the user profile information
-          console.log(response.credential)
-          localStorage.setItem('token', response.credential)
-
           document.querySelector('app-shell').setUser(response.credential)
         }
-      }
-      function signOut() {
-        const auth2 = gapi.auth2.getAuthInstance()
-        auth2.signOut().then(function () {
-          console.log('User signed out.')
-        })
-      }
-      function isSignedIn() {
-        const auth2 = gapi.auth2.getAuthInstance()
-        return auth2.isSignedIn.get()
-      }
-      function getUser() {
-        const auth2 = gapi.auth2.getAuthInstance()
-        return auth2.currentUser.get()
-      }
-      function getUserId() {
-        const auth2 = gapi.auth2.getAuthInstance()
-        return auth2.currentUser.get().getId()
-      }
-      function getUserName() {
-        const auth2 = gapi.auth2.getAuthInstance()
-        return auth2.currentUser.get().getBasicProfile().getName()
-      }
-      function getUserEmail() {
-        const auth2 = gapi.auth2.getAuthInstance()
-        return auth2.currentUser.get().getBasicProfile().getEmail()
-      }
-      function getUserImage() {
-        const auth2 = gapi.auth2.getAuthInstance()
-        return auth2.currentUser.get().getBasicProfile().getImageUrl()
-      }
-      function getUserToken() {
-        const auth2 = gapi.auth2.getAuthInstance()
-        return auth2.currentUser.get().getAuthResponse().id_token
       }
     </script>
     <app-shell></app-shell>
