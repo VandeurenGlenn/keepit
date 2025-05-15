@@ -1,83 +1,22 @@
-import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
+import { LiteElement, html, css, property, query } from '@vandeurenglenn/lite'
 import '@material/web/textfield/outlined-text-field.js'
 import '@material/web/fab/fab.js'
 import '@vandeurenglenn/lite-elements/icon.js'
-import '../flows/data.js'
-import '../flows/data-input.js'
-export class JobsView extends LiteElement {
-  @property({ type: Boolean }) accessor creatingJob = false
-  @property({ type: Array }) accessor steps = [
-    {
-      name: 'Basic Info',
-      template: html`<data-input label="name"></data-input> `,
-      validateAndReturnValues: (inputs) => {
-        const data = {}
+import '@vandeurenglenn/lite-elements/icon-button.js'
+import './../elements/list/item.js'
+import { JobsMixin } from '../mixins/jobs.js'
+import './../elements/view/header.js'
+import { Job, Jobs } from '../../types/index.js'
 
-        for (const input of inputs) {
-          data[input.label] = input.value
-          if (!data[input.label]) {
-            return { valid: false, values: data }
-          }
-        }
-        return { valid: true, values: data }
-      }
-    },
-    {
-      name: 'Address',
-      template: html` <flex-row
-          ><data-input
-            label="street"
-            type="place"></data-input>
-          <data-input
-            label="number"
-            type="number"></data-input>
-        </flex-row>
-        <flex-row>
-          <data-input
-            label="postcode"
-            type="number"></data-input>
-          <data-input
-            label="city"
-            auto-complete></data-input>
-        </flex-row>
-        <data-input label="state"></data-input>`,
-
-      validateAndReturnValues: (inputs) => {
-        const data = {}
-
-        for (const input of inputs) {
-          data[input.label] = input.value
-          if (!data[input.label]) {
-            return { valid: false, values: data }
-          }
-        }
-        return { valid: true, values: data }
-      }
-    },
-    {
-      name: 'Step 3',
-      description: 'Description for step 3',
-      template: html`<p>Step 3 content</p>`,
-      validateAndReturnValues: (inputs) => {
-        const data = {}
-
-        for (const input of inputs) {
-          data[input.label] = input.value
-          if (!data[input.label]) {
-            return { valid: false, values: data }
-          }
-        }
-        return { valid: true, values: data }
-      }
-    }
-  ]
+const jobsMixin = JobsMixin(LiteElement)
+export class JobsView extends jobsMixin {
   static styles = [
     css`
       :host {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        justify-content: center;
+        width: 100%;
+        height: 100%;
       }
       md-fab {
         position: fixed;
@@ -89,25 +28,32 @@ export class JobsView extends LiteElement {
     `
   ]
 
-  _createJob = () => {
-    this.creatingJob = true
-    console.log('Creating a new job...')
-    // You can add your logic here to create a new job
-  }
-
-  _handleFabKeyUp = (event) => {
-    if (event.key === 'Enter' || event.key === 'Space') {
-      event.preventDefault()
-      this._createJob()
-    }
-  }
-
   render() {
-    if (this.creatingJob)
-      return html`<data-flow
-        .steps=${this.steps}
-        label="Adding Job"></data-flow>`
     return html`
+      <view-header
+        title="Jobs"
+        description="Manage your jobs"
+        icon="inventory2"></view-header>
+
+      ${Object.entries((this.jobs as Jobs) || {}).map(
+        ([key, job]) => html`
+          <list-item
+            .href=${`#!/job?selected=${key}`}
+            .headline=${job.name}
+            .subheadline=${job.place?.formattedAddress}
+            .key=${key}>
+            <custom-icon-button
+              slot="trailing"
+              icon="delete"
+              @click=${(event: CustomEvent) => {
+                event.stopPropagation()
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                this._deleteJob(key)
+              }}></custom-icon-button>
+          </list-item>
+        `
+      )}
       <md-fab
         icon="add"
         @click=${() => this._createJob()}
