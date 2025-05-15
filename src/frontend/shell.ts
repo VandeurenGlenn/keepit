@@ -10,9 +10,10 @@ import './views/loading-view.js'
 
 import icons from './icons.js'
 // @ts-ignore
+// @prettier-ignore
 import styles from './shell.css' with { type: 'css' }
+
 globalThis.exports = {}
-@customElement('app-shell')
 export class AppShell extends LiteElement {
   @property({ type: Boolean, provides: true, attribute: 'is-narrow' }) accessor isNarrow
 
@@ -24,9 +25,14 @@ export class AppShell extends LiteElement {
 
   @property({type: Boolean, provides: true}) accessor darkMode
 
-  @property({ type: Object }) accessor user
+  @property({ type: Object, provides: true }) accessor user
 
-  @property({ type: Array, provides: true }) accessor invoices = []
+  @property({ type: Array, provides: true }) accessor invoices
+
+  @property({ type: Object, provides: true }) accessor jobs
+  @property({ type: Object, provides: true }) accessor job
+  @property({ type: Array, provides: true }) accessor companies
+  @property({ type: Array, provides: true }) accessor users
 
   setupMediaQuery(query, callback) {
     const mediaQuery = window.matchMedia(query)
@@ -34,6 +40,69 @@ export class AppShell extends LiteElement {
     mediaQuery.addEventListener('change', handleMediaQueryChange)
     handleMediaQueryChange(mediaQuery)
   }
+
+  _onhashchange = async () => {
+    const hash = location.hash
+    const path = hash.split('!/')[1].split('?')[0]
+    console.log(path);
+    
+    const params = hash.split('?')?.[1]?.split('&').reduce((acc, param) => {
+      const [key, value] = param.split('=')
+      acc[key] = decodeURIComponent(value)
+      return acc
+    }, {})
+console.log(params);
+
+    console.log(path)
+
+    const navItems = this.shadowRoot.querySelectorAll('.nav-item')
+    navItems.forEach((item) => {
+      item.classList.remove('active')
+    })
+    const activeItem = this.shadowRoot.querySelector(`.nav-item[href="${hash}"]`)
+    if (activeItem) {
+      activeItem.classList.add('active')
+    }
+
+    if (!(await customElements.get(`${path}-view`))) await import(`./${path}-view.js`)
+
+    const promises = []
+    console.log(path);
+
+    if (!this.userSignedIn) return
+    
+    if (path === 'invoices') {
+      if (!this.invoices) 
+        promises.push(this._load('invoices'))
+      if (!this.jobs) 
+        promises.push( this._load('jobs'))
+      
+      if (!this.companies) 
+        promises.push(this._load('companies'))
+      }
+    if (path === 'jobs') {
+      if (!this.jobs)
+        promises.push(this._load('jobs'))
+    }
+    if (path === 'job') {
+      if (!this.job)
+        promises.push(this._load('job', params.selected))
+    }
+    if (path === 'companies') {
+      if (!this.companies)
+        promises.push(this._load('companies'))
+    }
+    if (path === 'users') {
+      if (!this.users)
+        promises.push(this._load('users'))
+    }
+
+    await Promise.all(promises)
+    this.requestRender()
+
+    this.selected = path
+  }
+  
 
   beforeRender(): void {
     this.setupMediaQuery('(prefers-color-scheme: dark)', ({ matches }) => {
@@ -48,41 +117,36 @@ export class AppShell extends LiteElement {
       this.isMediumNarrow = matches
     })
 
-    const _onhashchange = async () => {
-      const hash = location.hash
-      const path = hash.split('!/')[1]
-      console.log(path)
-
-      const navItems = this.shadowRoot.querySelectorAll('.nav-item')
-      navItems.forEach((item) => {
-        item.classList.remove('active')
-      })
-      const activeItem = this.shadowRoot.querySelector(`.nav-item[href="${hash}"]`)
-      if (activeItem) {
-        activeItem.classList.add('active')
-      }
-
-      if (!(await customElements.get(`${path}-view`))) await import(`./${path}-view.js`)
-
-        if (path === 'invoices') {
-          const response = await fetch('/api/invoices')
-          const invoices = await response.json()
-          this.invoices = invoices
-        }
-
-      this.selected = path
-    }
-
-    onhashchange = _onhashchange
+    onhashchange = this._onhashchange
     if (!location.hash) location.hash = '#!/home'
-    _onhashchange()
+    this._onhashchange()
     this.checkUserStatus()
   }
+
 
   checkUserStatus() {
     const token = localStorage.getItem('token')
     if (token) {
-      this.setUser(token)
+      const user = this._decodeToken(token)
+      if (user.expires < Date.now() / 1000) {
+        localStorage.removeItem('token')
+        this.userSignedIn = false
+        render(html`  <div
+        id="g_id_onload"
+        data-client_id="108028336132-s1j25jmsu1d222ovrabdk2kcbvkie474.apps.googleusercontent.com"
+        data-context="use"
+        data-callback="onSignIn"
+        data-auto_select="true"
+        data-itp_support="true"></div>`, document.body)
+
+        const script = document.createElement('script')
+        script.src = 'https://accounts.google.com/gsi/client'
+      
+        script.dataset.use_fedcm_for_prompts = 'true'
+        document.head.appendChild(script)
+        } else {
+          this.setUser(token)
+      }
     } else {
       render(html`  <div
       id="g_id_onload"
@@ -106,24 +170,51 @@ export class AppShell extends LiteElement {
       id: decodedCredential.sub,
       name: decodedCredential.name,
       image: decodedCredential.picture,
-      email: decodedCredential.email
+      email: decodedCredential.email,
+      expires: decodedCredential.exp,
     }
 
   }
+
   setUser(credential) {
     const token = localStorage.getItem('token')
     if (token && token !== credential || !token) 
       localStorage.setItem('token', credential)
 
     this.user = this._decodeToken(credential)
+
     this.userSignedIn = true
+    /**
+     * since we are blocking the route change until the user is signed in
+     * we can safely assume that the user is signed in
+     * and we can load the data
+     */
+    this._onhashchange()
   }
 
   static styles = [styles]
 
+  async _load(type, uuid?: string) {
+    const response = await fetch(uuid ? `/api/${type}/${uuid}` : `/api/${type}`, {
+      method: 'GET',
+      headers: {
+        Authorization: localStorage.getItem('token')
+      }
+    })
+    if (!response.ok) {
+      console.error('Error fetching data:', response.statusText)
+      return
+    }
+    const data = await response.json()
+    console.log({data});
+    
+    this[type] = data
+  }
+
   renderSelectedView() {
     const hash = location.hash
-    const path = hash.split('!/')[1]
+    const path = hash.split('!/')[1].split('?')?.[0]
+console.log(path);
 
     if (!this.userSignedIn) {
       return html` <loading-view type="signin"></loading-view> `
@@ -132,16 +223,37 @@ export class AppShell extends LiteElement {
       return html` <users-view></users-view> `
     }
     if (path === 'invoices') {
-      
-      return html` <invoices-view></invoices-view> `
+      if (!this.invoices) {
+        return html` <loading-view type="loading"></loading-view> `
+      }
+      return html` <invoices-view .invoices=${this.invoices} .jobs=${this.jobs} .companies=${this.companies}></invoices-view> `
+    
+    }
+
+    if (path === 'checkin') {
+      return html` <checkin-view></checkin-view> `
     }
 
     if (path === 'companies') {
+      if (!this.companies) {
+        return html` <loading-view type="loading"></loading-view> `
+      }
       return html` <companies-view></companies-view> `
     }
 
     if (path === 'jobs') {
+      if (!this.jobs) {
+        return html` <loading-view type="loading"></loading-view> `
+      }
       return html` <jobs-view></jobs-view> `
+    }
+
+
+    if (path === 'job') {
+      if (!this.job) {
+        return html` <loading-view type="loading"></loading-view> `
+      }
+      return html` <job-view></job-view> `
     }
   }
 
@@ -175,6 +287,11 @@ export class AppShell extends LiteElement {
             ><custom-icon icon="source_environment"></custom-icon>companies</a
           >
           <a
+            href="#!/checkin"
+            class="nav-item"
+            ><custom-icon icon="fact_check"></custom-icon>checkin</a
+          >
+          <a
             href="#!/invoices"
             class="nav-item"
             ><custom-icon icon="receipt"></custom-icon>invoices</a
@@ -194,3 +311,4 @@ export class AppShell extends LiteElement {
     `
   }
 }
+customElements.define('app-shell', AppShell)
