@@ -1,10 +1,15 @@
 import Router from '@koa/router'
 
 import { users } from './../database/database.js'
+import isUser from '../middleware/is-user.js'
+import { isAuthenticated } from '../middleware/is-authenticated.js'
 
 const router = new Router({
   prefix: '/api/users'
 })
+
+router.use(isAuthenticated)
+router.use(isUser)
 
 router.get('/:uuid', async (ctx) => {
   const uuid = ctx.params.uuid

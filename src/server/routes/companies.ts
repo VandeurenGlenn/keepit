@@ -1,9 +1,14 @@
 import Router from '@koa/router'
 import { companies, companiesStore } from '../database/database.js'
+import isUser from '../middleware/is-user.js'
+import { isAuthenticated } from '../middleware/is-authenticated.js'
 
 const router = new Router({
   prefix: '/api/companies'
 })
+
+router.use(isAuthenticated)
+router.use(isUser)
 
 router.get('/', async (ctx) => {
   ctx.body = companies
