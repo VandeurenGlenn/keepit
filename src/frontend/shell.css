@@ -64,7 +64,7 @@
   }
 
   flex-container {
-    --flex-display-max-width: 1200px;
+    --flex-display-max-width: 960px;
   }
 
   custom-icon-button[icon='menu'] {
