@@ -14,7 +14,7 @@ import register from './routes/register.js'
 const api = new Koa()
 
 // static files server
-api.use(statickoa('www'))
+api.use(statickoa('./www'))
 
 // middleware
 api.use(bodyParser())
