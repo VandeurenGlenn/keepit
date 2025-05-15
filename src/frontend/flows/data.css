@@ -50,3 +50,7 @@ footer {
 :host([is-first-step]) footer {
   justify-content: flex-end;
 }
+
+custom-icon-button[icon='close'] {
+  margin: 8px 0
+}
