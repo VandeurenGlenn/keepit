@@ -4,6 +4,10 @@ import '@vandeurenglenn/flex-elements/container.js'
 // @ts-ignore
 import styles from './data.css' with { type: 'css' }
 
+  
+export type StepResults = {
+  [key: string]: any
+}[]
 export class DataFlow extends LiteElement {
   @property({ type: Number }) accessor step = 0
   @property({ type: Array }) accessor steps: { name?: string; description?: string; template }[]
@@ -17,7 +21,12 @@ export class DataFlow extends LiteElement {
   _renders: any[] = []
 
   static styles = [styles]
-  promise: Promise<void>
+
+  doneResolve: (value: StepResults) => void
+
+  done = new Promise<StepResults | Boolean>((resolve) => {
+    this.doneResolve = resolve
+  })
 
   nextStep() {
     if (this.isLastStep) return
@@ -52,6 +61,11 @@ export class DataFlow extends LiteElement {
     this._renders[this.step] = this._stepRender
   }
 
+  close() {
+    this.doneResolve(false)
+    this.remove()
+  }
+
   onChange(propertyKey: string, value: any): void {
     if (propertyKey === '_stepRender' && this.stepResults[this.step]) {
       const inputs = this.shadowRoot.querySelectorAll('data-input')
@@ -68,6 +82,16 @@ export class DataFlow extends LiteElement {
   }
 
   private finishFlow() {
+    const step = this.steps?.[this.step]
+    if (step?.validateAndReturnValues) {
+      const inputs = this.shadowRoot.querySelectorAll('data-input')
+      const { valid, values } = step.validateAndReturnValues(Array.from(inputs))
+
+      this.stepResults[this.step] = values
+    }
+
+    this.doneResolve(this.stepResults)
+    
     // console.log('Collected data:', this.flowData)
   }
 
@@ -79,6 +103,11 @@ export class DataFlow extends LiteElement {
   render() {
     if (this.steps?.length === 0) return html`<p>No steps available</p>`
     return html`
+     <custom-icon-button
+                  icon="close"
+                  @click=${() => this.close()}
+                  ></custom-icon-button
+                >
       <div class="hero">
         <header>
           <h2>${this.label}</h2>
@@ -98,7 +127,7 @@ export class DataFlow extends LiteElement {
                 <custom-icon-button
                   icon="arrow-back"
                   @click=${() => this.prevStep()}
-                  >Previous</custom-icon-button
+                  ></custom-icon-button
                 >
               `
             : ''}
