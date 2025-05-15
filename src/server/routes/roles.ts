@@ -1,13 +1,9 @@
 import Router from '@koa/router'
 import { grantRole, revokeRole, hasRole } from '../helpers/roles.js'
-import isUser from '../middleware/is-user.js'
-import { isAuthenticated } from '../middleware/is-authenticated.js'
 
 const router = new Router({
   prefix: '/api/roles'
 })
-router.use(isAuthenticated)
-router.use(isUser)
 
 router.use(async (ctx, next) => {
   if (!hasRole(ctx.state.userid, 'roles') && !hasRole(ctx.state.userid, 'admin')) {

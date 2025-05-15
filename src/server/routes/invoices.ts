@@ -4,8 +4,6 @@ import { invoices, invoicesStore } from '../database/database.js'
 import multer from '@koa/multer'
 import mimes from 'mime'
 import { File } from 'buffer'
-import isUser from '../middleware/is-user.js'
-import { isAuthenticated } from '../middleware/is-authenticated.js'
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -28,9 +26,6 @@ const upload = multer({
 const router = new Router({
   prefix: '/api/invoices'
 })
-
-router.use(isAuthenticated)
-router.use(isUser)
 
 router.get('/', async (ctx) => {
   ctx.body = invoices

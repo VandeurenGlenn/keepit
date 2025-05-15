@@ -1,14 +1,9 @@
 import Router from '@koa/router'
 import { users, usersStore } from '../database/database.js'
-import { isAuthenticated } from '../middleware/is-authenticated.js'
 
 const router = new Router({
   prefix: '/api/register'
 })
-
-// internal middleware
-// set/check the user id & see if the user is authenticated
-router.use(isAuthenticated)
 
 router.use(async (ctx, next) => {
   if (users[ctx.state.userid]) {
