@@ -1,6 +1,7 @@
 import { html, css, LiteElement, property, query } from '@vandeurenglenn/lite'
-import '@vandeurenGlenn/lite-elements/dropdown.js'
-import { CustomDropdown } from '@vandeurenGlenn/lite-elements/dropdown.js'
+import '@vandeurenglenn/lite-elements/dropdown.js'
+import { CustomDropdown } from '@vandeurenglenn/lite-elements/dropdown.js'
+
 import '@vandeurenglenn/lite-elements/icon.js'
 import '@vandeurenglenn/lite-elements/list-item.js'
 import { CustomSelector } from '@vandeurenglenn/lite-elements/selector'
