@@ -2,6 +2,7 @@ import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 
 export class ChipElement extends LiteElement {
   @property() accessor label
+  @property({ type: String }) accessor value
   @property({ reflect: true, type: Boolean }) accessor disabled
   @property({ reflect: true, type: Boolean }) accessor selected
   @property() accessor leadingIcon
@@ -9,6 +10,9 @@ export class ChipElement extends LiteElement {
 
   static styles = [
     css`
+      * {
+        pointer-events: none;
+      }
       :host {
         display: flex;
         align-items: center;
@@ -33,6 +37,8 @@ export class ChipElement extends LiteElement {
         border-radius: var(--md-sys-shape-corner-small);
         background-color: var(--md-sys-color-surface-container);
         color: var(--md-sys-color-on-surface-container);
+        pointer-events: auto;
+        cursor: pointer;
       }
       :host([hidden]) {
         display: none;
@@ -81,8 +87,6 @@ export class ChipElement extends LiteElement {
   }
 
   firstRender() {
-    this.addEventListener('click', this._handleClick.bind(this))
-    this.addEventListener('keydown', this._handleKeyDown.bind(this))
     this.setAttribute('role', 'button')
     this.setAttribute('tabindex', '0')
   }
@@ -93,18 +97,6 @@ export class ChipElement extends LiteElement {
       <span>${this.label}</span>
       ${this.trailingIcon ? html`<custom-icon icon="${this.trailingIcon}"></custom-icon>` : ''}
     `
-  }
-  _handleClick() {
-    if (this.disabled) return
-    this.selected = !this.selected
-    this.dispatchEvent(new CustomEvent('chip-selected', { detail: this.selected }))
-  }
-  _handleKeyDown(e) {
-    if (this.disabled) return
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      this._handleClick()
-    }
   }
 }
 customElements.define('chip-element', ChipElement)
