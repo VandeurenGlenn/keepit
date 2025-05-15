@@ -5,13 +5,20 @@ import '@vandeurenglenn/lite-elements/icon.js'
 import '@vandeurenglenn/lite-elements/list-item.js'
 import { CustomSelector } from '@vandeurenglenn/lite-elements/selector'
 import '@vandeurenglenn/lite-elements/selector.js'
+import '@material/web/textfield/outlined-text-field.js'
+
 export class DataInput extends LiteElement {
   @property({ type: String }) accessor label = ''
+
   @property({ type: String }) accessor value = ''
-  @property({ type: String }) accessor type: HTMLInputElement['type'] = 'text'
+
+  @property({ type: String }) accessor type: 'text' | 'number' | 'place' = 'text'
+
+  @property({ type: Object }) accessor place: { formattedAddress: string; displayName: string }
 
   @query('custom-dropdown') accessor dropdown: CustomDropdown
   @query('custom-selector') accessor selector: CustomSelector
+
   static styles = [
     css`
       :host {
@@ -30,6 +37,10 @@ export class DataInput extends LiteElement {
         cursor: pointer;
       }
 
+      li * {
+        pointer-events: none;
+      }
+
       custom-icon {
         margin-right: 12px;
       }
@@ -37,6 +48,19 @@ export class DataInput extends LiteElement {
       custom-dropdown {
         overflow-y: auto;
         max-height: 300px;
+      }
+
+      md-outlined-text-field {
+        width: 100%;
+        max-width: 400px;
+        margin-bottom: 16px;
+      }
+      custom-icon {
+        margin-left: 12px;
+      }
+
+      p {
+        margin: 24px 12px;
       }
     `
   ]
@@ -71,7 +95,8 @@ export class DataInput extends LiteElement {
 
         const selector = this.selector
         selector.innerHTML = '' // Clear previous results.
-
+        this.suggestions = suggestions
+        let i = 0
         for (let suggestion of suggestions) {
           const placePrediction = suggestion.placePrediction
           console.log(placePrediction)
@@ -86,7 +111,8 @@ export class DataInput extends LiteElement {
         </div>
         `
           listItem.innerHTML = body
-
+          listItem.dataset.index = i.toString()
+          i++
           selector.appendChild(listItem)
         }
 
@@ -100,14 +126,22 @@ export class DataInput extends LiteElement {
         //   fields: ['displayName', 'formattedAddress']
         // })
       }
-    }, 500)
+    }, 300)
   }
 
-  select = (event: CustomEvent) => {
+  select = async (event: CustomEvent) => {
     console.log(event.detail)
+    let place = this.suggestions[event.detail].placePrediction.toPlace() // Get first predicted place.
+    const fields = await place.fetchFields({
+      fields: ['displayName', 'formattedAddress']
+    })
+    console.log(fields)
 
-    const selectedValue = event.detail.value
-    this.value = selectedValue
+    console.log(fields.place.displayName)
+
+    this.place = fields.place
+
+    this.value = fields.place.displayName
     this.dispatchEvent(
       new CustomEvent('data-input-changed', {
         detail: { value: this.value },
@@ -119,16 +153,28 @@ export class DataInput extends LiteElement {
   }
   render() {
     return html`
-      <div class="input-container">
+      <div class="input">
         <md-outlined-text-field
           @input=${(e) => this._change(e)}
           .type=${this.type}
           .label=${this.label}
-          .value=${this.value}></md-outlined-text-field>
+          .value=${this.value}>
+          ${this.type === 'place'
+            ? html`<custom-icon
+                slot="leading-icon"
+                icon="location_on"></custom-icon>`
+            : html`<custom-icon
+                slot="leading-icon"
+                icon="info"></custom-icon>`}</md-outlined-text-field
+        >
 
         <custom-dropdown
-          ><custom-selector @selected=${(event) => this.select(event)}></custom-selector>
+          ><custom-selector
+            attr-for-selected="data-index"
+            @selected=${(event) => this.select(event)}></custom-selector>
         </custom-dropdown>
+
+        ${this.type === 'place' ? html`<p>${this.place?.formattedAddress}</p>` : ''}
       </div>
     `
   }
