@@ -22,7 +22,7 @@ const api = new Koa()
 
 api.use(
   cors({
-    origin: ['keepit.dimac.be', 'dimac.be'] // Allow all origins
+    origin: '*' // Allow all origins
   })
 )
 // static files server
