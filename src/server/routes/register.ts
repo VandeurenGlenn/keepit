@@ -5,15 +5,13 @@ const router = new Router({
   prefix: '/api/register'
 })
 
-router.use(async (ctx, next) => {
+router.post('/', async (ctx, next) => {
   if (users[ctx.state.userid]) {
-    ctx.status = 403
-    ctx.body = { error: 'Forbidden, already registered.' }
+    ctx.status = 400
+    ctx.body = { error: 'User already registered' }
     return
   }
-})
 
-router.post('/', async (ctx, next) => {
   users[ctx.state.userid] = {
     name: ctx.request.body.name || ctx.state.googleProfile.name,
     email: ctx.request.body.email || ctx.state.googleProfile.email,
@@ -23,7 +21,15 @@ router.post('/', async (ctx, next) => {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   }
+
+  if (Object.keys(users).length === 1) {
+    users[ctx.state.userid].roles = ['admin']
+  }
   await usersStore.put(users)
+  ctx.body = { content: users[ctx.state.userid] }
+  ctx.status = 201
+  ctx.set('Content-Type', 'application/json')
+  return
 })
 
 export default router.routes()

@@ -13,6 +13,8 @@ import users from './routes/users.js'
 import roles from './routes/roles.js'
 import register from './routes/register.js'
 import isUser from './middleware/is-user.js'
+import handshake from './routes/handshake.js'
+import hours from './routes/hours.js'
 
 const api = new Koa()
 
@@ -26,6 +28,8 @@ api.use(bodyParser())
 // set/check the user id & see if the user is authenticated
 api.use(isAuthenticated)
 
+// this middleware is used to check if the user is registered
+api.use(handshake)
 // this middleware is used to register the user after authentication
 api.use(register)
 
@@ -33,6 +37,7 @@ api.use(register)
 api.use(isUser)
 
 // main routes
+api.use(hours)
 api.use(users)
 api.use(roles)
 api.use(companies)

@@ -12,6 +12,7 @@ router.get('/', async (ctx) => {
     ctx.body = 'NOT_REGISTERED'
   }
   ctx.status = 200
+  return
 })
 
 export default router.routes()
