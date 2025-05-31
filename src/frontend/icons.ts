@@ -29,5 +29,6 @@ export default html` <custom-icon-set>
     <span name="fact_check">@symbol-fact_check</span>
     <span name="person">@symbol-person</span>
     <span name="request_quote">@symbol-request_quote</span>
+    <span name="receipt_long">@symbol-receipt_long</span>
   </template>
 </custom-icon-set>`

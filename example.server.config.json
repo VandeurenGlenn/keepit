@@ -1,0 +1,9 @@
+{
+  "email": {
+    "service": "mailtrap",
+    "auth": {
+      "user": "",
+      "pass": ""
+    }
+  }
+}
