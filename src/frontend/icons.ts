@@ -6,7 +6,10 @@ export default html` <custom-icon-set>
     <span name="add">@symbol-add</span>
     <span name="arrow-back">@symbol-arrow_back</span>
     <span name="arrow-forward">@symbol-arrow_forward</span>
+    <span name="arrow_upward">@symbol-arrow_upward</span>
+    <span name="arrow_downward">@symbol-arrow_downward</span>
     <span name="cameraswitch">@symbol-cameraswitch</span>
+
     <span name="menu">@symbol-menu</span>
     <span name="edit">@symbol-edit</span>
     <span name="delete">@symbol-delete</span>
@@ -24,5 +27,7 @@ export default html` <custom-icon-set>
     <span name="save">@symbol-save</span>
     <span name="source_environment">@symbol-source_environment</span>
     <span name="fact_check">@symbol-fact_check</span>
+    <span name="person">@symbol-person</span>
+    <span name="request_quote">@symbol-request_quote</span>
   </template>
 </custom-icon-set>`
