@@ -1,6 +1,7 @@
 import Koa from 'koa'
 // external middleware
 import statickoa from 'koa-static'
+import cors from '@koa/cors'
 import { bodyParser } from '@koa/bodyparser'
 // internal middleware
 import { isAuthenticated } from './middleware/is-authenticated.js'
@@ -19,6 +20,11 @@ import contact from './routes/contact.js'
 
 const api = new Koa()
 
+api.use(
+  cors({
+    origin: ['keepit.dimac.be', 'dimac.be'] // Allow all origins
+  })
+)
 // static files server
 api.use(statickoa('www'))
 
