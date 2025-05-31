@@ -34,6 +34,8 @@ export class AppShell extends LiteElement {
   @property({ type: Array, provides: true }) accessor companies
   @property({ type: Array, provides: true }) accessor users
 
+  @property({type: Boolean}) accessor userRegistering
+
   setupMediaQuery(query, callback) {
     const mediaQuery = window.matchMedia(query)
     const handleMediaQueryChange = callback
@@ -96,6 +98,14 @@ console.log(params);
       if (!this.users)
         promises.push(this._load('users'))
     }
+    if (path === 'checkin') {
+      if (!this.jobs)
+        promises.push(this._load('jobs'))
+    }
+    if (path === 'checkout') {
+      if (!this.jobs)
+        promises.push(this._load('jobs'))
+    }
 
     await Promise.all(promises)
     this.requestRender()
@@ -118,7 +128,7 @@ console.log(params);
     })
 
     onhashchange = this._onhashchange
-    if (!location.hash) location.hash = '#!/home'
+     location.hash = '#!/home'
     this._onhashchange()
     this.checkUserStatus()
   }
@@ -169,21 +179,35 @@ console.log(params);
     return{
       id: decodedCredential.sub,
       name: decodedCredential.name,
-      image: decodedCredential.picture,
+      picture: decodedCredential.picture,
       email: decodedCredential.email,
       expires: decodedCredential.exp,
     }
 
   }
 
-  setUser(credential) {
+  async setUser(credential) {
     const token = localStorage.getItem('token')
     if (token && token !== credential || !token) 
       localStorage.setItem('token', credential)
 
     this.user = this._decodeToken(credential)
 
+    
+    const response = await fetch('/api/handshake', {
+      headers: {
+        Authorization: credential
+      },
+      method: 'GET'
+    })
+    const data = await response.text()
+    if (data === 'NOT_REGISTERED') {
+      this.userRegistering = true
+      location.hash = '#!/register'
+      return
+    }
     this.userSignedIn = true
+    this.userRegistering = false
     /**
      * since we are blocking the route change until the user is signed in
      * we can safely assume that the user is signed in
@@ -202,6 +226,10 @@ console.log(params);
       }
     })
     if (!response.ok) {
+      if (response.status === 403 && (await response.json()).error === 'Forbidden, register first') {
+        location.hash = '#!/register'
+        return
+      }
       console.error('Error fetching data:', response.statusText)
       return
     }
@@ -216,9 +244,27 @@ console.log(params);
     const path = hash.split('!/')[1].split('?')?.[0]
 console.log(path);
 
-    if (!this.userSignedIn) {
+
+
+    if (!this.userSignedIn && !this.userRegistering) {
       return html` <loading-view type="signin"></loading-view> `
     }
+
+    if (path === 'home') {
+      return html` <home-view></home-view> `
+    }
+
+    if (path === 'quotes') {
+      return html` <quotes-view></quotes-view> `  
+    }
+
+    if (path === 'quote') {
+      return html` <job-quote-view></job-quote-view>`
+    }
+    
+    if (path === 'register') {
+      return html` <register-view></register-view> `
+    } 
     if (path === 'users') {
       return html` <users-view></users-view> `
     }
@@ -227,11 +273,14 @@ console.log(path);
         return html` <loading-view type="loading"></loading-view> `
       }
       return html` <invoices-view .invoices=${this.invoices} .jobs=${this.jobs} .companies=${this.companies}></invoices-view> `
-    
     }
 
     if (path === 'checkin') {
       return html` <checkin-view></checkin-view> `
+    }
+
+    if (path === 'checkout') {
+      return html` <checkout-view></checkout-view> `
     }
 
     if (path === 'companies') {
@@ -277,6 +326,21 @@ console.log(path);
           <custom-divider middle-inset></custom-divider>
         <span class="nav-container">
           <a
+            href="#!/home"
+            class="nav-item"
+            ><custom-icon icon="home"></custom-icon>home</a
+          >
+          <a
+            href="#!/quotes"
+            class="nav-item"
+            ><custom-icon icon="receipt_long"></custom-icon>quotes</a
+          >
+          <a
+            href="#!/quote"
+            class="nav-item"
+            ><custom-icon icon="request_quote"></custom-icon>quote</a
+          >
+          <a
             href="#!/jobs"
             class="nav-item"
             ><custom-icon icon="inventory2"></custom-icon>jobs</a
@@ -285,11 +349,6 @@ console.log(path);
             href="#!/companies"
             class="nav-item"
             ><custom-icon icon="source_environment"></custom-icon>companies</a
-          >
-          <a
-            href="#!/checkin"
-            class="nav-item"
-            ><custom-icon icon="fact_check"></custom-icon>checkin</a
           >
           <a
             href="#!/invoices"

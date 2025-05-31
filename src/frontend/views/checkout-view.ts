@@ -7,7 +7,7 @@ import { ChipField } from '../elements/chip/field.js'
 import './../elements/chip/field.js'
 import { JobsMixin } from '../mixins/jobs.js'
 
-export class CheckinView extends JobsMixin(LiteElement) {
+export class CheckoutView extends JobsMixin(LiteElement) {
   @property({ type: Object, consumes: true }) accessor user
   @property({ type: Boolean }) accessor success = false
   date = new Date().toISOString().split('T')[0]
@@ -74,14 +74,14 @@ export class CheckinView extends JobsMixin(LiteElement) {
     `
   ]
 
-  async _addCheckin() {
+  async _addCheckout() {
     const date = this.dateInput.value // e.g. "2025-05-20"
     const time = this.timeInput.value // e.g. "14:30"
     // Combine date and time
-    const checkin = new Date(`${date}T${time}`).getTime()
+    const checkout = new Date(`${date}T${time}`).getTime()
 
     console.log(this.user)
-    const response = await fetch('/api/hours/checkin', {
+    const response = await fetch('/api/hours/checkout', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -89,7 +89,7 @@ export class CheckinView extends JobsMixin(LiteElement) {
       },
 
       body: JSON.stringify({
-        checkin,
+        checkout,
         userId: this.user.id,
         date: this.dateInput.value,
         job: this.chipField.selected[0]
@@ -101,7 +101,7 @@ export class CheckinView extends JobsMixin(LiteElement) {
         location.href = '#!/home'
       }, 1200) // 1.2s for animation
     } else {
-      console.error('Error adding checkin', response)
+      console.error('Error adding Checkout', response)
     }
   }
 
@@ -128,14 +128,14 @@ export class CheckinView extends JobsMixin(LiteElement) {
               stroke-linecap="round"
               stroke-linejoin="round" />
           </svg>
-          <div style="margin-top: 16px;">Check-in succesvol!</div>
+          <div style="margin-top: 16px;">Check-out succesvol!</div>
         </div>
       `
     }
     return html`
       <view-header
-        title="Checkin"
-        description="Checkin!"
+        title="Checkout"
+        description="Checkout!"
         icon="arrow_downward"></view-header>
 
       <span class="date">
@@ -166,7 +166,7 @@ export class CheckinView extends JobsMixin(LiteElement) {
           }
         })}></chip-field>
 
-      <md-fab @click=${() => this._addCheckin()}>
+      <md-fab @click=${() => this._addCheckout()}>
         <custom-icon
           icon="save"
           slot="icon"></custom-icon
@@ -175,4 +175,4 @@ export class CheckinView extends JobsMixin(LiteElement) {
   }
 }
 
-customElements.define('checkin-view', CheckinView)
+customElements.define('checkout-view', CheckoutView)
