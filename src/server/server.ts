@@ -15,11 +15,15 @@ import register from './routes/register.js'
 import isUser from './middleware/is-user.js'
 import handshake from './routes/handshake.js'
 import hours from './routes/hours.js'
+import contact from './routes/contact.js'
 
 const api = new Koa()
 
 // static files server
 api.use(statickoa('www'))
+
+// contact form
+api.use(contact)
 
 // middleware
 api.use(bodyParser())
