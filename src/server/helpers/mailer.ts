@@ -41,6 +41,9 @@ export const sendContactMail = async (name, email, phoneNumber, address, message
   const html = `
         <h1>Nieuw contactbericht</h1>
         
+        <h2>Er is een nieuw contactbericht ontvangen via de website.</h2>
+        <h3>Hier zijn de details:</h3>
+        <p>Email: ${email}</p>
         <p>Naam: ${name}</p>
         <p>Adres: ${address}</p>
         <p>Telefoon: ${phoneNumber}</p>
@@ -48,5 +51,5 @@ export const sendContactMail = async (name, email, phoneNumber, address, message
         <p>subject: ${subject}</p>
         <p>Bericht: ${message}</p>
     `
-  return sendMail(email.contact, 'contact@dimac.be', `${name}-${projectType}-${subject}`, html)
+  return sendMail(email, 'contact@dimac.be', `${name}-${projectType}-${subject}`, html)
 }
