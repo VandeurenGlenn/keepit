@@ -1,3 +1,11 @@
+export type Prestation = {
+  description?: string
+  checkin: EpochTimeStamp
+  serverCheckin: EpochTimeStamp
+  checkout: EpochTimeStamp
+  serverCheckout: EpochTimeStamp
+}
+
 export type Place = {
   id: string // google place id
   displayName: string
@@ -14,6 +22,7 @@ export interface BaseInput {
 export interface Job extends BaseInput {
   place: Place
   images?: string[]
+  hours?: { [date: string]: { [employeeId: string]: Prestation } }
 }
 
 export interface Company extends BaseInput {
