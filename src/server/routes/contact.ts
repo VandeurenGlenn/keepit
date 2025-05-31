@@ -7,8 +7,8 @@ const router = new Router({
 })
 
 router.post('/', async (ctx) => {
-  const { name, email, address, message, subject, projectType, telephoneNumber } = ctx.request.body
-  await sendContactMail(name, email, telephoneNumber, address, message, projectType, subject)
+  const { name, email, address, message, subject, projectType, phoneNumber } = ctx.request.body
+  await sendContactMail(name, email, phoneNumber, address, message, projectType, subject)
   ctx.status = 201
 })
 
