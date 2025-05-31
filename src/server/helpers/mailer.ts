@@ -1,12 +1,12 @@
 import nodemailer from 'nodemailer'
-import { config } from './../helpers/config.js'
+import { config } from './config.js'
 
 export type MailerOptions = {
   host: string
   port: number
   auth: {
-    user: string
-    pass: string
+    user?: string
+    pass?: string
     token?: string
   }
   service?: string
