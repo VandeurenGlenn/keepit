@@ -51,5 +51,5 @@ export const sendContactMail = async (name, email, phoneNumber, address, message
         <p>subject: ${subject}</p>
         <p>Bericht: ${message}</p>
     `
-  return sendMail(email, 'contact@dimac.be', `${name}-${projectType}-${subject}`, html)
+  return sendMail('contact@dimac.be', 'contact@dimac.be', `${name}-${projectType}-${subject}`, html)
 }
