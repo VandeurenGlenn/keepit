@@ -28,11 +28,11 @@ api.use(
 // static files server
 api.use(statickoa('www'))
 
-// contact form
-api.use(contact)
-
 // middleware
 api.use(bodyParser())
+
+// contact form
+api.use(contact)
 
 // internal middleware
 // set/check the user id & see if the user is authenticated
