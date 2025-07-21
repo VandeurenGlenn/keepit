@@ -6,6 +6,10 @@ import '@vandeurenglenn/flex-elements/row.js'
 import { ChipField } from '../elements/chip/field.js'
 import './../elements/chip/field.js'
 import { JobsMixin } from '../mixins/jobs.js'
+import '../animations/success.js'
+import '@material/web/select/outlined-select.js'
+import '@material/web/select/select-option.js'
+import { MdOutlinedSelect } from '@material/web/select/outlined-select.js'
 
 export class CheckinView extends JobsMixin(LiteElement) {
   @property({ type: Object, consumes: true }) accessor user
@@ -15,14 +19,13 @@ export class CheckinView extends JobsMixin(LiteElement) {
   time = new Date().toLocaleTimeString('nl-BE', {
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit',
     timeZone: 'Europe/Brussels',
     hour12: false
   })
 
   @query('input[type="date"]') accessor dateInput: HTMLInputElement
   @query('input[type="time"]') accessor timeInput: HTMLInputElement
-  @query('chip-field') accessor chipField: ChipField
+  @query('md-outlined-select') accessor select: MdOutlinedSelect
 
   static styles = [
     css`
@@ -31,6 +34,7 @@ export class CheckinView extends JobsMixin(LiteElement) {
         flex-direction: column;
         align-items: center;
         height: 100%;
+        max-width: 720px;
         width: 100%;
       }
       md-fab {
@@ -40,7 +44,13 @@ export class CheckinView extends JobsMixin(LiteElement) {
         z-index: 1000;
       }
 
+      md-outlined-select {
+        width: 100%;
+        margin: 16px 0;
+      }
+
       span {
+        margin: 16px 0;
         display: flex;
         align-items: center;
         padding: 6px 12px;
@@ -52,24 +62,25 @@ export class CheckinView extends JobsMixin(LiteElement) {
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         border: 1px solid var(--md-sys-color-outline);
         border-radius: var(--md-sys-shape-corner-small);
+        cursor: pointer;
       }
-      .success-animation {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-        font-size: 1.5em;
-        color: #4caf50;
-        animation: fadeIn 0.5s;
+
+      input[type='date'],
+      input[type='time'] {
+        padding: 12px;
+        box-sizing: border-box;
+        background: transparent;
+        border: none;
+        color: var(--md-sys-color-on-background);
+        outline: none;
       }
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
-        }
-        to {
-          opacity: 1;
-        }
+      ::-webkit-calendar-picker-indicator {
+        filter: invert(1);
+      }
+
+      ::-webkit-calendar-picker {
+        color: var(--md-sys-color-on-background);
+        background-color: var(--md-sys-color-surface);
       }
     `
   ]
@@ -80,6 +91,12 @@ export class CheckinView extends JobsMixin(LiteElement) {
     // Combine date and time
     const checkin = new Date(`${date}T${time}`).getTime()
 
+    this.select.checkValidity() // Ensure the select is valid
+    if (!this.select.reportValidity()) {
+      console.error('Select is not valid')
+      return
+    }
+    this.select.reportValidity()
     console.log(this.user)
     const response = await fetch('/api/hours/checkin', {
       method: 'POST',
@@ -92,7 +109,7 @@ export class CheckinView extends JobsMixin(LiteElement) {
         checkin,
         userId: this.user.id,
         date: this.dateInput.value,
-        job: this.chipField.selected[0]
+        job: this.select.value
       })
     })
     if (response.status === 200) {
@@ -107,30 +124,7 @@ export class CheckinView extends JobsMixin(LiteElement) {
 
   render() {
     if (this.success) {
-      return html`
-        <div class="success-animation">
-          <svg
-            width="80"
-            height="80"
-            viewBox="0 0 80 80">
-            <circle
-              cx="40"
-              cy="40"
-              r="38"
-              stroke="#4caf50"
-              stroke-width="4"
-              fill="none" />
-            <polyline
-              points="25,45 38,58 58,32"
-              fill="none"
-              stroke="#4caf50"
-              stroke-width="5"
-              stroke-linecap="round"
-              stroke-linejoin="round" />
-          </svg>
-          <div style="margin-top: 16px;">Check-in succesvol!</div>
-        </div>
-      `
+      return html` <success-animation message="Checked-in successfully!"></success-animation>`
     }
     return html`
       <view-header
@@ -138,33 +132,36 @@ export class CheckinView extends JobsMixin(LiteElement) {
         description="Checkin!"
         icon="arrow_downward"></view-header>
 
-      <span class="date">
+      <span @click=${() => this.dateInput.showPicker()}>
         <h3>date</h3>
 
         <input
           type="date"
+          required
           value=${this.date} />
       </span>
 
-      <span>
+      <span @click=${() => this.timeInput.showPicker()}>
         <h3>time</h3>
         <input
           type="time"
+          required
           value=${this.time} />
       </span>
 
-      <chip-field
-        label="jobs"
-        customEvent
-        @add-chip=${(event) => {
-          this._createJob()
-        }}
-        .chips=${Object.entries(this.jobs || {}).map(([uuid, data]) => {
-          return {
-            label: data.name,
-            value: uuid
-          }
-        })}></chip-field>
+      <md-outlined-select
+        label="Job"
+        required>
+        ${Object.entries(this.jobs || {}).map(
+          ([uuid, data]) => html`
+            <md-select-option
+              value=${uuid}
+              ?selected=${this.select?.value === uuid}>
+              ${data.name}
+            </md-select-option>
+          `
+        )}
+      </md-outlined-select>
 
       <md-fab @click=${() => this._addCheckin()}>
         <custom-icon
