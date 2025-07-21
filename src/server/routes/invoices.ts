@@ -18,7 +18,10 @@ const upload = multer({
       }
       cb(null, dir)
     }
-  })
+  }),
+  limits: {
+    fileSize: 20 * 1024 * 1024 // 10 MB
+  }
 })
 
 const router = new Router({
