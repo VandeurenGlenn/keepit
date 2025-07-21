@@ -358,7 +358,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
           ${Object.entries(this.invoices || {}).map(
             ([key, invoice]) => html`
               <list-item
-                .href=${`#!/job?selected=${key}`}
+                .href=${`#!/invoice?selected=${key}`}
                 .headline=${invoice.name}
                 .subheadline=${invoice.place?.formattedAddress}
                 .key=${key}>
