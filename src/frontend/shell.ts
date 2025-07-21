@@ -6,6 +6,7 @@ import '@vandeurenglenn/flex-elements/wrap-around.js'
 import '@vandeurenglenn/lite-elements/icon-button.js'
 import '@vandeurenglenn/lite-elements/icon.js'
 import '@vandeurenglenn/lite-elements/divider.js'
+import './elements/user/account-bar.js'
 import './views/loading-view.js'
 
 import icons from './icons.js'
@@ -365,6 +366,8 @@ console.log(path);
       </aside>
 
       <main>
+        <header>
+        <account-bar></account-bar></header>
         <flex-container center-center> ${this.renderSelectedView()} </flex-container>
       </main>
     `
