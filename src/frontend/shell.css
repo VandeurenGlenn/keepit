@@ -1,139 +1,137 @@
+:root {
+}
 
-  :root {
-  }
-  
-  :host {
-    display: block;
-    height: 100%;
-    width: 100%;
-  }
+:host {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
 
-  a {
-    text-decoration: none;
-    color: inherit;
-  }
-  aside {
-    display: block;
-    position: absolute;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: 256px;
-    pointer-events: auto;
-    box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
-    background-color: var(--md-sys-color-surface-container-high);
-    color: var(--md-sys-color-on-surface-container-high);
-    border-top-right-radius: 24px;
-    border-bottom-right-radius: 24px;
-    overflow: hidden;
-  }
-  main {
-    display: flex;
-    flex-direction: column;
-    position: absolute;
-    top: 0;
-    left: 256px;
-    bottom: 0;
-    right: 0;
-    overflow: auto;
-    background-color: var(--app-background-color);
-    color: var(--app-text-color);
-    align-items: center;
-  }
+a {
+  text-decoration: none;
+  color: inherit;
+}
+aside {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 256px;
+  pointer-events: auto;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
+  color: var(--md-sys-color-on-surface-container-high);
+  border-top-right-radius: 24px;
+  border-bottom-right-radius: 24px;
+  overflow: hidden;
+}
+main {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: 0;
+  left: 256px;
+  bottom: 0;
+  right: 0;
+  overflow: auto;
+  background-color: var(--app-background-color);
+  color: var(--app-text-color);
+  align-items: center;
+}
 
-  .logo {
-    box-sizing: border-box;
-    padding: 24px;
-    overflow: hidden;
-  }
+.logo {
+  box-sizing: border-box;
+  padding: 24px;
+  overflow: hidden;
+}
 
-  img {
-    width: 100%;
-  }
+img {
+  width: 100%;
+}
 
-  flex-container {
-    height: 100%;
-    width: 100%;
-  }
-  flex-wrap-around {
-    gap: 12px;
-  }
+flex-container {
+  height: 100%;
+  width: 100%;
+}
+flex-wrap-around {
+  gap: 12px;
+}
 
-  flex-wrap-around img {
-    width: calc(50% - 12px);
-  }
+flex-wrap-around img {
+  width: calc(50% - 12px);
+}
 
-  flex-container {
-    --flex-display-max-width: 960px;
-  }
+flex-container {
+  --flex-display-max-width: 960px;
+}
 
-  custom-icon-button[icon='menu'] {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s ease-in-out;
-  }
+custom-icon-button[icon='menu'] {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease-in-out;
+}
 
-  .nav-item {
-    display: flex;
-    align-items: center;
-    padding: 12px;
-    box-sizing: border-box;
-    text-decoration: none;
-    font-size: 1.2em;
-    font-weight: 500;
-    height: 48px;
-    cursor: pointer;
-    gap: 12px;
-    text-transform: capitalize;
-  }
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  box-sizing: border-box;
+  text-decoration: none;
+  font-size: 1.2em;
+  font-weight: 500;
+  height: 48px;
+  cursor: pointer;
+  gap: 12px;
+  text-transform: capitalize;
+  justify-content: space-between;
+}
 
-  .nav-container {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 12px;
-  }
+.nav-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
 
-  :host([is-narrow]) custom-icon-button[icon='menu'] {
-    opacity: 1;
-    pointer-events: auto;
-  }
+:host([is-narrow]) custom-icon-button[icon='menu'] {
+  opacity: 1;
+  pointer-events: auto;
+}
 
-  :host([is-narrow]) aside {
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s ease-in-out, width 0.3s ease-in-out;
-  }
-  :host([is-narrow]) main {
-    left: 0;
-    right: 0;
-    top: 72px;
-    bottom: 0;
-  }
+:host([is-narrow]) aside {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease-in-out, width 0.3s ease-in-out;
+}
+:host([is-narrow]) main {
+  left: 0;
+  right: 0;
+  top: 72px;
+  bottom: 0;
+}
 
-  :host([is-medium-narrow]) img {
-    width: 100%;
-  }
+:host([is-medium-narrow]) img {
+  width: 100%;
+}
 
-  .active {
-    background-color: var(--md-sys-color-tertiary);
-    color: var(--md-sys-color-on-tertiary);
-    border-radius: 12px;
-    transition: background-color 0.3s ease-in-out;
-    box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
-    font-weight: 600;
-    cursor: pointer;
-    --custom-icon-color: var(--md-sys-color-on-tertiary);
-  }
+.active {
+  background-color: var(--md-sys-color-tertiary);
+  color: var(--md-sys-color-on-tertiary);
+  border-radius: 12px;
+  transition: background-color 0.3s ease-in-out;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
+  font-weight: 600;
+  cursor: pointer;
+  --custom-icon-color: var(--md-sys-color-on-tertiary);
+}
 
-  .active :hover {
-    background-color: var(--md-sys-color-tertiary-container);
-    color: var(--md-sys-color-on-tertiary-container);
-    box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
-    font-weight: 600;
-    cursor: pointer;
-  }
-
+.active :hover {
+  background-color: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
+  font-weight: 600;
+  cursor: pointer;
+}
