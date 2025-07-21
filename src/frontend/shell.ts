@@ -134,7 +134,7 @@ console.log(params);
   }
 
 
-  checkUserStatus() {
+  async checkUserStatus() {
     const token = localStorage.getItem('token')
     if (token) {
       const user = this._decodeToken(token)
@@ -171,6 +171,15 @@ console.log(params);
      
       script.dataset.use_fedcm_for_prompts = 'true'
       document.head.appendChild(script)
+      const response = await fetch('/api/handshake', {
+        method: 'GET'
+      })
+    const data = await response.text()
+    if (data === 'NOT_REGISTERED') {
+      this.userRegistering = true
+      location.hash = '#!/register'
+      return
+    }
     }
   }
 
