@@ -6,7 +6,7 @@ const router = new Router({
 })
 
 router.get('/', async (ctx) => {
-  if (users[ctx.state.userid]) {
+  if (users[ctx.state?.userid]) {
     ctx.body = 'REGISTERED'
   } else {
     ctx.body = 'NOT_REGISTERED'

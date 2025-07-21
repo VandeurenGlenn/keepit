@@ -34,12 +34,13 @@ api.use(bodyParser())
 // contact form
 api.use(contact)
 
+// this middleware is used to check if the user is registered
+api.use(handshake)
+
 // internal middleware
 // set/check the user id & see if the user is authenticated
 api.use(isAuthenticated)
 
-// this middleware is used to check if the user is registered
-api.use(handshake)
 // this middleware is used to register the user after authentication
 api.use(register)
 
