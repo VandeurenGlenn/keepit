@@ -14,6 +14,7 @@ export class HomeView extends LiteElement {
         justify-content: center;
         height: 100%;
         width: 100%;
+        max-width: 720px;
       }
       view-header {
         margin-bottom: 16px;
@@ -26,13 +27,13 @@ export class HomeView extends LiteElement {
     return html`
       <view-header
         title="Checkin"
-        description="Log your start hours! (only do this for the first job)"
+        description="Log your start hours!"
         icon="arrow_downward"
         href="#!/checkin"></view-header>
 
       <view-header
         title="Checkout"
-        description="Log your end hours! (do this for every job)"
+        description="Log your end hours!"
         icon="arrow_upward"
         href="#!/checkout"></view-header>
     `
