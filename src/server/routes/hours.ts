@@ -40,6 +40,12 @@ router.get('/:job', async (ctx) => {
 })
 
 router.post('/checkin', async (ctx) => {
+  console.log(ctx.headers.from)
+  console.log(ctx.headers.location)
+  console.log(ctx.headers.origin)
+  console.log(ctx.headers.referer)
+  console.log(ctx.headers)
+
   const { job, userId, checkin, date } = ctx.request.body
   if (!jobs[job]) {
     ctx.status = 404
