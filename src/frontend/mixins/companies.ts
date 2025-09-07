@@ -83,6 +83,12 @@ export const CompaniesMixin = (base: typeof LiteElement) =>
 
       this.companies = this.companies[data.uuid] = data.content
       document.body.removeChild(dataFlow)
+      const success = document.createElement('success-animation')
+      document.body.appendChild(success)
+      success.message = 'Company created successfully!'
+      setTimeout(() => {
+        document.body.removeChild(success)
+      }, 1200) // 1.2s for animation
     }
 
     _deleteCompany = async (uuid) => {

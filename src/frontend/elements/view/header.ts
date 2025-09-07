@@ -5,6 +5,7 @@ export class ViewHeader extends LiteElement {
   @property({ type: String }) accessor description
   @property({ type: String }) accessor icon
   @property({ type: String, reflect: true }) accessor href
+  @property({ type: Boolean, reflect: true, renders: false }) accessor disabled
 
   static styles = [
     css`
@@ -37,6 +38,14 @@ export class ViewHeader extends LiteElement {
       :host([href]) a {
         cursor: pointer;
         pointer-events: auto;
+      }
+
+      :host([disabled]) {
+        pointer-events: none;
+        opacity: 0.5;
+      }
+      :host([disabled]) a {
+        pointer-events: none;
       }
     `
   ]

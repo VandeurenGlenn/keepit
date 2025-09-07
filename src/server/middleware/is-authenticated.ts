@@ -27,3 +27,25 @@ export const isAuthenticated = async (ctx, next) => {
 
   await next()
 }
+
+export const isWebSocketAuthenticated = async (request) => {
+  const token = request.headers['Authorization'] || request.headers['authorization']
+
+  if (!token) {
+    return 'Unauthorized'
+  }
+  const verified = await verifyToken(token)
+
+  if (!verified) {
+    return 'unVerified'
+  }
+
+  if (bannedUsers[verified.userid]) {
+    return 'Forbidden'
+  }
+
+  return {
+    userid: verified.userid,
+    googleProfile: verified.payload
+  }
+}

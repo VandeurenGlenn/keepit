@@ -254,7 +254,9 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     })
 
     const data = await response.json()
-    this.invoices[data.uuid] = data.content
+    console.log(data)
+
+    this.invoices[data.uuid] = data
     this.addingInvoice = false
     this.takingPicture = false
     this.currentStream.getTracks().forEach((track) => track.stop())
@@ -338,6 +340,24 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         style="width: 100%; margin-top: 16px;">
       </md-outlined-text-field>`
   }
+
+  _deleteInvoice = async (key: string) => {
+    if (!confirm('Are you sure you want to delete this invoice?')) return
+    const response = await fetch(`/api/invoices/${key}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: localStorage.getItem('token')
+      }
+    })
+
+    if (response.status === 204) {
+      delete this.invoices[key]
+      this.requestRender()
+    } else {
+      const data = await response.json()
+      alert(data.error || 'Failed to delete invoice')
+    }
+  }
   render() {
     return this.addingInvoice
       ? this.renderAddInvoice()
@@ -359,10 +379,10 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
             ([key, invoice]) => html`
               <list-item
                 .href=${`#!/invoice?selected=${key}`}
-                .headline=${invoice.name}
-                .subheadline=${invoice.place?.formattedAddress}
-                .key=${key}>
-              </list-item>
+                .headline=${invoice?.name}
+                .subheadline=${invoice?.place?.formattedAddress}
+                .key=${key}
+                .delete=${this._deleteInvoice ? this._deleteInvoice.bind(this, key) : undefined}></list-item>
             `
           )}
         `

@@ -23,7 +23,7 @@ router.post('/', async (ctx, next) => {
   }
 
   if (Object.keys(users).length === 1) {
-    users[ctx.state.userid].roles = ['admin']
+    users[ctx.state.userid].roles = ['owner', 'admin']
   }
   await usersStore.put(users)
   ctx.body = { content: users[ctx.state.userid] }

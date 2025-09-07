@@ -7,6 +7,7 @@ import { ChipField } from '../elements/chip/field.js'
 import './../elements/chip/field.js'
 import { JobsMixin } from '../mixins/jobs.js'
 import '../animations/success.js'
+import '../animations/error.js'
 import '@material/web/select/outlined-select.js'
 import '@material/web/select/select-option.js'
 import { MdOutlinedSelect } from '@material/web/select/outlined-select.js'
@@ -14,6 +15,10 @@ import { MdOutlinedSelect } from '@material/web/select/outlined-select.js'
 export class CheckinView extends JobsMixin(LiteElement) {
   @property({ type: Object, consumes: true }) accessor user
   @property({ type: Boolean }) accessor success = false
+  @property({ type: String }) accessor error
+  @property({ type: Array }) accessor steps
+  @property({ type: String }) accessor currentJob
+
   date = new Date().toISOString().split('T')[0]
 
   time = new Date().toLocaleTimeString('nl-BE', {
@@ -118,13 +123,21 @@ export class CheckinView extends JobsMixin(LiteElement) {
         location.href = '#!/home'
       }, 1200) // 1.2s for animation
     } else {
-      console.error('Error adding checkin', response)
+      const { error, currentJob, steps } = await response.json()
+      this.error = error
     }
   }
 
   render() {
     if (this.success) {
       return html` <success-animation message="Checked-in successfully!"></success-animation>`
+    }
+    if (this.user?.currentJob) {
+      return html`
+        <error-animation
+          message="Checkout previous job first."
+          .action=${{ label: 'click to checkout', href: `#!/checkout?job=${this.user.currentJob}` }}></error-animation>
+      `
     }
     return html`
       <view-header
@@ -155,7 +168,7 @@ export class CheckinView extends JobsMixin(LiteElement) {
         ${Object.entries(this.jobs || {}).map(
           ([uuid, data]) => html`
             <md-select-option
-              value=${uuid}
+              .value=${uuid}
               ?selected=${this.select?.value === uuid}>
               ${data.name}
             </md-select-option>

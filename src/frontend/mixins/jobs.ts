@@ -2,6 +2,7 @@ import { html, property, LiteElement, query } from '@vandeurenglenn/lite'
 import { DataFlow } from '../flows/data.js'
 import '../flows/data.js'
 import '../flows/data-input.js'
+import './../animations/success.js'
 
 export const JobsMixin = (base: typeof LiteElement) =>
   class JobsMixin extends base {
@@ -93,6 +94,13 @@ export const JobsMixin = (base: typeof LiteElement) =>
       this.jobs[data.uuid] = data.content
       this.creatingJob = false
       document.body.removeChild(dataFlow)
+
+      const success = document.createElement('success-animation')
+      document.body.appendChild(success)
+      success.message = 'Job created successfully!'
+      setTimeout(() => {
+        document.body.removeChild(success)
+      }, 1200) // 1.2s for animation
     }
 
     _deleteJob = async (uuid) => {

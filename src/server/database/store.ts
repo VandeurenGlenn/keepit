@@ -1,4 +1,6 @@
+import pubsub from './../helpers/pubsub.js'
 import { mkdir, opendir, readFile, writeFile } from 'fs/promises'
+import { parse } from 'path'
 
 export const write = async (file: string, data: any) => {
   await writeFile(file, JSON.stringify(data, null, 2), 'utf-8')
@@ -53,6 +55,9 @@ export class DataStore {
     if (type === 'update' || type === 'write') {
       await write(`./.database/${this.file}.json`, data)
       resolve()
+      console.log(`Data written to .database/${this.file}.json`)
+      console.log(`parse(this.file).name: ${parse(this.file).name}`)
+      pubsub.publish(`${parse(this.file).name}.changed`, data)
     } else if (type === 'read') {
       const data = await read(`./.database/${this.file}.json`)
       if (!data) {

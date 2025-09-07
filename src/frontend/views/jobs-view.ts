@@ -41,17 +41,8 @@ export class JobsView extends jobsMixin {
             .href=${`#!/job?selected=${key}`}
             .headline=${job.name}
             .subheadline=${job.place?.formattedAddress}
-            .key=${key}>
-            <custom-icon-button
-              slot="trailing"
-              icon="delete"
-              @click=${(event: CustomEvent) => {
-                event.stopPropagation()
-                event.preventDefault()
-                event.stopImmediatePropagation()
-                this._deleteJob(key)
-              }}></custom-icon-button>
-          </list-item>
+            .key=${key}
+            .delete=${this._deleteJob ? this._deleteJob.bind(this, key) : undefined}></list-item>
         `
       )}
       <md-fab

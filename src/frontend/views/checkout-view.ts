@@ -151,11 +151,12 @@ export class CheckoutView extends JobsMixin(LiteElement) {
 
       <md-outlined-select
         label="Job"
+        .value=${this.user?.currentJob}
         required>
         ${Object.entries(this.jobs || {}).map(
           ([uuid, data]) => html`
             <md-select-option
-              value=${uuid}
+              .value=${uuid}
               ?selected=${this.select?.value === uuid}>
               ${data.name}
             </md-select-option>

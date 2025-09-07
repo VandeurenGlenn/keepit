@@ -47,16 +47,7 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
             .headline=${name}
             .subheadline=${place.formattedAddress}
             .key=${uuid}
-            ><custom-icon-button
-              slot="trailing"
-              icon="delete"
-              @click=${() => {
-                event.stopPropagation()
-                event.preventDefault()
-                event.stopImmediatePropagation()
-                this._deleteCompany(uuid)
-              }}></custom-icon-button
-          ></list-item>
+            .delete=${this._deleteCompany ? this._deleteCompany.bind(this, uuid) : undefined}></list-item>
         `
       )}
 

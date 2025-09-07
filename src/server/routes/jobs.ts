@@ -15,7 +15,14 @@ router.post('/', async (ctx) => {
   const { name, description, place } = ctx.request.body
   const uuid = ctx.request.body.uuid || crypto.randomUUID()
 
-  const job = { name, description, place, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  const job = {
+    name,
+    description,
+    hours: {},
+    place,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
   jobs[uuid] = job
 
   await jobsStore.put(jobs)

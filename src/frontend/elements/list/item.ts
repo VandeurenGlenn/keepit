@@ -9,6 +9,7 @@ export class ListItem extends LiteElement {
   @property({ type: String }) accessor image
   @property({ type: String }) accessor trailingImage
   @property({ type: String }) accessor href
+  @property({ type: Function }) accessor delete: (event: Event) => void
 
   static styles = [
     css`
@@ -82,6 +83,16 @@ export class ListItem extends LiteElement {
           <p>${this.subheadline}</p>
         </div>
         ${this.trailingIcon ? html`<custom-icon icon="${this.trailingIcon}"></custom-icon>` : ''}
+        ${this.delete
+          ? html`<custom-icon-button
+              icon="delete"
+              @click=${(event) => {
+                event.stopPropagation()
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                this.delete(event)
+              }}></custom-icon-button>`
+          : ''}
         ${this.trailingImage
           ? html`<img
               src="${this.trailingImage}"

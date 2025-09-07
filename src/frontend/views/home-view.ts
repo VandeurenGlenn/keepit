@@ -5,6 +5,8 @@ import '@vandeurenglenn/lite-elements/icon.js'
 import '@vandeurenglenn/flex-elements/row.js'
 
 export class HomeView extends LiteElement {
+  @property({ type: Object, consumes: true }) accessor user
+
   static styles = [
     css`
       :host {
@@ -29,13 +31,15 @@ export class HomeView extends LiteElement {
         title="Checkin"
         description="Log your start hours!"
         icon="arrow_downward"
-        href="#!/checkin"></view-header>
+        href="#!/checkin"
+        ?disabled=${this.user?.currentJob}></view-header>
 
       <view-header
         title="Checkout"
         description="Log your end hours!"
         icon="arrow_upward"
-        href="#!/checkout"></view-header>
+        href="#!/checkout"
+        ?disabled=${!this.user?.currentJob}></view-header>
     `
   }
 }

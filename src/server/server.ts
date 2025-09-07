@@ -1,10 +1,13 @@
+import pubsub from './helpers/pubsub.js'
 import Koa from 'koa'
+import http from 'http'
+import { WebSocketServer } from 'ws'
 // external middleware
 import statickoa from 'koa-static'
 import cors from '@koa/cors'
 import { bodyParser } from '@koa/bodyparser'
 // internal middleware
-import { isAuthenticated } from './middleware/is-authenticated.js'
+import { isAuthenticated, isWebSocketAuthenticated } from './middleware/is-authenticated.js'
 // routes
 import companies from './routes/companies.js'
 import invoices from './routes/invoices.js'
@@ -17,6 +20,8 @@ import isUser from './middleware/is-user.js'
 import handshake from './routes/handshake.js'
 import hours from './routes/hours.js'
 import contact from './routes/contact.js'
+import invoice from './routes/invoice.js'
+import { handleWebSocketConnection } from './helpers/websocket.js'
 
 const api = new Koa()
 
@@ -53,9 +58,20 @@ api.use(users)
 api.use(roles)
 api.use(companies)
 api.use(invoices)
+api.use(invoice)
 api.use(jobs)
 api.use(job)
 
-api.listen(5678, () => {
-  console.log('Server is running on http://localhost:5678')
+// create a native HTTP server so we can attach a WebSocket server to it
+const server = http.createServer(api.callback())
+
+// WebSocket server on the same HTTP server, mounted at /ws
+const wss = new WebSocketServer({ server, path: '/ws' })
+
+wss.on('connection', async (socket, req) => {
+  handleWebSocketConnection(socket, req)
+})
+
+server.listen(5678, () => {
+  console.log('Server (HTTP + WS) is running on http://localhost:5678')
 })

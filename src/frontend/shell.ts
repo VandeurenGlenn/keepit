@@ -9,12 +9,13 @@ import '@vandeurenglenn/lite-elements/divider.js'
 import './elements/user/account-bar.js'
 import './views/loading-view.js'
 
+import './animations/error.js'
+
 import icons from './icons.js'
-// @ts-ignore
-// @prettier-ignore
 import styles from './shell.css' with { type: 'css' }
 
 globalThis.exports = {}
+
 export class AppShell extends LiteElement {
   @property({ type: Boolean, provides: true, attribute: 'is-narrow' }) accessor isNarrow
 
@@ -29,13 +30,15 @@ export class AppShell extends LiteElement {
   @property({ type: Object, provides: true }) accessor user
 
   @property({ type: Array, provides: true }) accessor invoices
-
+  @property({ type: Array, provides: true }) accessor invoice
   @property({ type: Object, provides: true }) accessor jobs
   @property({ type: Object, provides: true }) accessor job
   @property({ type: Array, provides: true }) accessor companies
   @property({ type: Array, provides: true }) accessor users
 
   @property({type: Boolean}) accessor userRegistering
+
+  @property({type: Object, consumes: true}) accessor error
 
   setupMediaQuery(query, callback) {
     const mediaQuery = window.matchMedia(query)
@@ -49,13 +52,20 @@ export class AppShell extends LiteElement {
     const path = hash.split('!/')[1].split('?')[0]
     console.log(path);
     
-    const params = hash.split('?')?.[1]?.split('&').reduce((acc, param) => {
+    const params = hash.split('?')?.[1]?.split('&').reduce<Record<string, string>>((acc, param) => {
       const [key, value] = param.split('=')
       acc[key] = decodeURIComponent(value)
       return acc
-    }, {})
-console.log(params);
+    }, {} as Record<string, string>) || {}
+    console.log(params)
 
+    if (params.error) {
+      this.error = params.error
+      this.requestRender()
+      return
+    } else {
+      this.error = null
+    }
     console.log(path)
 
     const navItems = this.shadowRoot.querySelectorAll('.nav-item')
@@ -82,7 +92,10 @@ console.log(params);
       
       if (!this.companies) 
         promises.push(this._load('companies'))
-      }
+    }
+    if (path === 'invoice') {
+      promises.push(this._load('invoice', params.selected))
+    }
     if (path === 'jobs') {
       if (!this.jobs)
         promises.push(this._load('jobs'))
@@ -187,26 +200,83 @@ console.log(params);
 
   }
 
+  initWSClient() {
+    let clientTimeout
+    if (globalThis.client) return
+
+    const client = new WebSocket('ws://localhost:5678/ws', [`ticket__${localStorage.getItem('ticket')}`])
+    console.log(client);
+    globalThis.client = client;
+    client.addEventListener('open', () => {
+      
+      pubsub.subscribe(`users.changed`, (value) => {
+        if (!Array.isArray(value) ) {
+          const user = {...this.user, ...value};
+          pubsub.publishVerbose(`user`, user)
+        } 
+      });
+      setTimeout(() => {
+          client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: 'users.changed' } }));
+      }, 50);
+    });
+
+    client.addEventListener('message', (event) => {
+      const { type, params, message } = JSON.parse(event.data);
+      console.log('WebSocket message received:', type, params, message);
+      if (type === 'error') {
+        if (message === 'Ticket session expired') {
+          localStorage.removeItem('ticket');
+          this.userSignedIn = false;
+          this.checkUserStatus();
+        }
+        return;
+      } else if (type === 'pubsub') {
+        pubsub.publishVerbose(params.publish, params.value);
+      }
+    });
+
+    client.addEventListener('close', () => {
+      console.log('WebSocket connection closed, reconnecting in 5 seconds...');
+      if (clientTimeout) clearTimeout(clientTimeout);
+      clientTimeout = setTimeout(() => {
+        this.initWSClient();
+      }, 5000);
+    });
+  }
+
   async setUser(credential) {
     const token = localStorage.getItem('token')
-    if (token && token !== credential || !token) 
+    if (token && token !== credential || !token)
       localStorage.setItem('token', credential)
 
     this.user = this._decodeToken(credential)
 
     
-    const response = await fetch('/api/handshake', {
+    let response = await fetch('/api/handshake', {
       headers: {
         Authorization: credential
       },
       method: 'GET'
     })
+
     const data = await response.text()
     if (data === 'NOT_REGISTERED') {
       this.userRegistering = true
       location.hash = '#!/register'
       return
+    } else {
+      localStorage.setItem('ticket', data)
     }
+
+    response = await fetch('/api/users/' + this.user.id, {
+      headers: {
+        Authorization: credential
+      },
+      method: 'GET'
+    })
+
+    const userData = await response.json()
+    this.user = { ...this.user, ...userData }
     this.userSignedIn = true
     this.userRegistering = false
     /**
@@ -215,6 +285,8 @@ console.log(params);
      * and we can load the data
      */
     this._onhashchange()
+
+    this.initWSClient()
   }
 
   static styles = [styles]
@@ -236,7 +308,9 @@ console.log(params);
     }
     const data = await response.json()
     console.log({data});
-    
+    pubsub.subscribe(`${type}.changed`, (value) => {
+      this[type] = value;
+    });
     this[type] = data
   }
 
@@ -246,6 +320,9 @@ console.log(params);
 console.log(path);
 
 
+    if (this.error) {
+      return html` <error-animation .message=${this.error.message} .action=${this.error}></error-animation> `
+    }
 
     if (!this.userSignedIn && !this.userRegistering) {
       return html` <loading-view type="signin"></loading-view> `
@@ -274,6 +351,15 @@ console.log(path);
         return html` <loading-view type="loading"></loading-view> `
       }
       return html` <invoices-view .invoices=${this.invoices} .jobs=${this.jobs} .companies=${this.companies}></invoices-view> `
+    }
+
+    if (path === 'invoice') {
+      console.log(this.invoice);
+      
+      if (!this.invoice) {
+        return html` <loading-view type="loading"></loading-view> `
+      }
+      return html` <invoice-view .invoice=${this.invoice} .jobs=${this.jobs} .companies=${this.companies}></invoice-view> `
     }
 
     if (path === 'checkin') {

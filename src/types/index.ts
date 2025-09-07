@@ -1,9 +1,23 @@
+/**
+ * sid provided by login provider (Google)
+ */
+export type userId = string
+
+export type jobId = Crypto['randomUUID']
+
+export type prestationId = Crypto['randomUUID']
+
+export type invoiceId = Crypto['randomUUID']
+
 export type Prestation = {
   description?: string
   checkin: EpochTimeStamp
   serverCheckin: EpochTimeStamp
-  checkout: EpochTimeStamp
-  serverCheckout: EpochTimeStamp
+  checkout?: EpochTimeStamp
+  serverCheckout?: EpochTimeStamp
+  // duration in milliseconds (computed on checkout)
+  duration?: number
+  jobId?: jobId
 }
 
 export type Place = {
@@ -22,7 +36,16 @@ export interface BaseInput {
 export interface Job extends BaseInput {
   place: Place
   images?: string[]
-  hours?: { [date: string]: { [employeeId: string]: Prestation } }
+  hours?: {
+    [userId: string]: string[]
+  }
+  // Optional notes attached to the job
+  notes?: {
+    id: string
+    text: string
+    createdAt: string
+    author?: string
+  }[]
 }
 
 export interface Company extends BaseInput {
@@ -36,8 +59,9 @@ export interface User extends BaseInput {
   place: Place
   phone: string
   roles?: string[]
+  currentJob?: jobId
+  invited?: boolean
 }
-
 export interface Invoice extends BaseInput {
   invoiceImages: string[]
   company: string
@@ -46,7 +70,7 @@ export interface Invoice extends BaseInput {
 }
 
 export type BannedUser = {
-  id: string
+  id: userId
   reason: string
   createdAt: string
 }
@@ -60,13 +84,27 @@ export type Companies = {
 }
 
 export type Users = {
-  [uuid: string]: User
+  [userId: userId]: User
 }
 
 export type Invoices = {
-  [uuid: string]: Invoice
+  [invoiceId: string]: Invoice
 }
 
 export type BannedUsers = {
-  [uuid: string]: BannedUser
+  [uuid: userId]: BannedUser
+}
+
+export type Hours = {
+  [uuid: userId]: {
+    [uuid: string]: Prestation
+  }
+}
+export type Invites = {
+  [uuid: string]: {
+    email: string
+    roles: string[]
+    createdAt: number
+    invited: boolean
+  }
 }
