@@ -50,14 +50,12 @@ export class AppShell extends LiteElement {
   _onhashchange = async () => {
     const hash = location.hash
     const path = hash.split('!/')[1].split('?')[0]
-    console.log(path);
     
     const params = hash.split('?')?.[1]?.split('&').reduce<Record<string, string>>((acc, param) => {
       const [key, value] = param.split('=')
       acc[key] = decodeURIComponent(value)
       return acc
     }, {} as Record<string, string>) || {}
-    console.log(params)
 
     if (params.error) {
       this.error = params.error
@@ -66,7 +64,6 @@ export class AppShell extends LiteElement {
     } else {
       this.error = null
     }
-    console.log(path)
 
     const navItems = this.shadowRoot.querySelectorAll('.nav-item')
     navItems.forEach((item) => {
@@ -80,7 +77,6 @@ export class AppShell extends LiteElement {
     if (!(await customElements.get(`${path}-view`))) await import(`./${path}-view.js`)
 
     const promises = []
-    console.log(path);
 
     if (!this.userSignedIn) return
     
@@ -142,8 +138,9 @@ export class AppShell extends LiteElement {
     })
 
     onhashchange = this._onhashchange
-     location.hash = '#!/home'
-    this._onhashchange()
+    if (!location.hash) {
+      location.hash = '#!/home'
+    }
     this.checkUserStatus()
   }
 
