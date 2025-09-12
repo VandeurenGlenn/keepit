@@ -1,4 +1,4 @@
-import { Companies, Invoices, Job, Jobs, Users, BannedUsers, Prestation, Hours } from '../../types/index.js'
+import { Companies, Invoices, Job, Jobs, Users, BannedUsers, Prestation, Hours, Invites } from '../../types/index.js'
 import { DataStore } from './store.js'
 import { opendir, mkdir } from 'fs/promises'
 
