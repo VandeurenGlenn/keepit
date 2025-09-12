@@ -263,6 +263,7 @@ export class AppShell extends LiteElement {
     if (data === 'NOT_REGISTERED') {
       this.userRegistering = true
       location.hash = '#!/register'
+      this._onhashchange()
       return
     } else {
       localStorage.setItem('ticket', data)
