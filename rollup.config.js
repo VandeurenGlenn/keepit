@@ -4,6 +4,8 @@ import { copyFile, mkdir, cp } from 'fs/promises'
 import materialSymbols from 'rollup-plugin-material-symbols'
 import { glob } from 'fs/promises'
 import { cssModules } from 'rollup-plugin-css-modules'
+import terser from '@rollup/plugin-terser'
+import template from 'rollup-plugin-html-literals'
 
 try {
   await copyFile('src/frontend/index.html', 'www/index.html')
@@ -24,7 +26,14 @@ export default [
       format: 'es'
     },
 
-    plugins: [cssModules(), nodeResolve(), typescript(), materialSymbols({ placeholderPrefix: 'symbol' })]
+    plugins: [
+      cssModules(),
+      nodeResolve(),
+      typescript(),
+      template(),
+      terser({ compress: true, mangle: true }),
+      materialSymbols({ placeholderPrefix: 'symbol' })
+    ]
   },
   {
     input: ['src/server/server.ts'],
