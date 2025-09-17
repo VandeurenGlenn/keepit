@@ -28,10 +28,10 @@ export default [
 
     plugins: [
       cssModules(),
+      template(),
       nodeResolve(),
       typescript(),
-      template(),
-      terser({ compress: true, mangle: true }),
+      terser(),
       materialSymbols({ placeholderPrefix: 'symbol' })
     ]
   },
