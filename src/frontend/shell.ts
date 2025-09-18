@@ -17,26 +17,26 @@ import styles from './shell.css' with { type: 'css' }
 globalThis.exports = {}
 
 export class AppShell extends LiteElement {
-  @property({ type: Boolean, provides: true, attribute: 'is-narrow', renders: false }) accessor isNarrow
+  @property({ type: Boolean, provides: true, attribute: 'is-narrow'}) accessor isNarrow
 
-  @property({ type: Boolean, attribute: 'is-medium-narrow', renders: false }) accessor isMediumNarrow
+  @property({ type: Boolean, attribute: 'is-medium-narrow' }) accessor isMediumNarrow
 
   @property({ type: String, temporaryRender: 500 }) accessor selected
 
-  @property({ type: Boolean, renders: false }) accessor userSignedIn
+  @property({ type: Boolean }) accessor userSignedIn
 
-  @property({type: Boolean, provides: true, renders: false}) accessor darkMode
+  @property({type: Boolean, provides: true}) accessor darkMode
 
-  @property({ type: Object, provides: true, renders: false }) accessor user
+  @property({ type: Object, provides: true }) accessor user
 
-  @property({ type: Array, provides: true, renders: false }) accessor invoices
-  @property({ type: Array, provides: true, renders: false }) accessor invoice
-  @property({ type: Object, provides: true, renders: false }) accessor jobs
-  @property({ type: Object, provides: true, renders: false }) accessor job
-  @property({ type: Array, provides: true, renders: false }) accessor companies
-  @property({ type: Array, provides: true, renders: false }) accessor users
+  @property({ type: Array, provides: true }) accessor invoices
+  @property({ type: Array, provides: true }) accessor invoice
+  @property({ type: Object, provides: true }) accessor jobs
+  @property({ type: Object, provides: true }) accessor job
+  @property({ type: Array, provides: true }) accessor companies
+  @property({ type: Array, provides: true }) accessor users
 
-  @property({type: Object, consumes: true, renders: true}) accessor error = null
+  @property({type: Object, consumes: true}) accessor error = null
 
   setupMediaQuery(query, callback) {
     const mediaQuery = window.matchMedia(query)
@@ -240,7 +240,7 @@ export class AppShell extends LiteElement {
     if (token && token !== credential || !token)
       localStorage.setItem('token', credential)
 
-    this.user = this._decodeToken(credential)
+    const user = this._decodeToken(credential)
 
     
     let response = await fetch('/api/handshake', {
@@ -259,7 +259,7 @@ export class AppShell extends LiteElement {
       localStorage.setItem('ticket', data)
     }
 
-    response = await fetch('/api/users/' + this.user.id, {
+    response = await fetch('/api/users/' + user.id, {
       headers: {
         Authorization: credential
       },
@@ -267,7 +267,7 @@ export class AppShell extends LiteElement {
     })
 
     const userData = await response.json()
-    this.user = { ...this.user, ...userData }
+    this.user = { ...user, ...userData }
     this.userSignedIn = true
     /**
      * since we are blocking the route change until the user is signed in
@@ -315,8 +315,8 @@ export class AppShell extends LiteElement {
 
   renderSelectedView() {
     const hash = location.hash
-    const path = hash.split('!/')[1].split('?')?.[0]
-console.log(path);
+    const path = hash?.split('!/')?.[1].split('?')?.[0]
+    console.log(path);
 
 
     if (this.error) {
