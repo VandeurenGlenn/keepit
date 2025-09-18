@@ -47,7 +47,7 @@ export class AppShell extends LiteElement {
 
   _onhashchange = async () => {
     const hash = location.hash
-    const path = hash.split('!/')[1].split('?')[0]
+    const path = hash.split('!/')[1].split('?')[0] || 'home'
     
     const params = hash.split('?')?.[1]?.split('&').reduce<Record<string, string>>((acc, param) => {
       const [key, value] = param.split('=')
@@ -252,6 +252,7 @@ export class AppShell extends LiteElement {
 
     const data = await response.text()
     if (data === 'NOT_REGISTERED') {
+      this.user = user
       location.hash = '#!/register'
       this._onhashchange()
       return
@@ -315,7 +316,7 @@ export class AppShell extends LiteElement {
 
   renderSelectedView() {
     const hash = location.hash
-    const path = hash?.split('!/')?.[1].split('?')?.[0]
+    const path = hash?.split('!/')?.[1].split('?')?.[0] || 'home'
     console.log(path);
 
 
