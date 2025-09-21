@@ -7,6 +7,7 @@ import '../elements/list/item.js'
 import '../elements/view/header.js'
 import '@material/web/textfield/outlined-text-field.js'
 import '@material/web/fab/fab.js'
+import '../flows/data-input.js'
 
 export class RegisterView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor user: User
@@ -53,7 +54,9 @@ export class RegisterView extends LiteElement {
       body: JSON.stringify({
         name: this.user.name,
         email: this.user.email,
-        picture: this.user.picture
+        picture: this.user.picture,
+        telephone: (this.shadowRoot?.querySelector('data-input[label="telephone"]') as any).value,
+        place: (this.shadowRoot?.querySelector('data-input[label="place"]') as any).value
       })
     })
 
@@ -78,6 +81,14 @@ export class RegisterView extends LiteElement {
         <h2>${this.user?.name}</h2>
         <p>${this.user?.email}</p>
       </div>
+
+      <data-input
+        label="telephone"
+        .type="tel"></data-input>
+
+      <data-input
+        type="place"
+        label="place"></data-input>
 
       <custom-button
         label="Register"
