@@ -254,6 +254,7 @@ export class AppShell extends LiteElement {
     if (data === 'NOT_REGISTERED') {
       this.user = user
       location.hash = '#!/register'
+      this.userSignedIn = true
       this._onhashchange()
       return
     } else {
