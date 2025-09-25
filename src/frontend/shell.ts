@@ -8,6 +8,7 @@ import '@vandeurenglenn/lite-elements/icon.js'
 import '@vandeurenglenn/lite-elements/divider.js'
 import './elements/user/account-bar.js'
 import './views/loading-view.js'
+import './elements/build-info.js'
 
 import './animations/error.js'
 
@@ -402,6 +403,7 @@ export class AppShell extends LiteElement {
 
   render() {
     return html`
+      <!-- @build-info -->
       ${icons}
 
       <custom-theme
@@ -455,6 +457,7 @@ export class AppShell extends LiteElement {
             ><custom-icon icon="group"></custom-icon>users</a
           >
         </span>
+        <build-info></build-info>
       </aside>
 
       <main>

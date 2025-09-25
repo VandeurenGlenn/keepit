@@ -20,7 +20,8 @@ a {
   color: inherit;
 }
 aside {
-  display: block;
+  display: flex;
+  flex-direction: column;
   position: absolute;
   top: 0;
   left: 0;
@@ -100,7 +101,7 @@ custom-icon-button[icon='menu'] {
 .nav-container {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  height: 100%;
   padding: 12px;
 }
 
