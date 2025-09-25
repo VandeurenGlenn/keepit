@@ -37,6 +37,7 @@ export class AppShell extends LiteElement {
   @property({ type: Array, provides: true }) accessor users
 
   @property({type: Object, consumes: true}) accessor error = null
+  @property({type: Boolean, attribute: 'is-menu-open', reflect: true}) accessor isMenuOpen: any
 
   setupMediaQuery(query, callback) {
     const mediaQuery = window.matchMedia(query)
@@ -394,6 +395,10 @@ export class AppShell extends LiteElement {
     }
   }
 
+  _toggleMenu() {
+    this.isMenuOpen = !this.isMenuOpen
+  }
+
 
   render() {
     return html`
@@ -403,7 +408,7 @@ export class AppShell extends LiteElement {
         load-symbols="false"
         load-fonts="false"></custom-theme>
 
-      <custom-icon-button icon="menu"></custom-icon-button>
+      <custom-icon-button icon="menu" @click=${() => this._toggleMenu()}></custom-icon-button>
 
       <aside>
         <img

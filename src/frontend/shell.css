@@ -25,7 +25,7 @@ aside {
   top: 0;
   left: 0;
   bottom: 0;
-  width: 256px;
+  width: 320px;
   pointer-events: auto;
   box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
   color: var(--md-sys-color-on-surface-container-high);
@@ -38,7 +38,7 @@ main {
   flex-direction: column;
   position: absolute;
   top: 0;
-  left: 256px;
+  left: 320px;
   bottom: 0;
   right: 0;
   overflow: auto;
@@ -112,8 +112,26 @@ custom-icon-button[icon='menu'] {
 :host([is-narrow]) aside {
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.3s ease-in-out, width 0.3s ease-in-out;
+
+  max-width: 300px;
+  transition: opacity 0.3s ease-out, transform 0.3s ease-out, width 0.3s ease-out;
+  transform: translateX(-110%);
 }
+:host([is-narrow][is-menu-open]) aside {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+  width: 100%;
+  position: fixed;
+  z-index: 1000;
+  background-color: var(--md-sys-color-background);
+  transition: opacity 0.3s ease-in, transform 0.3s ease-in, width 0.3s ease-in;
+}
+
+custom-icon-button[icon='menu'] {
+  z-index: 1100;
+}
+
 :host([is-narrow]) main {
   left: 0;
   right: 0;
@@ -136,10 +154,10 @@ custom-icon-button[icon='menu'] {
   --custom-icon-color: var(--md-sys-color-on-tertiary);
 }
 
-.active :hover {
-  background-color: var(--md-sys-color-tertiary-container);
-  color: var(--md-sys-color-on-tertiary-container);
+.nav-item:hover:not(.active) {
+  background-color: #efb8c887;
   box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
   font-weight: 600;
   cursor: pointer;
+  border-radius: 12px;
 }
