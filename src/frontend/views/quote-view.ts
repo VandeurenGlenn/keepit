@@ -14,17 +14,22 @@ export class QuoteView extends LiteElement {
         flex-direction: column;
         gap: 24px;
         padding: 32px;
+        width: min(100%, 700px);
         max-width: 700px;
-        background: #fff;
-        border-radius: 12px;
-        box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
-        font-family: 'Segoe UI', Arial, sans-serif;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 95%, white 5%), var(--app-panel));
+        border-radius: 24px;
+        box-shadow: var(--app-shadow-strong);
+        border: 1px solid var(--app-border);
+        font-family: 'Avenir Next', 'Segoe UI', sans-serif;
+        box-sizing: border-box;
       }
       .header {
         display: flex;
         align-items: center;
         gap: 20px;
         margin-bottom: 16px;
+        justify-content: space-between;
+        flex-wrap: wrap;
       }
       .logo {
         height: 56px;
@@ -33,16 +38,17 @@ export class QuoteView extends LiteElement {
       h2 {
         margin: 0;
         font-size: 2rem;
-        color: #1a237e;
+        color: var(--md-sys-color-on-surface);
       }
       table {
         width: 100%;
         border-collapse: separate;
         border-spacing: 0;
-        background: #fafbfc;
-        border-radius: 8px;
+        background: color-mix(in srgb, var(--app-panel-strong) 94%, white 6%);
+        border-radius: 18px;
         overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+        box-shadow: var(--app-shadow-soft);
+        border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent 14%);
       }
       th,
       td {
@@ -50,18 +56,18 @@ export class QuoteView extends LiteElement {
         text-align: left;
       }
       th {
-        background: #e3e7f1;
-        color: #1a237e;
+        background: color-mix(in srgb, var(--app-accent) 10%, var(--app-panel) 90%);
+        color: var(--app-accent-strong);
         font-weight: 600;
-        border-bottom: 2px solid #c5cae9;
+        border-bottom: 1px solid color-mix(in srgb, var(--app-border) 90%, transparent 10%);
       }
       td {
-        border-bottom: 1px solid #e0e0e0;
+        border-bottom: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent 22%);
       }
       tfoot td {
         font-weight: bold;
-        background: #f5f5f5;
-        color: #1a237e;
+        background: color-mix(in srgb, var(--app-accent) 8%, var(--app-panel) 92%);
+        color: var(--app-accent-strong);
         border-bottom: none;
       }
       .actions {
@@ -69,30 +75,68 @@ export class QuoteView extends LiteElement {
         gap: 12px;
         margin-top: 18px;
         align-items: center;
+        flex-wrap: wrap;
       }
       input[type='number'],
       input[type='text'] {
-        padding: 8px;
-        border: 1px solid #c5cae9;
-        border-radius: 6px;
+        padding: 10px 12px;
+        border: 1px solid color-mix(in srgb, var(--app-border) 88%, transparent 12%);
+        border-radius: 14px;
         font-size: 1rem;
         width: 120px;
+        background: color-mix(in srgb, var(--app-panel-strong) 96%, white 4%);
+        color: var(--md-sys-color-on-surface);
       }
       input[type='text'] {
         width: 220px;
       }
       button {
-        background: #1a237e;
-        color: #fff;
-        border: none;
-        border-radius: 6px;
+        background: linear-gradient(
+          135deg,
+          color-mix(in srgb, var(--app-accent) 88%, white 12%),
+          var(--app-accent-strong)
+        );
+        color: var(--md-sys-color-on-primary);
+        border: 1px solid color-mix(in srgb, var(--app-accent) 84%, white 16%);
+        border-radius: 999px;
         padding: 10px 18px;
         font-size: 1rem;
         cursor: pointer;
-        transition: background 0.2s;
+        transition:
+          transform 0.18s ease,
+          box-shadow 0.18s ease,
+          filter 0.18s ease;
       }
       button:hover {
-        background: #3949ab;
+        transform: translateY(-1px);
+        box-shadow: var(--app-shadow-soft);
+        filter: brightness(1.03);
+      }
+
+      @media (max-width: 720px) {
+        :host {
+          width: 100%;
+          padding: 18px;
+          gap: 18px;
+          border-radius: 20px;
+        }
+
+        .actions {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        input[type='number'],
+        input[type='text'],
+        button {
+          width: 100%;
+        }
+
+        th,
+        td {
+          padding: 10px 8px;
+          font-size: 0.92rem;
+        }
       }
     `
   ]
@@ -149,14 +193,14 @@ export class QuoteView extends LiteElement {
           type="number"
           min="1"
           placeholder="Qty"
-          .value=${this.newItem.quantity}
+          .value=${String(this.newItem.quantity)}
           @input=${(e: Event) => (this.newItem.quantity = Number((e.target as HTMLInputElement).value))} />
         <input
           type="number"
           min="0"
           step="0.01"
           placeholder="Unit Price"
-          .value=${this.newItem.unitPrice}
+          .value=${String(this.newItem.unitPrice)}
           @input=${(e: Event) => (this.newItem.unitPrice = Number((e.target as HTMLInputElement).value))} />
         <button @click=${this.addItem}>Add Item</button>
       </div>

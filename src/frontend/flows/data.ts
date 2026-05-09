@@ -4,13 +4,20 @@ import '@vandeurenglenn/flex-elements/container.js'
 // @ts-ignore
 import styles from './data.css' with { type: 'css' }
 
-  
 export type StepResults = {
   [key: string]: any
 }[]
+
+type FlowStep = {
+  name?: string
+  description?: string
+  template: unknown
+  validateAndReturnValues?: (inputs: Element[]) => { valid: boolean; values: Record<string, any> }
+}
+
 export class DataFlow extends LiteElement {
   @property({ type: Number }) accessor step = 0
-  @property({ type: Array }) accessor steps: { name?: string; description?: string; template }[]
+  @property({ type: Array }) accessor steps: FlowStep[]
   @property() accessor data: Record<string, any> = {}
   @property() accessor label: string = 'Data Flow'
   @property() accessor _stepRender: any
@@ -20,9 +27,13 @@ export class DataFlow extends LiteElement {
 
   _renders: any[] = []
 
+  handleEscape = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') this.close()
+  }
+
   static styles = [styles]
 
-  doneResolve: (value: StepResults) => void
+  doneResolve: (value: StepResults | Boolean) => void
 
   done = new Promise<StepResults | Boolean>((resolve) => {
     this.doneResolve = resolve
@@ -74,7 +85,7 @@ export class DataFlow extends LiteElement {
         if (key) {
           const value = this.stepResults[this.step][key]
           if (value) {
-            input.value = value
+            ;(input as HTMLInputElement & { value?: string }).value = value
           }
         }
       }
@@ -91,7 +102,7 @@ export class DataFlow extends LiteElement {
     }
 
     this.doneResolve(this.stepResults)
-    
+
     // console.log('Collected data:', this.flowData)
   }
 
@@ -100,14 +111,22 @@ export class DataFlow extends LiteElement {
     this._renders[this.step] = this._stepRender
   }
 
+  connectedCallback(): void {
+    super.connectedCallback()
+    globalThis.addEventListener('keydown', this.handleEscape)
+  }
+
+  disconnectedCallback(): void {
+    globalThis.removeEventListener('keydown', this.handleEscape)
+    super.disconnectedCallback()
+  }
+
   render() {
     if (this.steps?.length === 0) return html`<p>No steps available</p>`
     return html`
-     <custom-icon-button
-                  icon="close"
-                  @click=${() => this.close()}
-                  ></custom-icon-button
-                >
+      <custom-icon-button
+        icon="close"
+        @click=${() => this.close()}></custom-icon-button>
       <div class="hero">
         <header>
           <h2>${this.label}</h2>
@@ -115,9 +134,8 @@ export class DataFlow extends LiteElement {
         </header>
 
         <div class="step-info">
-
-        ${this.steps?.[this.step]?.name ? html` <h3>${this.steps?.[this.step]?.name}</h3> ` : ''}
-        ${this.steps?.[this.step]?.description ? html` <p>${this.steps?.[this.step]?.description}</p> ` : ''}
+          ${this.steps?.[this.step]?.name ? html` <h3>${this.steps?.[this.step]?.name}</h3> ` : ''}
+          ${this.steps?.[this.step]?.description ? html` <p>${this.steps?.[this.step]?.description}</p> ` : ''}
         </div>
         ${this._stepRender}
 
@@ -126,9 +144,7 @@ export class DataFlow extends LiteElement {
             ? html`
                 <custom-icon-button
                   icon="arrow-back"
-                  @click=${() => this.prevStep()}
-                  ></custom-icon-button
-                >
+                  @click=${() => this.prevStep()}></custom-icon-button>
               `
             : ''}
           <custom-icon-button

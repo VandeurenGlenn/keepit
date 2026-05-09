@@ -7,6 +7,25 @@ const router = new Router({
   prefix: '/api/hours'
 })
 
+router.get('/job/:id', async (ctx) => {
+  const jobId = ctx.params.id
+  if (!jobId || !jobs[jobId]) {
+    ctx.status = 404
+
+    ctx.body = { error: 'Job not found' }
+    return
+  }
+  const job = jobs[jobId]
+  const jobHours: { [userId: string]: Prestation[] } = {}
+  for (const [userId, prestationIds] of Object.entries(job.hours)) {
+    jobHours[userId] = prestationIds.map((id) => hours[userId][id])
+  }
+  ctx.status = 200
+  ctx.set('Content-Type', 'application/json')
+  ctx.body = jobHours
+  return
+})
+
 router.post('/checkin', async (ctx) => {
   const { job, userId, checkin, date } = ctx.request.body || {}
   if (!job || !userId) {

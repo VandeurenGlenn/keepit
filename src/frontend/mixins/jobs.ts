@@ -73,7 +73,7 @@ export const JobsMixin = (base: typeof LiteElement) =>
         this.creatingJob = false
         return
       }
-      const result = stepResults.reduce((acc, curr) => {
+      const result = (stepResults as Array<Record<string, any>>).reduce((acc, curr) => {
         return { ...acc, ...curr }
       }, {})
 
@@ -95,7 +95,7 @@ export const JobsMixin = (base: typeof LiteElement) =>
       this.creatingJob = false
       document.body.removeChild(dataFlow)
 
-      const success = document.createElement('success-animation')
+      const success = document.createElement('success-animation') as HTMLElement & { message?: string }
       document.body.appendChild(success)
       success.message = 'Job created successfully!'
       setTimeout(() => {

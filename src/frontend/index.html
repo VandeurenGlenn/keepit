@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0" />
-    <title>Document</title>
+    <title>Keepit</title>
 
     <meta
       name="google-signin-scope"
@@ -62,7 +62,14 @@
         right: 16px;
         left: 256px;
         z-index: 1000;
-        background: var(--md-sys-color-background);
+        background: color-mix(in srgb, var(--md-sys-color-background) 84%, transparent 16%);
+        border-radius: 24px;
+      }
+
+      @media (max-width: 720px) {
+        success-animation {
+          left: 16px;
+        }
       }
     </style>
     <script>

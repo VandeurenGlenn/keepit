@@ -32,37 +32,58 @@ export class CheckoutView extends JobsMixin(LiteElement) {
       :host {
         display: flex;
         flex-direction: column;
-        align-items: center;
         height: 100%;
-        max-width: 720px;
+        max-width: 760px;
         width: 100%;
+        padding: 16px;
+        box-sizing: border-box;
+        gap: 18px;
       }
-      md-fab {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        z-index: 1000;
+
+      .form-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        width: 100%;
+        padding: 18px;
+        border-radius: 24px;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
+        border: 1px solid var(--app-border);
+        box-shadow: var(--app-shadow-strong);
+        box-sizing: border-box;
       }
 
       md-outlined-select {
         width: 100%;
-        margin: 16px 0;
       }
 
-      span {
-        margin: 16px 0;
+      .field-shell {
         display: flex;
         align-items: center;
-        padding: 6px 12px;
-        margin-bottom: 6px;
+        padding: 10px 14px;
         width: 100%;
         justify-content: space-between;
         box-sizing: border-box;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        border: 1px solid var(--md-sys-color-outline);
-        border-radius: var(--md-sys-shape-corner-small);
+        border-radius: 18px;
+        box-shadow: var(--app-shadow-soft);
+        border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
+        background: color-mix(in srgb, var(--app-panel-strong) 95%, white 5%);
         cursor: pointer;
+      }
+
+      .field-shell h3,
+      .form-heading,
+      .form-description {
+        margin: 0;
+      }
+
+      .form-heading {
+        font-size: 1.3rem;
+      }
+
+      .form-description {
+        color: var(--md-sys-color-on-surface-variant);
+        line-height: 1.5;
       }
 
       input[type='date'],
@@ -81,6 +102,41 @@ export class CheckoutView extends JobsMixin(LiteElement) {
       ::-webkit-calendar-picker {
         color: var(--md-sys-color-on-background);
         background-color: var(--md-sys-color-surface);
+      }
+
+      button.primary {
+        border: 1px solid color-mix(in srgb, var(--app-accent) 82%, white 18%);
+        background: linear-gradient(
+          135deg,
+          color-mix(in srgb, var(--app-accent) 88%, white 12%),
+          var(--app-accent-strong)
+        );
+        color: var(--md-sys-color-on-primary);
+        border-radius: 999px;
+        padding: 12px 18px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      @media (max-width: 720px) {
+        :host {
+          padding: 12px;
+        }
+
+        .form-panel {
+          padding: 16px;
+          border-radius: 20px;
+        }
+
+        .field-shell {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 8px;
+        }
+
+        button.primary {
+          width: 100%;
+        }
       }
     `
   ]
@@ -132,43 +188,52 @@ export class CheckoutView extends JobsMixin(LiteElement) {
         description="Checkout!"
         icon="arrow_upward"></view-header>
 
-      <span @click=${() => this.dateInput.showPicker()}>
-        <h3>date</h3>
+      <section class="form-panel">
+        <h2 class="form-heading">Werkdag afronden</h2>
+        <p class="form-description">Kies het uitcheckmoment en bevestig de job die je sessie afsluit.</p>
 
-        <input
-          type="date"
-          required
-          value=${this.date} />
-      </span>
+        <span
+          class="field-shell"
+          @click=${() => this.dateInput.showPicker()}>
+          <h3>Datum</h3>
 
-      <span @click=${() => this.timeInput.showPicker()}>
-        <h3>time</h3>
-        <input
-          type="time"
-          required
-          value=${this.time} />
-      </span>
+          <input
+            type="date"
+            required
+            value=${this.date} />
+        </span>
 
-      <md-outlined-select
-        label="Job"
-        .value=${this.user?.currentJob}
-        required>
-        ${Object.entries(this.jobs || {}).map(
-          ([uuid, data]) => html`
-            <md-select-option
-              .value=${uuid}
-              ?selected=${this.select?.value === uuid}>
-              ${data.name}
-            </md-select-option>
-          `
-        )}
-      </md-outlined-select>
+        <span
+          class="field-shell"
+          @click=${() => this.timeInput.showPicker()}>
+          <h3>Tijd</h3>
+          <input
+            type="time"
+            required
+            value=${this.time} />
+        </span>
 
-      <md-fab @click=${() => this._addCheckout()}>
-        <custom-icon
-          icon="save"
-          slot="icon"></custom-icon
-      ></md-fab>
+        <md-outlined-select
+          label="Job"
+          .value=${this.user?.currentJob}
+          required>
+          ${(Object.entries(this.jobs || {}) as Array<[string, any]>).map(
+            ([uuid, data]) => html`
+              <md-select-option
+                .value=${uuid}
+                ?selected=${this.select?.value === uuid}>
+                ${data.name}
+              </md-select-option>
+            `
+          )}
+        </md-outlined-select>
+
+        <button
+          class="primary"
+          @click=${() => this._addCheckout()}>
+          Bewaar checkout
+        </button>
+      </section>
     `
   }
 }

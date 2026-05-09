@@ -25,6 +25,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   @property({ type: Boolean }) accessor addingInvoice = false
   @property({ type: String }) accessor facingMode = 'environment'
   @property({ type: Object, consumes: true }) accessor user: User
+  @property({ type: Object, consumes: true }) accessor companies
   @property({ type: String }) accessor notes: string
 
   @query('chip-field[label="jobs"]') accessor jobChips: ChipField
@@ -38,15 +39,93 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       :host {
         display: flex;
         flex-direction: column;
-        align-items: center;
         height: 100%;
         width: 100%;
+        gap: 18px;
+        padding: 16px;
+        box-sizing: border-box;
       }
-      md-fab {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        z-index: 1000;
+
+      .workspace-panel,
+      .capture-panel,
+      .list-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        width: 100%;
+        padding: 18px;
+        border-radius: 24px;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
+        border: 1px solid var(--app-border);
+        box-shadow: var(--app-shadow-strong);
+        box-sizing: border-box;
+      }
+
+      .workspace-head,
+      .panel-title-wrap,
+      .top-actions,
+      .capture-form,
+      .list-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .panel-kicker {
+        display: inline-flex;
+        width: fit-content;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: var(--app-accent-soft);
+        color: var(--app-accent);
+        font-size: 0.76rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .panel-title-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .panel-title,
+      .panel-description {
+        margin: 0;
+      }
+
+      .panel-title {
+        font-size: 1.5rem;
+        line-height: 1.08;
+      }
+
+      .panel-description {
+        color: var(--md-sys-color-on-surface-variant);
+        max-width: 62ch;
+        line-height: 1.55;
+      }
+
+      button {
+        border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
+        background: color-mix(in srgb, var(--md-sys-color-surface) 94%, white 6%);
+        color: var(--md-sys-color-on-surface);
+        border-radius: 999px;
+        padding: 10px 16px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      button.primary {
+        background: linear-gradient(
+          135deg,
+          color-mix(in srgb, var(--app-accent) 88%, white 12%),
+          var(--app-accent-strong)
+        );
+        color: var(--md-sys-color-on-primary);
+        border-color: color-mix(in srgb, var(--app-accent) 82%, white 18%);
       }
 
       .camera-bar {
@@ -66,7 +145,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       .camera-wrapper {
         position: relative;
         width: 100%;
-        height: 100%;
+        min-height: 420px;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -79,13 +158,15 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         box-sizing: border-box;
         backdrop-filter: blur(5px);
         transition: opacity 0.3s ease-in-out;
+        border-radius: 20px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--md-sys-color-surface-container) 86%, black 14%);
       }
 
-      .invoices-list {
+      .list-stack {
         display: flex;
         flex-direction: column;
         gap: 16px;
-        padding: 16px;
       }
       .invoice-item {
         border: 1px solid var(--md-sys-color-outline);
@@ -112,7 +193,11 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       }
 
       img[adding-invoice-image] {
-        height: 50%;
+        width: min(100%, 520px);
+        height: auto;
+        border-radius: 18px;
+        border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
+        box-shadow: var(--app-shadow-soft);
       }
 
       span {
@@ -123,6 +208,41 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       video {
         width: 100%;
         height: 100%;
+        object-fit: cover;
+      }
+
+      .notes-field {
+        width: 100%;
+        margin-top: 4px;
+      }
+
+      @media (max-width: 720px) {
+        :host {
+          padding: 12px;
+        }
+
+        .workspace-panel,
+        .capture-panel,
+        .list-panel {
+          padding: 16px;
+          border-radius: 20px;
+        }
+
+        .panel-title-row,
+        .top-actions,
+        .camera-bar {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        button.primary,
+        .camera-bar custom-icon-button {
+          width: 100%;
+        }
+
+        .camera-wrapper {
+          min-height: 320px;
+        }
       }
     `
   ]
@@ -194,6 +314,12 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   _saveInvoice = async () => {
     const selectedCompany = this.companyChips.selected[0]
     const selectedJob = this.jobChips.selected[0]
+    const companies = ((this as any).companies || {}) as Record<string, any>
+    const userId = (this.user as User & { id?: string })?.id || this.user?.email
+
+    if (!this.notes && !selectedJob) return alert('Please select a job or add notes')
+    if (!this.notes) this.notes = 'No notes'
+    if (!selectedCompany) return alert('Please select a company')
 
     const _date = new Date()
     const date = _date.toISOString()
@@ -204,7 +330,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
 
     const invoiceId = crypto.randomUUID()
     const invoiceImage = this.dataURLtoFile(this.dataUrl, invoiceId)
-    const invoiceName = `${this.companies[selectedCompany].name} ${formattedDate} ${formattedTime}`
+    const invoiceName = `${companies[selectedCompany]?.name || 'Invoice'} ${formattedDate} ${formattedTime}`
 
     const formData = new FormData()
     formData.append('files', invoiceImage)
@@ -227,17 +353,13 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     const invoiceImages = await response.json()
     console.log(invoiceImages)
 
-    if (!this.notes && !selectedJob) return alert('Please select a job or add notes')
-    if (!this.notes) this.notes = 'No notes'
-    if (!selectedCompany) return alert('Please select a company')
-
-    const invoice: Invoice = {
+    const invoice: Invoice & { notes: string } = {
       name: invoiceName,
       description: 'Invoice description',
       invoiceImages,
       company: selectedCompany,
       job: selectedJob,
-      user: this.user.id,
+      user: userId,
       createdAt: date,
       updatedAt: date,
       notes: this.notes
@@ -280,65 +402,88 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   renderAddInvoice() {
     if (this.takingPicture) {
       return html`
-        <span class="camera-wrapper"
-          ><video></video>
-          <span class="camera-bar">
-            <custom-icon-button
-              icon="photo_camera"
-              @click=${() => this._takePicture()}></custom-icon-button>
-            <custom-icon-button
-              icon="cameraswitch"
-              @click=${() => this._switchcamera()}></custom-icon-button>
+        <section class="capture-panel">
+          <div class="workspace-head">
+            <span class="panel-kicker">Capture</span>
+            <div class="panel-title-wrap">
+              <h2 class="panel-title">Factuur vastleggen</h2>
+              <p class="panel-description">Maak een scherpe opname en werk daarna metadata en notities bij.</p>
+            </div>
+          </div>
+          <span class="camera-wrapper"
+            ><video></video>
+            <span class="camera-bar">
+              <button
+                class="primary"
+                @click=${() => this._takePicture()}>
+                Neem foto
+              </button>
+              <button @click=${() => this._switchcamera()}>Wissel camera</button>
+            </span>
           </span>
-        </span>
+        </section>
       `
     }
-    return html`<md-fab
-        icon="add"
-        @click=${() => this._saveInvoice()}
-        @keyup=${(event) => this._handleFabKeyUp(event)}>
-        <custom-icon
-          icon="save"
-          slot="icon"></custom-icon
-      ></md-fab>
-      <img
-        src=${this.dataUrl}
-        adding-invoice-image />
-      <span>
-        <chip-field
-          label="jobs"
-          customEvent
-          multi
-          @add-chip=${(event) => {
-            this._createJob()
-          }}
-          .chips=${Object.entries(this.jobs || {}).map(([uuid, data]) => {
-            return {
+    return html`
+      <section class="capture-panel">
+        <div class="workspace-head">
+          <span class="panel-kicker">Review</span>
+          <div class="panel-title-row">
+            <div class="panel-title-wrap">
+              <h2 class="panel-title">Factuur bewaren</h2>
+              <p class="panel-description">Koppel de opname aan een job of company en voeg context toe voor later.</p>
+            </div>
+            <button
+              class="primary"
+              @click=${() => this._saveInvoice()}>
+              Bewaar factuur
+            </button>
+          </div>
+        </div>
+
+        <img
+          src=${this.dataUrl}
+          adding-invoice-image />
+
+        <div class="capture-form">
+          <chip-field
+            label="jobs"
+            customEvent
+            multi
+            @add-chip=${() => {
+              this._createJob()
+            }}
+            .chips=${(Object.entries(this.jobs || {}) as Array<[string, any]>).map(([uuid, data]) => {
+              return {
+                label: data.name,
+                value: uuid
+              }
+            })}></chip-field>
+
+          <chip-field
+            label="companies"
+            customEvent
+            @add-chip=${() => {
+              ;(this as any)._addCompany()
+            }}
+            .chips=${(
+              Object.entries(((this as any).companies || {}) as Record<string, any>) as Array<[string, any]>
+            ).map(([uuid, data]) => ({
               label: data.name,
               value: uuid
-            }
-          })}></chip-field>
+            }))}></chip-field>
 
-        <chip-field
-          label="companies"
-          customEvent
-          @add-chip=${(event) => {
-            this._addCompany()
-          }}
-          .chips=${Object.entries(this.companies || {}).map(([uuid, data]) => ({
-            label: data.name,
-            value: uuid
-          }))}></chip-field
-      ></span>
-
-      <md-outlined-text-field
-        label="Notes"
-        @input=${(e) =>
-          debounce(() => {
-            this.notes = e.target.value
-          }, 500)}
-        style="width: 100%; margin-top: 16px;">
-      </md-outlined-text-field>`
+          <md-outlined-text-field
+            class="notes-field"
+            label="Notes"
+            @input=${(e) =>
+              debounce(() => {
+                this.notes = e.target.value
+              }, 500)}>
+          </md-outlined-text-field>
+        </div>
+      </section>
+    `
   }
 
   _deleteInvoice = async (key: string) => {
@@ -362,29 +507,39 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     return this.addingInvoice
       ? this.renderAddInvoice()
       : html`
-          <view-header
-            title="Invoices"
-            description="Manage your invoices"
-            icon="receipt"></view-header>
+          <section class="workspace-panel">
+            <div class="workspace-head">
+              <span class="panel-kicker">Finance workspace</span>
+              <div class="panel-title-row">
+                <div class="panel-title-wrap">
+                  <h2 class="panel-title">Invoices</h2>
+                  <p class="panel-description">
+                    Beheer inkomende facturen en voeg nieuwe beelden of notities toe vanuit dezelfde workspace.
+                  </p>
+                </div>
+                <button
+                  class="primary"
+                  @click=${() => this._addInvoice()}>
+                  Nieuwe factuur
+                </button>
+              </div>
+            </div>
+          </section>
 
-          <md-fab
-            icon="add"
-            @click=${() => this._addInvoice()}
-            @keyup=${(event) => this._handleFabKeyUp(event)}>
-            <custom-icon
-              icon="add"
-              slot="icon"></custom-icon
-          ></md-fab>
-          ${Object.entries(this.invoices || {}).map(
-            ([key, invoice]) => html`
-              <list-item
-                .href=${`#!/invoice?selected=${key}`}
-                .headline=${invoice?.name}
-                .subheadline=${invoice?.place?.formattedAddress}
-                .key=${key}
-                .delete=${this._deleteInvoice ? this._deleteInvoice.bind(this, key) : undefined}></list-item>
-            `
-          )}
+          <section class="list-panel">
+            <div class="list-stack">
+              ${Object.entries(this.invoices || {}).map(
+                ([key, invoice]) => html`
+                  <list-item
+                    .href=${`#!/invoice?selected=${key}`}
+                    .headline=${invoice?.name}
+                    .subheadline=${invoice?.place?.formattedAddress}
+                    .key=${key}
+                    .delete=${this._deleteInvoice ? this._deleteInvoice.bind(this, key) : undefined}></list-item>
+                `
+              )}
+            </div>
+          </section>
         `
   }
 }

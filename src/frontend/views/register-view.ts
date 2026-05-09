@@ -17,30 +17,70 @@ export class RegisterView extends LiteElement {
       :host {
         display: flex;
         flex-direction: column;
-        align-items: center;
         height: 100%;
         width: 100%;
-      }
-      .row {
-        width: 100%;
-        display: flex;
-        flex-direction: row;
-        align-items: center;
+        max-width: 760px;
+        padding: 16px;
+        box-sizing: border-box;
+        gap: 18px;
       }
 
-      md-fab {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        z-index: 1000;
+      .register-panel,
+      .profile-panel {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 18px;
+        border-radius: 24px;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
+        border: 1px solid var(--app-border);
+        box-shadow: var(--app-shadow-strong);
+        box-sizing: border-box;
+      }
+
+      .profile-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
       }
 
       img {
-        border-radius: 8px;
-        margin-bottom: 16px;
-        margin-top: 16px;
+        width: 96px;
+        height: 96px;
+        border-radius: 24px;
+        object-fit: cover;
+        border: 2px solid color-mix(in srgb, var(--app-accent) 26%, white 74%);
       }
-      /* Add your styles here */
+
+      h2,
+      p {
+        margin: 0;
+      }
+
+      p {
+        color: var(--md-sys-color-on-surface-variant);
+      }
+
+      custom-button {
+        width: fit-content;
+      }
+
+      @media (max-width: 720px) {
+        :host {
+          padding: 12px;
+        }
+
+        .register-panel,
+        .profile-panel {
+          padding: 16px;
+          border-radius: 20px;
+        }
+
+        custom-button {
+          width: 100%;
+        }
+      }
     `
   ]
 
@@ -74,26 +114,28 @@ export class RegisterView extends LiteElement {
         description="Create your account"
         icon="person"></view-header>
 
-      <img
-        src=${this.user?.picture}
-        alt="Profile Picture" />
-      <div>
-        <h2>${this.user?.name}</h2>
-        <p>${this.user?.email}</p>
-      </div>
+      <section class="profile-panel">
+        <img
+          src=${this.user?.picture}
+          alt="Profile Picture" />
+        <div class="profile-meta">
+          <h2>${this.user?.name}</h2>
+          <p>${this.user?.email}</p>
+        </div>
+      </section>
 
-      <data-input
-        label="telephone"
-        .type="tel"></data-input>
+      <section class="register-panel">
+        <data-input label="telephone"></data-input>
 
-      <data-input
-        type="place"
-        label="place"></data-input>
+        <data-input
+          type="place"
+          label="place"></data-input>
 
-      <custom-button
-        label="Register"
-        type="tonal"
-        @click=${() => this._registerUser()}></custom-button>
+        <custom-button
+          label="Register"
+          type="tonal"
+          @click=${() => this._registerUser()}></custom-button>
+      </section>
     `
   }
 }

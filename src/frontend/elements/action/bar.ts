@@ -1,4 +1,4 @@
-import { LiteElement, html, css, property, assignedElements } from '@vandeurenglenn/lite'
+import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/dropdown-menu.js'
 
 export class ActionBar extends LiteElement {
@@ -15,21 +15,38 @@ export class ActionBar extends LiteElement {
         display: flex;
         flex-direction: row;
         justify-content: flex-end;
-        gap: 6px;
+        gap: 10px;
+        flex-wrap: wrap;
         align-items: center;
-        padding: 16px;
-        background-color: var(--md-sys-color-surface);
+        padding: 14px 16px;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
         color: var(--md-sys-color-on-surface);
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        border-radius: var(--md-sys-shape-corner-small);
+        box-shadow: var(--app-shadow-soft);
+        border-radius: 20px;
+        border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent 18%);
         width: 100%;
-        height: 56px;
+        min-height: 64px;
         box-sizing: border-box;
+      }
+
+      ::slotted(*) {
+        flex: 0 0 auto;
       }
 
       custom-dropdown-menu::part(dropdown) {
         max-height: 300px;
         overflow-y: auto;
+      }
+
+      @media (max-width: 720px) {
+        :host {
+          padding: 12px;
+          border-radius: 18px;
+        }
+
+        ::slotted(*) {
+          width: 100%;
+        }
       }
     `
   ]
@@ -50,7 +67,7 @@ export class ActionBar extends LiteElement {
     const leadingSlot = this.shadowRoot.querySelector('slot[name="leading"]') as HTMLSlotElement
     const leadingSlotElements = leadingSlot.assignedElements()
     const dropdownSlot = this.shadowRoot.querySelector('slot[name="dropdown"]') as HTMLSlotElement
-    const dropdownSlotElements = dropdownSlot.assignedElements()
+    const dropdownSlotElements = dropdownSlot?.assignedElements?.() || []
   }
 
   onresize = (event) => {
@@ -119,26 +136,22 @@ export class ActionBar extends LiteElement {
     this.setAttribute('aria-label', 'Action Bar')
     this.setup()
 
-    this.shadowRoot.querySelector('slot[name="leading"]').addEventListener('slotchange', () => {
-      this.shadowRoot
-        .querySelector('slot[name="leading"]')
-        .assignedElements()
-        .forEach((el) => {
-          if (el.hasAttribute('in-dropdown')) {
-            el.inDropdown = false
-          }
-        })
+    const leadingSlot = this.shadowRoot.querySelector('slot[name="leading"]') as HTMLSlotElement | null
+    leadingSlot?.addEventListener('slotchange', () => {
+      leadingSlot.assignedElements().forEach((el) => {
+        if (el.hasAttribute('in-dropdown')) {
+          ;(el as HTMLElement & { inDropdown?: boolean }).inDropdown = false
+        }
+      })
     })
 
-    this.shadowRoot.querySelector('slot[name="dropdown"]').addEventListener('slotchange', () => {
-      this.shadowRoot
-        .querySelector('slot[name="dropdown"]')
-        .assignedElements()
-        .forEach((el) => {
-          if (!el.hasAttribute('in-dropdown')) {
-            el.inDropdown = true
-          }
-        })
+    const dropdownSlot = this.shadowRoot.querySelector('slot[name="dropdown"]') as HTMLSlotElement | null
+    dropdownSlot?.addEventListener('slotchange', () => {
+      dropdownSlot.assignedElements().forEach((el) => {
+        if (!el.hasAttribute('in-dropdown')) {
+          ;(el as HTMLElement & { inDropdown?: boolean }).inDropdown = true
+        }
+      })
     })
 
     globalThis.addEventListener('resize', this.onresize)

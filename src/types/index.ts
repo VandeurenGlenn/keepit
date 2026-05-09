@@ -46,6 +46,7 @@ export interface Job extends BaseInput {
     createdAt: string
     author?: string
   }[]
+  status?: 'active' | 'completed'
 }
 
 export interface Company extends BaseInput {
@@ -69,6 +70,25 @@ export interface Invoice extends BaseInput {
   user: string
 }
 
+export interface MediaAsset {
+  id: string
+  filename: string
+  originalName: string
+  year: number
+  url: string
+  mimeType: string
+  size: number
+  collection: string
+  folder?: string
+  slot?: string
+  group?: string
+  order?: number
+  alt?: string
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export type BannedUser = {
   id: userId
   reason: string
@@ -89,6 +109,10 @@ export type Users = {
 
 export type Invoices = {
   [invoiceId: string]: Invoice
+}
+
+export type MediaAssets = {
+  [mediaId: string]: MediaAsset
 }
 
 export type BannedUsers = {

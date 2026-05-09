@@ -14,7 +14,7 @@ export class ErrorAnimation extends LiteElement {
         height: 100%;
 
         font-size: 1.5em;
-        color: #f44336;
+        color: var(--md-sys-color-error);
         animation: fadeIn 0.5s;
       }
 
@@ -43,7 +43,7 @@ export class ErrorAnimation extends LiteElement {
           cx="40"
           cy="40"
           r="38"
-          stroke="#f44336"
+          stroke="var(--md-sys-color-error)"
           stroke-width="4"
           fill="none" />
         <line
@@ -51,7 +51,7 @@ export class ErrorAnimation extends LiteElement {
           y1="28"
           x2="52"
           y2="52"
-          stroke="#f44336"
+          stroke="var(--md-sys-color-error)"
           stroke-width="6"
           stroke-linecap="round" />
         <line
@@ -59,7 +59,7 @@ export class ErrorAnimation extends LiteElement {
           y1="28"
           x2="28"
           y2="52"
-          stroke="#f44336"
+          stroke="var(--md-sys-color-error)"
           stroke-width="6"
           stroke-linecap="round" />
       </svg>
@@ -68,7 +68,12 @@ export class ErrorAnimation extends LiteElement {
         ? html`<div style="margin-top: 16px;">
             <a
               href=${this.action.href}
-              @click=${(e) => (document.querySelector('app-shell').error = undefined)}
+              @click=${() => {
+                const appShell = document.querySelector('app-shell') as ErrorAnimation & {
+                  error?: unknown
+                }
+                if (appShell) appShell.error = undefined
+              }}
               ><custom-button label=${this.action.label}></custom-button
             ></a>
           </div>`

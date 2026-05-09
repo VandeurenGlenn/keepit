@@ -1,5 +1,5 @@
 :host {
-  background: var(--md-sys-color-surface-container);
+  background: color-mix(in srgb, #0f1014 40%, transparent 60%);
   color: var(--md-sys-color-on-surface-container);
 
   display: flex;
@@ -11,40 +11,77 @@
   left: 0;
   bottom: 0;
   right: 0;
+  z-index: 2200;
+  padding: 20px;
+  box-sizing: border-box;
+  backdrop-filter: blur(18px);
 }
 
 .hero {
-  background: var(--md-sys-color-surface-container-high);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
   color: var(--md-sys-color-on-surface-container-high);
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-  min-width: 240px;
-  max-width: 360px;
+  padding: 24px;
+  border-radius: 28px;
+  box-shadow: var(--app-shadow-strong);
+  border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
+  width: min(100%, 560px);
+  max-width: 560px;
+  box-sizing: border-box;
 }
 h2 {
   margin: 0;
-  font-size: 24px;
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
   font-weight: 600;
-  color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-surface);
 }
 
 header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   width: 100%;
 }
-.step-info {
-  margin-bottom: 32px;
+
+header small {
+  display: inline-flex;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
+
+.step-info {
+  margin: 6px 0 24px;
+}
+
+.step-info h3,
+.step-info p {
+  margin: 0;
+}
+
+.step-info h3 {
+  font-size: 1.08rem;
+  color: var(--md-sys-color-on-surface);
+}
+
+.step-info p {
+  margin-top: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.55;
+}
+
 footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 
   width: 100%;
-  margin-top: 32px;
+  margin-top: 28px;
 }
 
 :host([is-first-step]) footer {
@@ -52,5 +89,33 @@ footer {
 }
 
 custom-icon-button[icon='close'] {
-  margin: 8px 0
+  position: absolute;
+  top: 28px;
+  right: 28px;
+}
+
+@media (max-width: 720px) {
+  :host {
+    padding: 12px;
+  }
+
+  .hero {
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  header,
+  footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  header small {
+    width: fit-content;
+  }
+
+  custom-icon-button[icon='close'] {
+    top: 18px;
+    right: 18px;
+  }
 }

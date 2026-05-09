@@ -6,6 +6,7 @@ const router = new Router({
 })
 
 router.post('/', async (ctx, next) => {
+  console.log('Registering user', ctx.state.userid)
   if (users[ctx.state.userid]) {
     ctx.status = 400
     ctx.body = { error: 'User already registered' }

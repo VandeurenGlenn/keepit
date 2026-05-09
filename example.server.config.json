@@ -1,4 +1,7 @@
 {
+  "session": {
+    "secret": "replace-with-a-long-random-session-secret"
+  },
   "email": {
     "service": "mailtrap",
     "auth": {

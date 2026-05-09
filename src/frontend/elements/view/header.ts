@@ -11,16 +11,21 @@ export class ViewHeader extends LiteElement {
     css`
       :host {
         display: block;
-        background-color: var(--md-sys-color-tertiary);
+        background:
+          radial-gradient(circle at top right, color-mix(in srgb, white 18%, transparent 82%), transparent 28%),
+          linear-gradient(135deg, color-mix(in srgb, var(--app-accent) 86%, white 14%), var(--md-sys-color-tertiary));
         color: var(--md-sys-color-on-tertiary);
-        border-radius: var(--md-sys-shape-corner-small);
+        border-radius: 26px;
         --custom-icon-color: var(--md-sys-color-on-tertiary);
         --custom-icon-size: 110px;
         margin: 16px 0;
 
         width: 100%;
-        padding: 16px;
+        padding: 20px 22px;
         box-sizing: border-box;
+        border: 1px solid color-mix(in srgb, var(--app-accent) 42%, white 58%);
+        box-shadow: 0 24px 54px rgba(78, 41, 18, 0.24);
+        overflow: hidden;
       }
 
       a {
@@ -30,9 +35,29 @@ export class ViewHeader extends LiteElement {
 
         display: flex;
         flex-direction: column;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
         pointer-events: none;
+        gap: 10px;
+      }
+
+      h1,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(1.6rem, 2vw, 2.2rem);
+        line-height: 1.05;
+      }
+
+      p {
+        max-width: 34ch;
+        color: color-mix(in srgb, var(--md-sys-color-on-tertiary) 82%, transparent 18%);
+      }
+
+      custom-icon {
+        align-self: flex-end;
       }
 
       :host([href]) a {
@@ -42,7 +67,8 @@ export class ViewHeader extends LiteElement {
 
       :host([disabled]) {
         pointer-events: none;
-        opacity: 0.5;
+        opacity: 0.52;
+        filter: saturate(0.76);
       }
       :host([disabled]) a {
         pointer-events: none;

@@ -8,6 +8,8 @@ import { CustomSelector } from '@vandeurenglenn/lite-elements/selector'
 import '@vandeurenglenn/lite-elements/selector.js'
 import '@material/web/textfield/outlined-text-field.js'
 
+declare const google: typeof globalThis.google
+
 export class DataInput extends LiteElement {
   @property({ type: String }) accessor label = ''
 
@@ -17,6 +19,9 @@ export class DataInput extends LiteElement {
 
   @property({ type: Object }) accessor place: { formattedAddress: string; displayName: string }
 
+  timeout?: ReturnType<typeof setTimeout>
+  suggestions: any[] = []
+
   @query('custom-dropdown') accessor dropdown: CustomDropdown
   @query('custom-selector') accessor selector: CustomSelector
 
@@ -25,43 +30,109 @@ export class DataInput extends LiteElement {
       :host {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        justify-content: center;
+        width: 100%;
       }
+
+      .input {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        width: 100%;
+      }
+
       li {
         appearance: none;
         display: flex;
         flex-direction: row;
-        padding: 16px;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 14px 16px;
         box-sizing: border-box;
-        border-bottom: 1px solid var(--md-sys-color-outline);
+        border: 1px solid color-mix(in srgb, var(--app-border) 80%, transparent 20%);
+        border-radius: 18px;
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--app-panel-strong) 94%, white 6%),
+          var(--app-panel-strong)
+        );
+        box-shadow: var(--app-shadow-soft);
         cursor: pointer;
+        transition:
+          transform 0.18s ease,
+          border-color 0.18s ease,
+          box-shadow 0.18s ease;
+      }
+
+      li:hover {
+        transform: translateY(-1px);
+        border-color: color-mix(in srgb, var(--app-accent) 38%, var(--app-border) 62%);
+        box-shadow: var(--app-shadow-strong);
       }
 
       li * {
         pointer-events: none;
       }
 
-      custom-icon {
-        margin-right: 12px;
+      li .body {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      li .title {
+        font-weight: 700;
+        color: var(--md-sys-color-on-surface);
+      }
+
+      li .subtitle {
+        color: var(--md-sys-color-on-surface-variant);
+        line-height: 1.45;
       }
 
       custom-dropdown {
         overflow-y: auto;
         max-height: 300px;
+        border-radius: 20px;
+        background: color-mix(in srgb, var(--app-panel) 94%, white 6%);
+        border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
+        box-shadow: var(--app-shadow-strong);
+      }
+
+      custom-selector {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 10px;
       }
 
       md-outlined-text-field {
         width: 100%;
-        max-width: 400px;
-        margin-bottom: 16px;
+        max-width: none;
       }
+
       custom-icon {
-        margin-left: 12px;
+        margin-left: 0;
       }
 
       p {
-        margin: 24px 12px;
+        margin: 0;
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--app-accent) 10%, var(--app-panel) 90%);
+        border: 1px solid color-mix(in srgb, var(--app-border) 80%, transparent 20%);
+        color: var(--md-sys-color-on-surface-variant);
+        line-height: 1.5;
+      }
+
+      @media (max-width: 720px) {
+        li {
+          padding: 12px 14px;
+          border-radius: 16px;
+        }
+
+        custom-selector {
+          padding: 8px;
+        }
       }
     `
   ]

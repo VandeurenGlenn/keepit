@@ -1,10 +1,46 @@
-:root {
-}
-
 :host {
   display: block;
   height: 100%;
   width: 100%;
+  --app-accent: #a85427;
+  --app-accent-strong: #8e451f;
+  --app-accent-soft: color-mix(in srgb, var(--app-accent) 16%, transparent 84%);
+  --app-accent-soft-strong: color-mix(in srgb, var(--app-accent) 24%, transparent 76%);
+  --app-border: color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent 70%);
+  --app-panel: color-mix(in srgb, var(--md-sys-color-surface) 94%, white 6%);
+  --app-panel-strong: color-mix(in srgb, var(--md-sys-color-surface) 88%, white 12%);
+  --app-shadow-soft: 0 18px 40px rgba(28, 17, 10, 0.1);
+  --app-shadow-strong: 0 24px 60px rgba(28, 17, 10, 0.18);
+  --app-sidebar-background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--md-sys-color-surface) 85%, white 15%),
+    color-mix(in srgb, var(--md-sys-color-surface-container) 92%, var(--app-accent) 8%)
+  );
+  --app-main-background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--app-accent) 12%, transparent 88%), transparent 34%),
+    radial-gradient(
+      circle at top right,
+      color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent 90%),
+      transparent 28%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--md-sys-color-background) 96%, white 4%),
+      var(--md-sys-color-background)
+    );
+  --app-success: #2f8f5b;
+  --app-success-soft: color-mix(in srgb, var(--app-success) 18%, transparent 82%);
+  --md-sys-color-primary: var(--app-accent);
+  --md-sys-color-on-primary: #fff7f2;
+  --md-sys-color-primary-container: color-mix(in srgb, var(--app-accent) 20%, white 80%);
+  --md-sys-color-on-primary-container: #402111;
+  --md-sys-color-tertiary: color-mix(in srgb, var(--app-accent) 82%, #21130c 18%);
+  --md-sys-color-on-tertiary: #fff8f3;
+  --md-sys-color-tertiary-container: color-mix(in srgb, var(--app-accent) 18%, white 82%);
+  --md-sys-color-on-tertiary-container: #472414;
+  --md-sys-color-error: #b84a3d;
+  --md-sys-color-on-error: #fff8f7;
+  font-family: 'Avenir Next', 'Segoe UI', sans-serif;
 }
 
 header {
@@ -13,6 +49,8 @@ header {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  padding: 12px 24px 0;
+  box-sizing: border-box;
 }
 
 a {
@@ -28,12 +66,19 @@ aside {
   bottom: 0;
   width: 320px;
   pointer-events: auto;
-  box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--app-shadow-strong);
   color: var(--md-sys-color-on-surface-container-high);
   border-top-right-radius: 24px;
   border-bottom-right-radius: 24px;
   overflow: hidden;
+  background: var(--app-sidebar-background);
+  border-right: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent 28%);
 }
+
+:host(:not([signed-in])) aside {
+  display: none;
+}
+
 main {
   display: flex;
   flex-direction: column;
@@ -43,14 +88,245 @@ main {
   bottom: 0;
   right: 0;
   overflow: auto;
-  background-color: var(--app-background-color);
-  color: var(--app-text-color);
+  background: var(--app-main-background);
+  color: var(--md-sys-color-on-background);
   align-items: center;
+  position: absolute;
+}
+
+.signed-out-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 100%;
+  padding: 40px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.signed-out-shell::before,
+.signed-out-shell::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  border-radius: 999px;
+  filter: blur(10px);
+}
+
+.signed-out-shell::before {
+  width: 280px;
+  height: 280px;
+  top: 8%;
+  left: 10%;
+  background: color-mix(in srgb, var(--app-accent) 16%, transparent 84%);
+}
+
+.signed-out-shell::after {
+  width: 360px;
+  height: 360px;
+  right: 8%;
+  bottom: 6%;
+  background: color-mix(in srgb, white 9%, transparent 91%);
+}
+
+.signed-out-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 24px;
+  width: min(100%, 980px);
+  padding: 34px;
+  border-radius: 36px;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, white 9%, transparent 91%), transparent 26%),
+    linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 97%, white 3%), var(--app-panel));
+  border: 1px solid color-mix(in srgb, var(--app-border) 76%, transparent 24%);
+  box-shadow: var(--app-shadow-strong);
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.signed-out-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--app-accent) 44%, transparent 56%),
+    transparent
+  );
+}
+
+.signed-out-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.signed-out-brand {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+.signed-out-logo {
+  width: 160px;
+  max-width: 42vw;
+}
+
+.signed-out-brand-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.signed-out-subkicker {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.signed-out-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-success) 16%, transparent 84%);
+  color: var(--app-success);
+  border: 1px solid color-mix(in srgb, var(--app-success) 24%, transparent 76%);
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.signed-out-status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.signed-out-panel h1,
+.signed-out-panel p {
+  margin: 0;
+}
+
+.signed-out-hero-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 24px;
+  align-items: end;
+}
+
+.signed-out-panel h1 {
+  font-size: clamp(2.5rem, 6vw, 5rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  max-width: 10ch;
+}
+
+.signed-out-panel p {
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.6;
+  font-size: 1.05rem;
+  max-width: 28ch;
+}
+
+.signed-out-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+#google-signin-anchor {
+  display: flex;
+  justify-content: center;
+  width: min(100%, 380px);
+  min-height: 44px;
+}
+
+.signed-out-highlights {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.signed-out-highlight {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  border-radius: 22px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--app-panel-strong) 96%, white 4%),
+    color-mix(in srgb, var(--app-panel-strong) 100%, black 0%)
+  );
+  border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent 18%);
+}
+
+.signed-out-highlight strong {
+  font-size: 0.98rem;
+}
+
+.signed-out-highlight span {
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.55;
+}
+
+.signed-out-signin {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+}
+
+.signed-out-footnote {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  max-width: 24ch;
+}
+
+main::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  left: 320px;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 14%, color-mix(in srgb, var(--app-accent) 10%, transparent 90%), transparent 18%),
+    radial-gradient(
+      circle at 86% 10%,
+      color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent 92%),
+      transparent 20%
+    );
+  opacity: 0.9;
 }
 
 .logo {
   box-sizing: border-box;
-  padding: 24px;
+  padding: 28px 24px 20px;
   overflow: hidden;
 }
 
@@ -74,6 +350,10 @@ flex-container {
   --flex-display-max-width: 960px;
 }
 
+flex-container.wide-workspace {
+  --flex-display-max-width: none;
+}
+
 custom-icon-button[icon='menu'] {
   position: absolute;
   top: 12px;
@@ -86,16 +366,23 @@ custom-icon-button[icon='menu'] {
 .nav-item {
   display: flex;
   align-items: center;
-  padding: 12px;
+  padding: 14px 16px;
   box-sizing: border-box;
   text-decoration: none;
-  font-size: 1.2em;
+  font-size: 1.02rem;
   font-weight: 500;
-  height: 48px;
+  min-height: 52px;
   cursor: pointer;
   gap: 12px;
   text-transform: capitalize;
   justify-content: space-between;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  transition:
+    transform 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .nav-container {
@@ -103,6 +390,7 @@ custom-icon-button[icon='menu'] {
   flex-direction: column;
   height: 100%;
   padding: 12px;
+  gap: 6px;
 }
 
 :host([is-narrow]) custom-icon-button[icon='menu'] {
@@ -115,7 +403,10 @@ custom-icon-button[icon='menu'] {
   pointer-events: none;
 
   max-width: 300px;
-  transition: opacity 0.3s ease-out, transform 0.3s ease-out, width 0.3s ease-out;
+  transition:
+    opacity 0.3s ease-out,
+    transform 0.3s ease-out,
+    width 0.3s ease-out;
   transform: translateX(-110%);
 }
 :host([is-narrow][is-menu-open]) aside {
@@ -125,8 +416,11 @@ custom-icon-button[icon='menu'] {
   width: 100%;
   position: fixed;
   z-index: 1000;
-  background-color: var(--md-sys-color-background);
-  transition: opacity 0.3s ease-in, transform 0.3s ease-in, width 0.3s ease-in;
+  background: var(--app-sidebar-background);
+  transition:
+    opacity 0.3s ease-in,
+    transform 0.3s ease-in,
+    width 0.3s ease-in;
 }
 
 custom-icon-button[icon='menu'] {
@@ -140,25 +434,111 @@ custom-icon-button[icon='menu'] {
   bottom: 0;
 }
 
+:host(:not([signed-in])) main {
+  left: 0;
+  top: 0;
+}
+
+:host([is-narrow]) main::before {
+  left: 0;
+}
+
 :host([is-medium-narrow]) img {
   width: 100%;
 }
 
 .active {
-  background-color: var(--md-sys-color-tertiary);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--app-accent) 88%, white 12%),
+    var(--md-sys-color-tertiary)
+  );
   color: var(--md-sys-color-on-tertiary);
-  border-radius: 12px;
+  border-radius: 16px;
   transition: background-color 0.3s ease-in-out;
-  box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 16px 34px rgba(78, 41, 18, 0.24);
   font-weight: 600;
   cursor: pointer;
   --custom-icon-color: var(--md-sys-color-on-tertiary);
+  border-color: color-mix(in srgb, var(--app-accent) 76%, white 24%);
 }
 
 .nav-item:hover:not(.active) {
-  background-color: #efb8c887;
-  box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
+  background: color-mix(in srgb, var(--app-accent) 10%, transparent 90%);
+  box-shadow: var(--app-shadow-soft);
   font-weight: 600;
   cursor: pointer;
-  border-radius: 12px;
+  border-radius: 16px;
+  border-color: color-mix(in srgb, var(--app-accent) 28%, transparent 72%);
+  transform: translateX(2px);
+}
+
+@media (max-width: 720px) {
+  header {
+    padding: 10px 12px 0 56px;
+    height: 68px;
+  }
+
+  aside {
+    width: 100%;
+    max-width: none;
+    border-radius: 0 0 24px 24px;
+  }
+
+  main {
+    left: 0;
+  }
+
+  .logo {
+    padding: 20px 18px 14px;
+  }
+
+  .nav-container {
+    padding: 10px;
+  }
+
+  .nav-item {
+    font-size: 0.96rem;
+    padding: 12px 14px;
+    min-height: 48px;
+  }
+
+  .signed-out-shell {
+    padding: 16px;
+  }
+
+  .signed-out-panel {
+    width: 100%;
+    padding: 22px;
+    border-radius: 26px;
+    gap: 22px;
+  }
+
+  .signed-out-brand-row,
+  .signed-out-brand,
+  .signed-out-hero-copy,
+  .signed-out-signin {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .signed-out-panel h1 {
+    font-size: clamp(2.4rem, 14vw, 4rem);
+    max-width: none;
+  }
+
+  .signed-out-panel p,
+  .signed-out-footnote {
+    max-width: none;
+  }
+
+  .signed-out-highlights {
+    grid-template-columns: 1fr;
+  }
+
+  #google-signin-anchor {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }

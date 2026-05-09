@@ -16,10 +16,13 @@ export class HomeView extends LiteElement {
         justify-content: center;
         height: 100%;
         width: 100%;
-        max-width: 720px;
+        max-width: 860px;
+        padding: 24px;
+        box-sizing: border-box;
+        gap: 8px;
       }
       view-header {
-        margin-bottom: 16px;
+        margin-bottom: 8px;
         cursor: pointer;
       }
     `

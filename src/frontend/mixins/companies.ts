@@ -70,20 +70,26 @@ export const CompaniesMixin = (base: typeof LiteElement) =>
       document.body.appendChild(dataFlow)
       const stepResults = await dataFlow.done
       this.creatingCompany = false
+      if (!stepResults) {
+        document.body.removeChild(dataFlow)
+        return
+      }
       const response = await fetch('/api/companies', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: localStorage.getItem('token')
         },
-        body: JSON.stringify(stepResults.reduce((acc, item) => ({ ...acc, ...item }), {}))
+        body: JSON.stringify(
+          (stepResults as Array<Record<string, any>>).reduce((acc, item) => ({ ...acc, ...item }), {})
+        )
       })
       const data = await response.json()
       console.log(data)
 
       this.companies = this.companies[data.uuid] = data.content
       document.body.removeChild(dataFlow)
-      const success = document.createElement('success-animation')
+      const success = document.createElement('success-animation') as HTMLElement & { message?: string }
       document.body.appendChild(success)
       success.message = 'Company created successfully!'
       setTimeout(() => {

@@ -8,25 +8,29 @@ export class AccountBar extends LiteElement {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 8px 12px;
+        padding: 10px 16px;
         box-sizing: border-box;
-
-        color: var(--md-sys-color-on-surface, #000);
-        background-color: var(--md-sys-color-surface, #fff);
+        border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
+        border-radius: 999px;
+        color: var(--md-sys-color-on-surface);
+        background: color-mix(in srgb, var(--app-panel) 92%, white 8%);
+        box-shadow: var(--app-shadow-soft);
+        backdrop-filter: blur(16px);
       }
       .user-info {
         display: flex;
         align-items: center;
+        gap: 12px;
       }
       .user-info img {
-        width: 40px;
-        height: 40px;
+        width: 42px;
+        height: 42px;
         border-radius: 50%;
-        margin-right: 8px;
-        margin-left: 16px;
+        border: 2px solid color-mix(in srgb, var(--app-accent) 28%, white 72%);
       }
       .user-info span {
-        font-size: 1em;
+        font-size: 0.98rem;
+        font-weight: 600;
       }
     `
   ]

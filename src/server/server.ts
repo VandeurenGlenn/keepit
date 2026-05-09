@@ -21,6 +21,7 @@ import handshake from './routes/handshake.js'
 import hours from './routes/hours.js'
 import contact from './routes/contact.js'
 import invoice from './routes/invoice.js'
+import media, { publicMedia } from './routes/media.js'
 import { handleWebSocketConnection } from './helpers/websocket.js'
 
 const api = new Koa()
@@ -38,6 +39,7 @@ api.use(bodyParser())
 
 // contact form
 api.use(contact)
+api.use(publicMedia)
 
 // internal middleware
 // set/check the user id & see if the user is authenticated
@@ -58,6 +60,7 @@ api.use(users)
 api.use(roles)
 api.use(companies)
 api.use(invoices)
+api.use(media)
 api.use(invoice)
 api.use(jobs)
 api.use(job)

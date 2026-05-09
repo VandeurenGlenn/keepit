@@ -23,16 +23,29 @@ export class ListItem extends LiteElement {
         padding: 16px;
         box-sizing: border-box;
         background-color: var(--md-sys-color-surface);
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        border-radius: 18px;
+        box-shadow: var(--app-shadow-soft);
         margin-bottom: 16px;
         color: var(--md-sys-color-on-surface);
-        transition: box-shadow 0.3s ease-in-out;
-        border: 1px solid var(--md-sys-color-outline);
-        border-radius: var(--md-sys-shape-corner-small);
-        background-color: var(--md-sys-color-surface-container);
+        transition:
+          box-shadow 0.3s ease-in-out,
+          transform 0.18s ease,
+          border-color 0.18s ease;
+        border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
+        border-radius: 18px;
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--app-panel-strong) 95%, white 5%),
+          var(--app-panel-strong)
+        );
         color: var(--md-sys-color-on-surface-container);
         width: 100%;
+      }
+
+      :host(:hover) {
+        transform: translateY(-1px);
+        box-shadow: var(--app-shadow-strong);
+        border-color: color-mix(in srgb, var(--app-accent) 34%, var(--app-border) 66%);
       }
 
       .headline-container {
@@ -64,6 +77,7 @@ export class ListItem extends LiteElement {
         align-items: center;
         width: 100%;
         height: 100%;
+        gap: 14px;
       }
     `
   ]

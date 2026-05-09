@@ -12,7 +12,7 @@ export class SuccessAnimation extends LiteElement {
         height: 100%;
 
         font-size: 1.5em;
-        color: #4caf50;
+        color: var(--app-success);
         animation: fadeIn 0.5s;
       }
 
@@ -36,13 +36,13 @@ export class SuccessAnimation extends LiteElement {
           cx="40"
           cy="40"
           r="38"
-          stroke="#4caf50"
+          stroke="var(--app-success)"
           stroke-width="4"
           fill="none" />
         <polyline
           points="25,45 38,58 58,32"
           fill="none"
-          stroke="#4caf50"
+          stroke="var(--app-success)"
           stroke-width="5"
           stroke-linecap="round"
           stroke-linejoin="round" />
