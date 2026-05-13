@@ -1,5 +1,6 @@
 import { LiteElement, html, css, query, property } from '@vandeurenglenn/lite'
 import { DataFlow } from '../flows/data.js'
+import { api } from '../api/client.js'
 import '../flows/data.js'
 import '../flows/data-input.js'
 
@@ -74,44 +75,39 @@ export const CompaniesMixin = (base: typeof LiteElement) =>
         document.body.removeChild(dataFlow)
         return
       }
-      const response = await fetch('/api/companies', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: localStorage.getItem('token')
-        },
-        body: JSON.stringify(
-          (stepResults as Array<Record<string, any>>).reduce((acc, item) => ({ ...acc, ...item }), {})
-        )
-      })
-      const data = await response.json()
-      console.log(data)
 
-      this.companies = this.companies[data.uuid] = data.content
-      document.body.removeChild(dataFlow)
-      const success = document.createElement('success-animation') as HTMLElement & { message?: string }
-      document.body.appendChild(success)
-      success.message = 'Company created successfully!'
-      setTimeout(() => {
-        document.body.removeChild(success)
-      }, 1200) // 1.2s for animation
+      try {
+        const companyData = (stepResults as Array<Record<string, any>>).reduce((acc, item) => ({ ...acc, ...item }), {})
+        const data = await api.createCompany(companyData)
+        this.companies = this.companies || {}
+        this.companies[data.uuid] = data
+        document.body.removeChild(dataFlow)
+        const success = document.createElement('success-animation') as HTMLElement & { message?: string }
+        document.body.appendChild(success)
+        success.message = 'Company created successfully!'
+        setTimeout(() => {
+          document.body.removeChild(success)
+        }, 1200) // 1.2s for animation
+      } catch (error) {
+        console.error('Error creating company:', error)
+        this.creatingCompany = false
+        document.body.removeChild(dataFlow)
+        alert('Failed to create company')
+      }
     }
 
     _deleteCompany = async (uuid) => {
       const answer = confirm('Are you sure you want to delete this company?')
       if (!answer) return
-      const response = await fetch(`/api/companies/${uuid}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: localStorage.getItem('token')
-        }
-      })
-      if (!response.ok) {
-        console.error('Error deleting company:', response.statusText)
-        return
+
+      try {
+        await api.deleteCompany(uuid)
+        delete this.companies[uuid]
+        this.requestRender()
+      } catch (error) {
+        console.error('Error deleting company:', error)
+        alert('Failed to delete company')
       }
-      delete this.companies[uuid]
-      this.requestRender()
     }
 
     _handleFabKeyUp = (event) => {

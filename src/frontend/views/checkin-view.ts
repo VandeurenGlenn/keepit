@@ -6,6 +6,7 @@ import '@vandeurenglenn/flex-elements/row.js'
 import { ChipField } from '../elements/chip/field.js'
 import './../elements/chip/field.js'
 import { JobsMixin } from '../mixins/jobs.js'
+import { api } from '../api/client.js'
 import '../animations/success.js'
 import '../animations/error.js'
 import '@material/web/select/outlined-select.js'
@@ -147,6 +148,11 @@ export class CheckinView extends JobsMixin(LiteElement) {
   ]
 
   async _addCheckin() {
+    if (!this.user?.id) {
+      console.error('Missing user id for checkin')
+      return
+    }
+
     const date = this.dateInput.value // e.g. "2025-05-20"
     const time = this.timeInput.value // e.g. "14:30"
     // Combine date and time
@@ -159,28 +165,16 @@ export class CheckinView extends JobsMixin(LiteElement) {
     }
     this.select.reportValidity()
     console.log(this.user)
-    const response = await fetch('/api/hours/checkin', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: localStorage.getItem('token')
-      },
 
-      body: JSON.stringify({
-        checkin,
-        userId: this.user.id,
-        date: this.dateInput.value,
-        job: this.select.value
-      })
-    })
-    if (response.status === 200) {
+    try {
+      await api.checkIn(this.select.value, this.user.id, checkin)
       this.success = true // <-- Show animation
       setTimeout(() => {
         location.href = '#!/home'
       }, 1200) // 1.2s for animation
-    } else {
-      const { error, currentJob, steps } = await response.json()
-      this.error = error
+    } catch (error) {
+      console.error('Checkin failed:', error)
+      this.error = error instanceof Error ? error.message : 'Checkin failed'
     }
   }
 

@@ -3,11 +3,11 @@
  */
 export type userId = string
 
-export type jobId = Crypto['randomUUID']
+export type jobId = string
 
-export type prestationId = Crypto['randomUUID']
+export type prestationId = string
 
-export type invoiceId = Crypto['randomUUID']
+export type invoiceId = string
 
 export type Prestation = {
   description?: string
@@ -18,6 +18,14 @@ export type Prestation = {
   // duration in milliseconds (computed on checkout)
   duration?: number
   jobId?: jobId
+  invoicedAt?: EpochTimeStamp
+  invoiceId?: invoiceId
+}
+
+export interface InvoiceHourLine {
+  userId: userId
+  prestationIds: prestationId[]
+  totalDuration: number
 }
 
 export type Place = {
@@ -39,6 +47,7 @@ export interface Job extends BaseInput {
   hours?: {
     [userId: string]: string[]
   }
+  materials?: MaterialLine[]
   // Optional notes attached to the job
   notes?: {
     id: string
@@ -68,6 +77,23 @@ export interface Invoice extends BaseInput {
   company: string
   job: string
   user: string
+  notes?: string
+  year?: number
+  materials?: MaterialLine[]
+  hours?: InvoiceHourLine[]
+}
+
+export interface MaterialLine {
+  name: string
+  quantity: number
+  unit?: string
+  unitPrice?: number
+  articleNumber?: string
+  productNumber?: string
+  packagingQuantity?: number
+  description?: string
+  image?: string
+  technicalData?: Record<string, string>
 }
 
 export interface MediaAsset {
@@ -87,6 +113,46 @@ export interface MediaAsset {
   active: boolean
   createdAt: string
   updatedAt: string
+}
+
+export type orderId = string
+
+export interface ShopProduct {
+  id: string // Generated from material name + source
+  name: string
+  price: number
+  quantity?: number
+  unit?: string
+  source: 'desco' | 'alelek' // Which catalog it comes from
+  articleNumber?: string
+  productNumber?: string
+  packagingQuantity?: number
+  description?: string
+  image?: string
+  technicalData?: Record<string, string>
+  sku?: string
+}
+
+export interface ShopOrderItem {
+  productId: string
+  name: string
+  quantity: number
+  unitPrice: number
+  subtotal: number
+}
+
+export interface ShopOrder extends BaseInput {
+  id: string
+  userId: userId
+  items: ShopOrderItem[]
+  total: number
+  status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled'
+  shippingAddress?: string
+  notes?: string
+}
+
+export type ShopOrders = {
+  [orderId: string]: ShopOrder
 }
 
 export type BannedUser = {

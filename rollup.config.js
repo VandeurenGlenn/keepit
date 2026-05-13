@@ -50,12 +50,9 @@ const rollupUpdateBuildInfo = () => {
     async buildEnd(error) {
       if (isProduction && !error) {
         await writeFile('./package.json', JSON.stringify(pkg, null, 2))
-        console.log(`Built version ${pkg.build.version} (build ${pkg.build.current})`)
       }
     },
     transform(code) {
-      console.log(pkg.build)
-
       return {
         code: code.replaceAll('// @build', `globalThis.__keepit__ = { build:  ${JSON.stringify(pkg.build)} }`),
         map: null
@@ -83,7 +80,7 @@ export default [
     ]
   },
   {
-    input: ['src/server/server.ts'],
+    input: ['src/server/server.ts', 'src/server/cli.ts'],
     output: {
       dir: 'server',
       format: 'es'

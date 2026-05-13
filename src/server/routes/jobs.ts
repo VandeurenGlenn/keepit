@@ -1,5 +1,6 @@
 import Router from '@koa/router'
 import { jobs, jobsStore } from './../database/database.js'
+import { Place } from '../../types/index.js'
 
 const router = new Router({
   prefix: '/api/jobs'
@@ -12,13 +13,28 @@ router.get('/', async (ctx) => {
 })
 
 router.post('/', async (ctx) => {
-  const { name, description, place } = ctx.request.body
-  const uuid = ctx.request.body.uuid || crypto.randomUUID()
+  const body = (ctx.request.body || {}) as {
+    name?: string
+    description?: string
+    place?: Place
+    uuid?: string
+  }
+
+  const { name, description, place } = body
+
+  if (!name || !description || !place) {
+    ctx.status = 400
+    ctx.body = { error: 'Missing required fields' }
+    return
+  }
+
+  const uuid = body.uuid || crypto.randomUUID()
 
   const job = {
     name,
     description,
     hours: {},
+    materials: [],
     place,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()

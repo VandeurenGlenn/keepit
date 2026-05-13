@@ -1,14 +1,37 @@
 import Router from '@koa/router'
 import { jobs, jobsStore, hours, hoursStore, users, usersStore } from './../database/database.js'
-import serve from 'koa-static'
 import { Prestation } from '../../types/index.js'
 
 const router = new Router({
   prefix: '/api/hours'
 })
 
+type CheckinBody = {
+  job?: string
+  userId?: string
+  checkin?: number | string
+}
+
+type CheckoutBody = {
+  job?: string
+  userId?: string
+  checkout?: number | string
+}
+
+const toTimestamp = (value: number | string | undefined): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+    const dateParsed = new Date(value).getTime()
+    if (!Number.isNaN(dateParsed)) return dateParsed
+  }
+  return Number.NaN
+}
+
 router.get('/job/:id', async (ctx) => {
   const jobId = ctx.params.id
+  const billableOnly = `${ctx.query.billableOnly || ''}`.toLowerCase() === 'true'
   if (!jobId || !jobs[jobId]) {
     ctx.status = 404
 
@@ -16,9 +39,19 @@ router.get('/job/:id', async (ctx) => {
     return
   }
   const job = jobs[jobId]
+  const jobHoursByUser = job.hours || {}
   const jobHours: { [userId: string]: Prestation[] } = {}
-  for (const [userId, prestationIds] of Object.entries(job.hours)) {
-    jobHours[userId] = prestationIds.map((id) => hours[userId][id])
+  for (const [userId, prestationIds] of Object.entries(jobHoursByUser)) {
+    const userHours = hours[userId] || {}
+    jobHours[userId] = prestationIds
+      .map((id) => userHours[id])
+      .filter((prestation): prestation is Prestation => {
+        if (!prestation) return false
+        if (!billableOnly) return true
+        const hasCheckout = typeof prestation.checkout === 'number' && Number.isFinite(prestation.checkout)
+        const notInvoiced = !prestation.invoiceId && !prestation.invoicedAt
+        return hasCheckout && notInvoiced
+      })
   }
   ctx.status = 200
   ctx.set('Content-Type', 'application/json')
@@ -27,10 +60,16 @@ router.get('/job/:id', async (ctx) => {
 })
 
 router.post('/checkin', async (ctx) => {
-  const { job, userId, checkin, date } = ctx.request.body || {}
+  const body = (ctx.request.body || {}) as CheckinBody
+  const { job, userId, checkin } = body
   if (!job || !userId) {
     ctx.status = 400
     ctx.body = { error: 'job and userId are required' }
+    return
+  }
+  if (!users[userId]) {
+    ctx.status = 404
+    ctx.body = { error: 'User not found' }
     return
   }
   if (!jobs[job]) {
@@ -47,13 +86,19 @@ router.post('/checkin', async (ctx) => {
     }
     return
   }
-  console.log('checkin', job, userId, checkin, date)
+
+  const checkinTs = toTimestamp(checkin)
+  if (Number.isNaN(checkinTs)) {
+    ctx.status = 400
+    ctx.body = { error: 'Invalid checkin value' }
+    return
+  }
 
   const prestationId = crypto.randomUUID()
   const prestation: Prestation = {
     description: '',
     duration: 0,
-    checkin,
+    checkin: checkinTs,
     serverCheckin: Date.now(),
     jobId: job
   }
@@ -66,6 +111,7 @@ router.post('/checkin', async (ctx) => {
 
   users[userId].currentJob = job
 
+  jobs[job].hours = jobs[job].hours || {}
   jobs[job].hours[userId] = jobs[job].hours[userId] || []
   jobs[job].hours[userId].push(prestationId)
 
@@ -84,10 +130,16 @@ router.post('/checkin', async (ctx) => {
 })
 
 router.post('/checkout', async (ctx) => {
-  const { job, userId, checkout, date } = ctx.request.body || {}
+  const body = (ctx.request.body || {}) as CheckoutBody
+  const { job, userId, checkout } = body
   if (!job || !userId) {
     ctx.status = 400
     ctx.body = { error: 'job and userId are required' }
+    return
+  }
+  if (!users[userId]) {
+    ctx.status = 404
+    ctx.body = { error: 'User not found' }
     return
   }
   if (!jobs[job]) {
@@ -104,8 +156,8 @@ router.post('/checkout', async (ctx) => {
 
   jobs[job].updatedAt = new Date().toISOString()
 
-  const prestations = jobs[job].hours[userId]
-  if (!prestations) {
+  const prestations = jobs[job].hours?.[userId]
+  if (!prestations || prestations.length === 0) {
     ctx.status = 404
     ctx.body = { error: 'Prestations not found' }
     return
@@ -113,25 +165,37 @@ router.post('/checkout', async (ctx) => {
 
   const prestationId = prestations[prestations.length - 1]
 
-  const prestation = hours[userId][prestationId]
-  prestation.checkout = checkout
-  prestation.serverCheckout = Date.now()
-  // compute duration in ms, prefer client-provided timestamps when available
-  try {
-    const checkinTs =
-      typeof prestation.checkin === 'number' ? prestation.checkin : new Date(prestation.checkin).getTime()
-    const checkoutTs = typeof checkout === 'number' ? checkout : new Date(checkout).getTime()
-    if (!Number.isNaN(checkinTs) && !Number.isNaN(checkoutTs)) {
-      prestation.duration = Math.max(0, checkoutTs - checkinTs)
-    }
-  } catch (e) {
-    // ignore duration computation errors
+  const prestation = hours[userId]?.[prestationId]
+  if (!prestation) {
+    ctx.status = 404
+    ctx.body = { error: 'Prestation not found' }
+    return
   }
 
-  users[userId].currentJob = null
+  if (prestation.checkout) {
+    ctx.status = 400
+    ctx.body = { error: 'This prestation is already checked out' }
+    return
+  }
+
+  const checkoutTs = toTimestamp(checkout)
+  if (Number.isNaN(checkoutTs)) {
+    ctx.status = 400
+    ctx.body = { error: 'Invalid checkout value' }
+    return
+  }
+
+  prestation.checkout = checkoutTs
+  prestation.serverCheckout = Date.now()
+  const checkinTs = toTimestamp(prestation.checkin)
+  if (!Number.isNaN(checkinTs)) {
+    prestation.duration = Math.max(0, checkoutTs - checkinTs)
+  }
+
+  users[userId].currentJob = undefined
 
   try {
-    const promises: Promise<any>[] = [hoursStore.put(hours), usersStore.put(users)]
+    const promises: Promise<unknown>[] = [jobsStore.put(jobs), hoursStore.put(hours), usersStore.put(users)]
     await Promise.all(promises)
     ctx.status = 200
     ctx.set('Content-Type', 'application/json')

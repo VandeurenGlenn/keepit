@@ -1,5 +1,6 @@
 import { html, property, LiteElement, query } from '@vandeurenglenn/lite'
 import { DataFlow } from '../flows/data.js'
+import { api } from '../api/client.js'
 import '../flows/data.js'
 import '../flows/data-input.js'
 import './../animations/success.js'
@@ -77,45 +78,37 @@ export const JobsMixin = (base: typeof LiteElement) =>
         return { ...acc, ...curr }
       }, {})
 
-      const response = await fetch('/api/jobs', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: localStorage.getItem('token')
-        },
-        body: JSON.stringify(result)
-      })
-      if (!response.ok) {
-        console.error('Error creating job:', response.statusText)
+      try {
+        const data = await api.createJob(result)
+        this.jobs[data.uuid] = data
         this.creatingJob = false
-        return
-      }
-      const data = await response.json()
-      this.jobs[data.uuid] = data.content
-      this.creatingJob = false
-      document.body.removeChild(dataFlow)
+        document.body.removeChild(dataFlow)
 
-      const success = document.createElement('success-animation') as HTMLElement & { message?: string }
-      document.body.appendChild(success)
-      success.message = 'Job created successfully!'
-      setTimeout(() => {
-        document.body.removeChild(success)
-      }, 1200) // 1.2s for animation
+        const success = document.createElement('success-animation') as HTMLElement & { message?: string }
+        document.body.appendChild(success)
+        success.message = 'Job created successfully!'
+        setTimeout(() => {
+          document.body.removeChild(success)
+        }, 1200) // 1.2s for animation
+      } catch (error) {
+        console.error('Error creating job:', error)
+        this.creatingJob = false
+        alert('Failed to create job')
+      }
     }
 
     _deleteJob = async (uuid) => {
       const answer = confirm('Are you sure you want to delete this job?')
       if (!answer) return
-      const response = await fetch(`/api/jobs/${uuid}`, {
-        method: 'DELETE',
-        headers: { Authorization: localStorage.getItem('token') }
-      })
-      if (!response.ok) {
-        console.error('Error deleting job:', response.statusText)
-        return
+
+      try {
+        await api.deleteJob(uuid)
+        delete this.jobs[uuid]
+        this.requestRender()
+      } catch (error) {
+        console.error('Error deleting job:', error)
+        alert('Failed to delete job')
       }
-      delete this.jobs[uuid]
-      this.requestRender()
     }
 
     _handleFabKeyUp = (event) => {

@@ -6,13 +6,15 @@ import '@vandeurenglenn/flex-elements/row.js'
 import { ChipField } from '../elements/chip/field.js'
 import './../elements/chip/field.js'
 import { JobsMixin } from '../mixins/jobs.js'
+import { api } from '../api/client.js'
 import '../animations/success.js'
 import '@material/web/select/outlined-select.js'
 import '@material/web/select/select-option.js'
 import { MdOutlinedSelect } from '@material/web/select/outlined-select.js'
 
 export class CheckoutView extends JobsMixin(LiteElement) {
-  @property({ type: Object, consumes: true }) accessor user
+  @property({ type: Object, consumes: true }) accessor user: { id?: string; currentJob?: string } | undefined =
+    undefined
   @property({ type: Boolean }) accessor success = false
   date = new Date().toISOString().split('T')[0]
 
@@ -23,9 +25,9 @@ export class CheckoutView extends JobsMixin(LiteElement) {
     hour12: false
   })
 
-  @query('input[type="date"]') accessor dateInput: HTMLInputElement
-  @query('input[type="time"]') accessor timeInput: HTMLInputElement
-  @query('md-outlined-select') accessor select: MdOutlinedSelect
+  @query('input[type="date"]') accessor dateInput!: HTMLInputElement
+  @query('input[type="time"]') accessor timeInput!: HTMLInputElement
+  @query('md-outlined-select') accessor select!: MdOutlinedSelect
 
   static styles = [
     css`
@@ -142,6 +144,11 @@ export class CheckoutView extends JobsMixin(LiteElement) {
   ]
 
   async _addCheckout() {
+    if (!this.user?.id) {
+      console.error('Missing user id for checkout')
+      return
+    }
+
     const date = this.dateInput.value // e.g. "2025-05-20"
     const time = this.timeInput.value // e.g. "14:30"
     // Combine date and time
@@ -154,27 +161,17 @@ export class CheckoutView extends JobsMixin(LiteElement) {
     }
     this.select.reportValidity()
     console.log(this.user)
-    const response = await fetch('/api/hours/checkout', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: localStorage.getItem('token')
-      },
 
-      body: JSON.stringify({
-        checkout,
-        userId: this.user.id,
-        date: this.dateInput.value,
-        job: this.select.value
-      })
-    })
-    if (response.status === 200) {
+    try {
+      await api.checkOut(this.select.value, this.user.id, checkout)
+
       this.success = true // <-- Show animation
       setTimeout(() => {
         location.href = '#!/home'
       }, 1200) // 1.2s for animation
-    } else {
-      console.error('Error adding checkout', response)
+    } catch (error) {
+      console.error('Checkout failed:', error)
+      alert(error instanceof Error ? error.message : 'Checkout failed')
     }
   }
 
@@ -215,7 +212,7 @@ export class CheckoutView extends JobsMixin(LiteElement) {
 
         <md-outlined-select
           label="Job"
-          .value=${this.user?.currentJob}
+          .value=${this.user?.currentJob || ''}
           required>
           ${(Object.entries(this.jobs || {}) as Array<[string, any]>).map(
             ([uuid, data]) => html`

@@ -1,5 +1,14 @@
 import Router from '@koa/router'
 import { companies, companiesStore } from '../database/database.js'
+import { Place } from '../../types/index.js'
+
+type CreateCompanyBody = {
+  name?: string
+  description?: string
+  logo?: string
+  place?: Place
+  uuid?: string
+}
 
 const router = new Router({
   prefix: '/api/companies'
@@ -12,7 +21,15 @@ router.get('/', async (ctx) => {
 })
 
 router.post('/', async (ctx) => {
-  const { name, description, logo, place } = ctx.request.body
+  const body = (ctx.request.body || {}) as CreateCompanyBody
+  const { name, description, logo, place } = body
+
+  if (!name || !description || !logo || !place) {
+    ctx.status = 400
+    ctx.body = { error: 'Missing required fields' }
+    return
+  }
+
   const company = {
     name,
     description,
@@ -21,7 +38,7 @@ router.post('/', async (ctx) => {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   }
-  const uuid = ctx.request.body.uuid || crypto.randomUUID()
+  const uuid = body.uuid || crypto.randomUUID()
 
   companies[uuid] = company
   await companiesStore.put(companies)

@@ -9,6 +9,7 @@ import '@vandeurenglenn/lite-elements/divider.js'
 import './elements/user/account-bar.js'
 import './views/loading-view.js'
 import './elements/build-info.js'
+import { api } from './api/client.js'
 
 import './animations/error.js'
 
@@ -39,10 +40,28 @@ export class AppShell extends LiteElement {
 
   @property({ type: Object, consumes: true }) accessor error = null
   @property({ type: Boolean, attribute: 'is-menu-open', reflect: true }) accessor isMenuOpen: any
+  @property({ type: Boolean, attribute: 'auth-resolving' }) accessor authResolving = false
 
   googleScriptLoaded = false
   googleScriptPromise: Promise<void> | null = null
   googleInitialized = false
+  googlePromptAttempted = false
+
+  renderGoogleButton(target: HTMLElement) {
+    const google = globalThis.google
+    if (!google?.accounts?.id) return
+
+    target.replaceChildren()
+    google.accounts.id.renderButton(target, {
+      type: 'standard',
+      theme: 'outline',
+      size: 'large',
+      text: 'signin_with',
+      shape: 'pill',
+      logo_alignment: 'left',
+      width: Math.min(target.clientWidth || 320, 360)
+    })
+  }
 
   setupMediaQuery(query, callback) {
     const mediaQuery = window.matchMedia(query)
@@ -149,6 +168,8 @@ export class AppShell extends LiteElement {
   clearStoredAuth() {
     localStorage.removeItem('token')
     localStorage.removeItem('ticket')
+    this.googlePromptAttempted = false
+    this.authResolving = false
     this.user = undefined
     this.userSignedIn = false
     this.requestRender()
@@ -228,15 +249,22 @@ export class AppShell extends LiteElement {
       this.googleInitialized = true
     }
 
+    if (this.googlePromptAttempted) {
+      this.renderGoogleButton(target)
+      return
+    }
+
+    this.googlePromptAttempted = true
     target.replaceChildren()
-    google.accounts.id.renderButton(target, {
-      type: 'standard',
-      theme: 'outline',
-      size: 'large',
-      text: 'signin_with',
-      shape: 'pill',
-      logo_alignment: 'left',
-      width: Math.min(target.clientWidth || 320, 360)
+    google.accounts.id.prompt((notification) => {
+      if (!notification) {
+        this.renderGoogleButton(target)
+        return
+      }
+
+      if (notification.isNotDisplayed?.() || notification.isSkippedMoment?.() || notification.isDismissedMoment?.()) {
+        this.renderGoogleButton(target)
+      }
     })
   }
 
@@ -255,14 +283,75 @@ export class AppShell extends LiteElement {
       if (user.expires < Date.now() / 1000) {
         this.clearStoredAuth()
       } else {
+        this.authResolving = true
+        this.requestRender()
         void this.setUser(token)
       }
     } else {
+      this.authResolving = false
+      this.googlePromptAttempted = false
       this.userSignedIn = false
       this.requestRender()
       queueMicrotask(() => {
         void this.ensureGoogleSignInUi()
       })
+    }
+  }
+
+  private getProfilePictureCacheKey(pictureUrl: string): string {
+    return `profile-picture:${encodeURIComponent(pictureUrl)}`
+  }
+
+  private getCachedProfilePicture(pictureUrl: string): string | null {
+    try {
+      return localStorage.getItem(this.getProfilePictureCacheKey(pictureUrl))
+    } catch {
+      return null
+    }
+  }
+
+  private setCachedProfilePicture(pictureUrl: string, dataUrl: string): void {
+    try {
+      localStorage.setItem(this.getProfilePictureCacheKey(pictureUrl), dataUrl)
+    } catch {
+      // ignore storage quota and private mode failures
+    }
+  }
+
+  private blobToDataUrl(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result)
+          return
+        }
+
+        reject(new Error('Failed to convert image blob to data URL'))
+      }
+      reader.onerror = () => {
+        reject(new Error('Failed to read image blob'))
+      }
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  private async cacheProfilePicture(pictureUrl?: string): Promise<string | undefined> {
+    if (!pictureUrl) return pictureUrl
+
+    const cached = this.getCachedProfilePicture(pictureUrl)
+    if (cached) return cached
+
+    try {
+      const response = await fetch(pictureUrl)
+
+      if (!response.ok) return pictureUrl
+
+      const dataUrl = await this.blobToDataUrl(await response.blob())
+      this.setCachedProfilePicture(pictureUrl, dataUrl)
+      return dataUrl
+    } catch {
+      return pictureUrl
     }
   }
 
@@ -321,63 +410,51 @@ export class AppShell extends LiteElement {
   }
 
   async setUser(credential) {
+    this.authResolving = true
     const token = localStorage.getItem('token')
     if ((token && token !== credential) || !token) localStorage.setItem('token', credential)
 
     const user = this._decodeToken(credential)
 
-    let response = await fetch('/api/handshake', {
-      headers: {
-        Authorization: credential
-      },
-      method: 'GET'
-    })
+    try {
+      const handshakeData = await api.getHandshake()
 
-    if (!response.ok) {
-      this.clearStoredAuth()
-      return
-    }
+      if (handshakeData === 'NOT_REGISTERED') {
+        user.picture = (await this.cacheProfilePicture(user.picture)) || user.picture
+        this.user = user
+        location.hash = '#!/register'
+        this.userSignedIn = true
+        this.authResolving = false
+        this._onhashchange()
+        return
+      }
 
-    const data = await response.text()
-    if (data === 'NOT_REGISTERED') {
-      this.user = user
-      location.hash = '#!/register'
+      localStorage.setItem('ticket', handshakeData)
+
+      const userData = await api.getUser(user.id)
+      const mergedUser = { ...user, ...userData }
+      mergedUser.picture = (await this.cacheProfilePicture(mergedUser.picture)) || mergedUser.picture
+      this.user = mergedUser
       this.userSignedIn = true
+      this.authResolving = false
+
+      globalThis.google?.accounts?.id?.cancel?.()
+      /**
+       * since we are blocking the route change until the user is signed in
+       * we can safely assume that the user is signed in
+       * and we can load the data
+       */
+
+      if (!location.hash) {
+        location.hash = '#!/home'
+      }
       this._onhashchange()
-      return
-    } else {
-      localStorage.setItem('ticket', data)
-    }
 
-    response = await fetch('/api/users/' + user.id, {
-      headers: {
-        Authorization: credential
-      },
-      method: 'GET'
-    })
-
-    if (!response.ok) {
+      this.initWSClient()
+    } catch (error) {
+      console.error('Auth failed:', error)
       this.clearStoredAuth()
-      return
     }
-
-    const userData = await response.json()
-    this.user = { ...user, ...userData }
-    this.userSignedIn = true
-
-    globalThis.google?.accounts?.id?.cancel?.()
-    /**
-     * since we are blocking the route change until the user is signed in
-     * we can safely assume that the user is signed in
-     * and we can load the data
-     */
-
-    if (!location.hash) {
-      location.hash = '#!/home'
-    }
-    this._onhashchange()
-
-    this.initWSClient()
   }
 
   static styles = [styles]
@@ -423,6 +500,10 @@ export class AppShell extends LiteElement {
     }
 
     if (!this.userSignedIn && this.selected !== 'register') {
+      if (this.authResolving) {
+        return html` <loading-view type="loading"></loading-view> `
+      }
+
       queueMicrotask(() => {
         void this.ensureGoogleSignInUi()
       })
@@ -530,6 +611,10 @@ export class AppShell extends LiteElement {
       return html` <companies-view></companies-view> `
     }
 
+    if (path === 'shop') {
+      return html` <shop-view></shop-view> `
+    }
+
     if (path === 'jobs') {
       if (!this.jobs) {
         return html` <loading-view type="loading"></loading-view> `
@@ -604,6 +689,12 @@ export class AppShell extends LiteElement {
               >
 
               <a
+                href="#!/shop"
+                class="nav-item"
+                ><custom-icon icon="storefront"></custom-icon>shop</a
+              >
+
+              <a
                 href="#!/users"
                 class="nav-item"
                 ><custom-icon icon="group"></custom-icon>users</a
@@ -619,9 +710,7 @@ export class AppShell extends LiteElement {
               <account-bar></account-bar>
             </header>`
           : ''}
-        <flex-container center-center>
-          ${this.renderSelectedView()}
-        </flex-container>
+        <flex-container center-center> ${this.renderSelectedView()} </flex-container>
       </main>
     `
   }

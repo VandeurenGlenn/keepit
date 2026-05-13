@@ -1,6 +1,7 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
 import { User } from '../../types/index.js'
+import { api } from '../api/client.js'
 import '@vandeurenglenn/lite-elements/icon-button.js'
 import '@vandeurenglenn/lite-elements/button.js'
 import '../elements/list/item.js'
@@ -85,25 +86,19 @@ export class RegisterView extends LiteElement {
   ]
 
   async _registerUser() {
-    const response = await fetch('/api/register', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: localStorage.getItem('token')
-      },
-      body: JSON.stringify({
+    try {
+      const userData = {
         name: this.user.name,
         email: this.user.email,
         picture: this.user.picture,
         telephone: (this.shadowRoot?.querySelector('data-input[label="telephone"]') as any).value,
         place: (this.shadowRoot?.querySelector('data-input[label="place"]') as any).value
-      })
-    })
-
-    if (response.status === 201) {
+      }
+      await api.registerUser(userData)
       location.href = '#!/users'
-    } else {
-      console.error('Error registering user:', response.statusText)
+    } catch (error) {
+      console.error('Error registering user:', error)
+      alert('Failed to register user')
     }
   }
 

@@ -6,8 +6,9 @@ import '@vandeurenglenn/flex-elements/container.js'
 import './../elements/chip/field.js'
 import { JobsMixin } from '../mixins/jobs.js'
 import { CompaniesMixin } from '../mixins/companies.js'
-import { Invoice, User } from './../../types/index.js'
+import { Invoice, Job, MaterialLine, Prestation, User } from './../../types/index.js'
 import { ChipField } from './../elements/chip/field.js'
+import { api } from '../api/client.js'
 import mimes from 'mime'
 import './../elements/list/item.js'
 import './../elements/view/header.js'
@@ -19,21 +20,56 @@ function debounce(fn: (...args: any[]) => void, delay = 300) {
   debounceTimeout = setTimeout(fn, delay)
 }
 
+type MaterialDraft = {
+  name: string
+  quantity: number
+  unit: string
+  unitPrice?: number
+  articleNumber?: string
+  productNumber?: string
+  packagingQuantity?: number
+}
+
+type HoursByUser = Record<string, Prestation[]>
+
+const durationToHours = (durationMs: number): string => {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return '0.00 h'
+  return `${(durationMs / (1000 * 60 * 60)).toFixed(2)} h`
+}
+
+const prestationDuration = (prestation: Prestation): number => {
+  if (typeof prestation.duration === 'number' && Number.isFinite(prestation.duration)) return prestation.duration
+  if (typeof prestation.checkin !== 'number' || typeof prestation.checkout !== 'number') return 0
+  return Math.max(0, prestation.checkout - prestation.checkin)
+}
+
+const formatDateTime = (value?: number): string => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
+  return new Date(value).toLocaleString('nl-BE')
+}
+
 export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
-  @property({ type: Array, consumes: true }) accessor invoices = []
+  @property({ type: Object, consumes: true }) accessor invoices: Record<string, Invoice> = {}
   @property({ type: Boolean }) accessor takingPicture = false
   @property({ type: Boolean }) accessor addingInvoice = false
   @property({ type: String }) accessor facingMode = 'environment'
-  @property({ type: Object, consumes: true }) accessor user: User
-  @property({ type: Object, consumes: true }) accessor companies
-  @property({ type: String }) accessor notes: string
+  @property({ type: Object, consumes: true }) accessor user: User | undefined = undefined
+  @property({ type: Object, consumes: true }) accessor companies: Record<string, unknown> = {}
+  @property({ type: String }) accessor notes = ''
+  @property({ type: Array }) accessor materialSuggestions: MaterialLine[] = []
+  @property({ type: Array }) accessor materials: MaterialDraft[] = []
+  @property({ type: Object }) accessor billableHours: HoursByUser = {}
+  @property({ type: Object }) accessor hourUsers: Record<string, User> = {}
+  @property({ type: Object }) accessor openHourUsers: Record<string, boolean> = {}
+  @property({ type: Boolean }) accessor openMaterials = false
 
-  @query('chip-field[label="jobs"]') accessor jobChips: ChipField
-  @query('chip-field[label="companies"]') accessor companyChips: ChipField
+  @query('chip-field[label="jobs"]') accessor jobChips!: ChipField
+  @query('chip-field[label="companies"]') accessor companyChips!: ChipField
 
-  currentStream: MediaStream
+  currentStream: MediaStream | null = null
+  favoriteNames: Set<string> = new Set()
 
-  dataUrl: string
+  dataUrl: string | null = null
   static styles = [
     css`
       :host {
@@ -216,6 +252,108 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         margin-top: 4px;
       }
 
+      .materials-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .hours-user-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .hours-user-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .hours-user-total {
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: 0.92rem;
+      }
+
+      .hours-user-toggle {
+        padding: 8px 12px;
+      }
+
+      .materials-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .materials-header h3 {
+        margin: 0;
+        font-size: 1rem;
+      }
+
+      .materials-header-meta {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .materials-total-inline {
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: 0.92rem;
+      }
+
+      .materials-toggle {
+        padding: 8px 12px;
+      }
+
+      .material-row {
+        display: grid;
+        grid-template-columns: minmax(180px, 1fr) 100px 120px 120px auto;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .material-input-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .material-row input {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
+        background: color-mix(in srgb, var(--app-panel-strong) 95%, white 5%);
+        color: var(--md-sys-color-on-surface);
+        box-sizing: border-box;
+      }
+
+      .material-meta {
+        min-height: 1em;
+        font-size: 0.75rem;
+        color: var(--md-sys-color-on-surface-variant);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .material-row button {
+        padding: 8px 12px;
+      }
+
+      .material-summary {
+        display: flex;
+        justify-content: flex-end;
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: 0.92rem;
+      }
+
       @media (max-width: 720px) {
         :host {
           padding: 12px;
@@ -243,9 +381,230 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         .camera-wrapper {
           min-height: 320px;
         }
+
+        .material-row {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .material-row button {
+          grid-column: span 2;
+        }
       }
     `
   ]
+
+  resetMaterials() {
+    this.materials = [{ name: '', quantity: 1, unit: '', unitPrice: undefined }]
+  }
+
+  addMaterialRow = () => {
+    this.materials = [...this.materials, { name: '', quantity: 1, unit: '', unitPrice: undefined }]
+  }
+
+  removeMaterialRow = (index: number) => {
+    this.materials = this.materials.filter((_, currentIndex) => currentIndex !== index)
+    if (this.materials.length === 0) this.resetMaterials()
+  }
+
+  updateMaterialField<K extends keyof MaterialDraft>(index: number, key: K, value: MaterialDraft[K]) {
+    this.materials = this.materials.map((material, currentIndex) =>
+      currentIndex === index ? { ...material, [key]: value } : material
+    )
+
+    // Track to history when a complete material is added
+    if (key === 'name' && typeof value === 'string' && value.trim()) {
+      const updatedMaterial = this.materials[index]
+      if (updatedMaterial) {
+        void api.addToHistory({
+          name: updatedMaterial.name,
+          quantity: updatedMaterial.quantity,
+          unit: updatedMaterial.unit,
+          unitPrice: updatedMaterial.unitPrice,
+          articleNumber: updatedMaterial.articleNumber,
+          productNumber: updatedMaterial.productNumber,
+          packagingQuantity: updatedMaterial.packagingQuantity
+        })
+      }
+    }
+  }
+
+  get sanitizedMaterials(): MaterialLine[] {
+    const normalized: MaterialLine[] = []
+
+    for (const material of this.materials) {
+      const name = material.name.trim()
+      if (!name) continue
+
+      const quantity = Number(material.quantity)
+      const unitPrice = material.unitPrice === undefined ? undefined : Number(material.unitPrice)
+
+      normalized.push({
+        name,
+        quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+        unit: material.unit.trim() || undefined,
+        unitPrice: unitPrice !== undefined && Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : undefined,
+        articleNumber: material.articleNumber,
+        productNumber: material.productNumber,
+        packagingQuantity: material.packagingQuantity
+      })
+    }
+
+    return normalized
+  }
+
+  get materialsTotal(): number {
+    return this.sanitizedMaterials.reduce((sum, material) => {
+      const unitPrice = material.unitPrice || 0
+      return sum + unitPrice * material.quantity
+    }, 0)
+  }
+
+  toggleMaterials() {
+    this.openMaterials = !this.openMaterials
+  }
+
+  loadJobMaterials() {
+    const selectedJobId = this.jobChips?.selected?.[0]
+    if (!selectedJobId) return
+
+    const selectedJob = this.jobs?.[selectedJobId] as Job | undefined
+    const materials = Array.isArray(selectedJob?.materials) ? selectedJob.materials : []
+
+    this.materials = materials.length
+      ? materials.map((material) => ({
+          name: material.name,
+          quantity: Number(material.quantity) > 0 ? Number(material.quantity) : 1,
+          unit: material.unit || '',
+          unitPrice: material.unitPrice !== undefined ? Number(material.unitPrice) : undefined,
+          articleNumber: material.articleNumber,
+          productNumber: material.productNumber,
+          packagingQuantity: material.packagingQuantity
+        }))
+      : [{ name: '', quantity: 1, unit: '', unitPrice: undefined }]
+    this.openMaterials = true
+  }
+
+  getMaterialSuggestion(name: string): MaterialLine | undefined {
+    const normalized = name.trim().toLowerCase()
+    if (!normalized) return undefined
+    return this.materialSuggestions.find((suggestion) => suggestion.name.trim().toLowerCase() === normalized)
+  }
+
+  getMaterialSuggestionLabel(suggestion: MaterialLine): string {
+    const details: string[] = []
+    if (suggestion.articleNumber) details.push(`ART: ${suggestion.articleNumber}`)
+    if (suggestion.productNumber) details.push(`PROD: ${suggestion.productNumber}`)
+    if (typeof suggestion.packagingQuantity === 'number') details.push(`VPH: ${suggestion.packagingQuantity}`)
+    if (typeof suggestion.unitPrice === 'number') {
+      const unit = suggestion.unit?.trim() ? `/${suggestion.unit.trim()}` : ''
+      details.push(`€${suggestion.unitPrice.toFixed(2)}${unit}`)
+    }
+    return details.join(' | ')
+  }
+
+  applyMaterialSuggestion(index: number, name: string) {
+    const suggestion = this.getMaterialSuggestion(name)
+    if (!suggestion) return
+
+    this.materials = this.materials.map((material, currentIndex) => {
+      if (currentIndex !== index) return material
+      return {
+        ...material,
+        name: suggestion.name,
+        unit: suggestion.unit || material.unit,
+        unitPrice: suggestion.unitPrice ?? material.unitPrice,
+        articleNumber: suggestion.articleNumber,
+        productNumber: suggestion.productNumber,
+        packagingQuantity: suggestion.packagingQuantity
+      }
+    })
+  }
+
+  async loadMaterialSuggestions(company?: string) {
+    try {
+      const suggestions = await api.getInvoiceMaterials(company)
+      const allMaterials = Array.isArray(suggestions) ? suggestions : []
+
+      // Get favorites and history
+      const favorites = await api.getFavorites()
+      const history = await api.getHistory()
+
+      // Cache favorite names for template use
+      this.favoriteNames = new Set(favorites.map((m) => m.name))
+
+      // Create a map for quick lookups
+      const favoriteNames = new Set(favorites.map((m) => m.name))
+      const historyNames = new Set(history.map((m) => m.name))
+
+      // Separate materials
+      const favoriteMats = allMaterials.filter((m) => favoriteNames.has(m.name))
+      const historyMats = allMaterials.filter((m) => historyNames.has(m.name) && !favoriteNames.has(m.name))
+      const otherMats = allMaterials.filter((m) => !favoriteNames.has(m.name) && !historyNames.has(m.name))
+
+      // Combine: favorites first, then recently used, then others
+      this.materialSuggestions = [...favoriteMats, ...historyMats, ...otherMats]
+    } catch (error) {
+      console.error('Failed to load material suggestions:', error)
+      this.materialSuggestions = []
+    }
+  }
+
+  private async refreshFavorites(): Promise<void> {
+    try {
+      const favorites = await api.getFavorites()
+      this.favoriteNames = new Set(favorites.map((m) => m.name))
+      this.requestUpdate()
+    } catch (error) {
+      console.error('Failed to refresh favorites:', error)
+    }
+  }
+
+  async loadBillableHours(jobId?: string) {
+    if (!jobId) {
+      this.billableHours = {}
+      this.hourUsers = {}
+      this.openHourUsers = {}
+      return
+    }
+
+    try {
+      this.billableHours = await api.getJobHours(jobId, true)
+
+      const nextUsers: Record<string, User> = {}
+      const userIds = Object.keys(this.billableHours)
+
+      await Promise.all(
+        userIds.map(async (userId) => {
+          try {
+            nextUsers[userId] = await api.getUser(userId)
+          } catch (error) {
+            console.error(`Failed to load user ${userId}:`, error)
+          }
+        })
+      )
+
+      this.hourUsers = nextUsers
+      this.openHourUsers = {}
+    } catch (error) {
+      console.error('Failed to load billable hours:', error)
+      this.billableHours = {}
+      this.hourUsers = {}
+      this.openHourUsers = {}
+    }
+  }
+
+  toggleBillableHours(userId: string) {
+    this.openHourUsers = {
+      ...this.openHourUsers,
+      [userId]: !this.openHourUsers[userId]
+    }
+  }
+
+  get totalBillableDuration(): number {
+    return Object.values(this.billableHours)
+      .flatMap((prestations) => prestations)
+      .reduce((sum, prestation) => sum + prestationDuration(prestation), 0)
+  }
 
   _addInvoice = async () => {
     console.log('Adding a new invoice...')
@@ -253,6 +612,13 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     // to avoid flickering/seeing the final invoice step
     this.takingPicture = true
     this.addingInvoice = true
+    this.notes = ''
+    this.resetMaterials()
+    this.openMaterials = false
+    this.billableHours = {}
+    this.hourUsers = {}
+    this.openHourUsers = {}
+    await this.loadMaterialSuggestions()
 
     // Logic to add a new invoice
     this.currentStream = await navigator.mediaDevices.getUserMedia({
@@ -263,7 +629,8 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       }
     })
 
-    const video = this.shadowRoot.querySelector('video')
+    const video = this.shadowRoot?.querySelector('video')
+    if (!video) return
     video.srcObject = this.currentStream
     video.setAttribute('playsinline', '')
     video.setAttribute('autoplay', '')
@@ -272,7 +639,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     video.play()
     // You can add your logic here to add a new invoice
   }
-  _handleFabKeyUp = (event) => {
+  _handleFabKeyUp = (event: KeyboardEvent) => {
     if (event.key === 'Enter' || event.key === 'Space') {
       event.preventDefault()
       this._addInvoice()
@@ -282,12 +649,20 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   _takePicture = async () => {
     return new Promise((resolve) => {
       const canvas = document.createElement('canvas')
-      const video = this.shadowRoot.querySelector('video')
+      const video = this.shadowRoot?.querySelector('video')
+      if (!video || !this.currentStream) {
+        resolve(undefined)
+        return
+      }
 
       const { height, width } = this.currentStream.getVideoTracks()[0].getSettings()
-      canvas.width = width
-      canvas.height = height
+      canvas.width = width || video.videoWidth || 1920
+      canvas.height = height || video.videoHeight || 1080
       const context = canvas.getContext('2d')
+      if (!context) {
+        resolve(undefined)
+        return
+      }
 
       context.drawImage(video, 0, 0)
 
@@ -300,11 +675,13 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   }
 
   dataURLtoFile(dataurl: string, filename: string) {
-    var arr = dataurl.split(','),
-      mime = arr[0].match(/:(.*?);/)[1],
-      bstr = atob(arr[arr.length - 1]),
-      n = bstr.length,
-      u8arr = new Uint8Array(n)
+    const arr = dataurl.split(',')
+    const mimeMatch = arr[0]?.match(/:(.*?);/)
+    if (!mimeMatch) throw new Error('Invalid data url')
+    const mime = mimeMatch[1]
+    const bstr = atob(arr[arr.length - 1])
+    let n = bstr.length
+    const u8arr = new Uint8Array(n)
     while (n--) {
       u8arr[n] = bstr.charCodeAt(n)
     }
@@ -316,6 +693,8 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     const selectedJob = this.jobChips.selected[0]
     const companies = ((this as any).companies || {}) as Record<string, any>
     const userId = (this.user as User & { id?: string })?.id || this.user?.email
+    const materials = this.sanitizedMaterials
+    if (!userId) return alert('No active user found')
 
     if (!this.notes && !selectedJob) return alert('Please select a job or add notes')
     if (!this.notes) this.notes = 'No notes'
@@ -329,62 +708,47 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     const formattedTime = `${_date.getHours()}:${minutes < 10 ? '0' : ''}${minutes}`
 
     const invoiceId = crypto.randomUUID()
+    if (!this.dataUrl) return alert('No invoice image captured')
     const invoiceImage = this.dataURLtoFile(this.dataUrl, invoiceId)
     const invoiceName = `${companies[selectedCompany]?.name || 'Invoice'} ${formattedDate} ${formattedTime}`
 
     const formData = new FormData()
     formData.append('files', invoiceImage)
 
-    let response = await fetch(`/api/invoices/upload`, {
-      method: 'POST',
-      headers: {
-        Authorization: localStorage.getItem('token')
-      },
-      body: formData
-    })
+    try {
+      const uploadResult = await api.uploadInvoiceFile(formData)
+      const invoiceImages = uploadResult
 
-    if (response.status !== 200) {
-      console.error('Error uploading invoice image:', response.statusText)
+      const invoice: Invoice & { notes: string } = {
+        name: invoiceName,
+        description: 'Invoice description',
+        invoiceImages,
+        company: selectedCompany,
+        job: selectedJob,
+        user: userId,
+        createdAt: date,
+        updatedAt: date,
+        notes: this.notes,
+        materials
+      }
+
+      const data = await api.createInvoice(invoice)
+
+      this.invoices[data.uuid] = data.content
+      this.addingInvoice = false
+      this.takingPicture = false
+      this.currentStream?.getTracks().forEach((track) => track.stop())
+      this.dataUrl = null
+
+      this.requestRender()
+    } catch (error) {
+      console.error('Error saving invoice:', error)
+      alert('Failed to save invoice')
       this.takingPicture = false
       this.addingInvoice = false
-      this.currentStream.getTracks().forEach((track) => track.stop())
+      this.currentStream?.getTracks().forEach((track) => track.stop())
       this.dataUrl = null
     }
-    const invoiceImages = await response.json()
-    console.log(invoiceImages)
-
-    const invoice: Invoice & { notes: string } = {
-      name: invoiceName,
-      description: 'Invoice description',
-      invoiceImages,
-      company: selectedCompany,
-      job: selectedJob,
-      user: userId,
-      createdAt: date,
-      updatedAt: date,
-      notes: this.notes
-    }
-
-    response = await fetch('/api/invoices', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: localStorage.getItem('token')
-      },
-
-      body: JSON.stringify(invoice)
-    })
-
-    const data = await response.json()
-    console.log(data)
-
-    this.invoices[data.uuid] = data
-    this.addingInvoice = false
-    this.takingPicture = false
-    this.currentStream.getTracks().forEach((track) => track.stop())
-    this.dataUrl = null
-
-    this.requestRender()
   }
 
   _switchcamera = async () => {
@@ -394,7 +758,8 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       }
     })
 
-    const video = this.shadowRoot.querySelector('video')
+    const video = this.shadowRoot?.querySelector('video')
+    if (!video) return
     video.srcObject = stream
     video.play()
   }
@@ -442,7 +807,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         </div>
 
         <img
-          src=${this.dataUrl}
+          src=${this.dataUrl || ''}
           adding-invoice-image />
 
         <div class="capture-form">
@@ -450,6 +815,14 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
             label="jobs"
             customEvent
             multi
+            @selected=${() => {
+              const selectedJob = this.jobChips?.selected?.[0]
+              void this.loadBillableHours(selectedJob)
+            }}
+            @selection-changed=${() => {
+              const selectedJob = this.jobChips?.selected?.[0]
+              void this.loadBillableHours(selectedJob)
+            }}
             @add-chip=${() => {
               this._createJob()
             }}
@@ -466,19 +839,197 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
             @add-chip=${() => {
               ;(this as any)._addCompany()
             }}
+            @selected=${() => {
+              const selectedCompany = this.companyChips?.selected?.[0]
+              void this.loadMaterialSuggestions(selectedCompany)
+            }}
             .chips=${(
               Object.entries(((this as any).companies || {}) as Record<string, any>) as Array<[string, any]>
             ).map(([uuid, data]) => ({
               label: data.name,
               value: uuid
-            }))}></chip-field>
+            }))}
+            @selection-changed=${() => {
+              const selectedCompany = this.companyChips?.selected?.[0]
+              void this.loadMaterialSuggestions(selectedCompany)
+            }}></chip-field>
+
+          <div class="materials-panel">
+            <div class="materials-header">
+              <div class="materials-header-meta">
+                <h3>Gebruikte materialen</h3>
+                <span class="materials-total-inline">Totaal € ${this.materialsTotal.toFixed(2)}</span>
+              </div>
+              <button
+                type="button"
+                class="materials-toggle"
+                @click=${() => this.toggleMaterials()}>
+                ${this.openMaterials ? 'Verberg materialen' : 'Toon materialen'}
+              </button>
+            </div>
+
+            ${this.openMaterials
+              ? html`
+                  ${this.jobChips?.selected?.[0] &&
+                  (this.jobs?.[this.jobChips.selected[0]] as Job | undefined)?.materials?.length
+                    ? html`
+                        <button
+                          type="button"
+                          @click=${() => this.loadJobMaterials()}>
+                          Jobmaterialen laden
+                        </button>
+                      `
+                    : null}
+
+                  <button
+                    type="button"
+                    @click=${this.addMaterialRow}>
+                    Materiaal toevoegen
+                  </button>
+
+                  <datalist id="material-suggestions-list">
+                    ${this.materialSuggestions.map(
+                      (suggestion) =>
+                        html`<option
+                          value=${suggestion.name}
+                          label=${this.getMaterialSuggestionLabel(suggestion)}></option>`
+                    )}
+                  </datalist>
+
+                  ${this.materials.map(
+                    (material, index) => html`
+                      <div class="material-row">
+                        <div class="material-input-wrap">
+                          <input
+                            type="text"
+                            list="material-suggestions-list"
+                            placeholder="Materiaal"
+                            .value=${material.name}
+                            @input=${(event: Event) => {
+                              const input = event.target as HTMLInputElement
+                              this.updateMaterialField(index, 'name', input.value)
+                              this.applyMaterialSuggestion(index, input.value)
+                            }} />
+                          <div class="material-meta">
+                            ${material.name
+                              ? this.getMaterialSuggestionLabel(this.getMaterialSuggestion(material.name) || material)
+                              : ''}
+                          </div>
+                        </div>
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          placeholder="Aantal"
+                          .value=${String(material.quantity)}
+                          @input=${(event: Event) => {
+                            const input = event.target as HTMLInputElement
+                            this.updateMaterialField(index, 'quantity', Number(input.value || 0))
+                          }} />
+                        <input
+                          type="text"
+                          placeholder="Eenheid"
+                          .value=${material.unit}
+                          @input=${(event: Event) => {
+                            const input = event.target as HTMLInputElement
+                            this.updateMaterialField(index, 'unit', input.value)
+                          }} />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="€/stuk"
+                          .value=${material.unitPrice === undefined ? '' : String(material.unitPrice)}
+                          @input=${(event: Event) => {
+                            const input = event.target as HTMLInputElement
+                            this.updateMaterialField(
+                              index,
+                              'unitPrice',
+                              input.value === '' ? undefined : Number(input.value)
+                            )
+                          }} />
+                        <button
+                          type="button"
+                          title=${this.favoriteNames.has(material.name)
+                            ? 'Uit favorieten verwijderen'
+                            : 'Toevoegen aan favorieten'}
+                          @click=${() => {
+                            if (material.name.trim()) {
+                              if (this.favoriteNames.has(material.name)) {
+                                void api.removeFromFavorites(material.name).then(() => this.refreshFavorites())
+                              } else {
+                                void api
+                                  .addToFavorites(this.getMaterialSuggestion(material.name) || material)
+                                  .then(() => this.refreshFavorites())
+                              }
+                            }
+                          }}>
+                          ${this.favoriteNames.has(material.name) ? '★' : '☆'}
+                        </button>
+                        <button
+                          type="button"
+                          @click=${() => this.removeMaterialRow(index)}>
+                          Verwijder
+                        </button>
+                      </div>
+                    `
+                  )}
+                `
+              : null}
+          </div>
+
+          <div class="materials-panel">
+            <div class="materials-header">
+              <h3>Factureerbare uren</h3>
+            </div>
+
+            ${Object.keys(this.billableHours).length === 0
+              ? html`<div class="material-summary">Geen factureerbare uren voor deze job.</div>`
+              : html`
+                  ${Object.entries(this.billableHours).map(([userId, prestations]) => {
+                    const personTotal = prestations.reduce((sum, prestation) => sum + prestationDuration(prestation), 0)
+                    const isOpen = Boolean(this.openHourUsers[userId])
+
+                    return html`
+                      <div class="materials-panel">
+                        <div class="hours-user-header">
+                          <div class="hours-user-title">
+                            <strong>${this.hourUsers[userId]?.name || userId}</strong>
+                            <span class="hours-user-total">${durationToHours(personTotal)}</span>
+                          </div>
+                          <button
+                            type="button"
+                            class="hours-user-toggle"
+                            @click=${() => this.toggleBillableHours(userId)}>
+                            ${isOpen ? 'Verberg uren' : 'Toon uren'}
+                          </button>
+                        </div>
+                        ${isOpen
+                          ? html`${prestations.map(
+                              (prestation) => html`
+                                <div class="material-row">
+                                  <div>${formatDateTime(Number(prestation.checkin))}</div>
+                                  <div>${formatDateTime(Number(prestation.checkout))}</div>
+                                  <div>${durationToHours(prestationDuration(prestation))}</div>
+                                </div>
+                              `
+                            )}`
+                          : null}
+                      </div>
+                    `
+                  })}
+
+                  <div class="material-summary">Totaal uren: ${durationToHours(this.totalBillableDuration)}</div>
+                `}
+          </div>
 
           <md-outlined-text-field
             class="notes-field"
             label="Notes"
-            @input=${(e) =>
+            @input=${(e: Event) =>
               debounce(() => {
-                this.notes = e.target.value
+                const input = e.target as HTMLInputElement
+                this.notes = input.value
               }, 500)}>
           </md-outlined-text-field>
         </div>
@@ -488,21 +1039,17 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
 
   _deleteInvoice = async (key: string) => {
     if (!confirm('Are you sure you want to delete this invoice?')) return
-    const response = await fetch(`/api/invoices/${key}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: localStorage.getItem('token')
-      }
-    })
 
-    if (response.status === 204) {
+    try {
+      await api.deleteInvoice(key)
       delete this.invoices[key]
       this.requestRender()
-    } else {
-      const data = await response.json()
-      alert(data.error || 'Failed to delete invoice')
+    } catch (error) {
+      console.error('Failed to delete invoice:', error)
+      alert('Failed to delete invoice')
     }
   }
+
   render() {
     return this.addingInvoice
       ? this.renderAddInvoice()
@@ -533,9 +1080,11 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
                   <list-item
                     .href=${`#!/invoice?selected=${key}`}
                     .headline=${invoice?.name}
-                    .subheadline=${invoice?.place?.formattedAddress}
+                    .subheadline=${invoice?.description || invoice?.createdAt}
                     .key=${key}
-                    .delete=${this._deleteInvoice ? this._deleteInvoice.bind(this, key) : undefined}></list-item>
+                    .delete=${((event: Event) => {
+                      void this._deleteInvoice(key)
+                    }) as (event: Event) => void}></list-item>
                 `
               )}
             </div>

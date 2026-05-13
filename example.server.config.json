@@ -8,5 +8,20 @@
       "user": "",
       "pass": ""
     }
+  },
+  "desco": {
+    "getAllProductsUrl": "",
+    "authorization": "",
+    "cookie": "",
+    "referer": "",
+    "userAgent": ""
+  },
+  "alelek": {
+    "getAllProductsUrl": "",
+    "authorization": {
+      "user": "",
+      "pass": ""
+    },
+    "cookie": ""
   }
 }

@@ -6,7 +6,8 @@ import {
   BannedUsers,
   Hours,
   Invites,
-  MediaAssets
+  MediaAssets,
+  ShopOrders
 } from '../../types/index.js'
 import { DataStore } from './store.js'
 import { opendir, mkdir } from 'fs/promises'
@@ -26,6 +27,7 @@ export const usersStore = new DataStore('users')
 export const bannedUsersStore = new DataStore('bannedUsers')
 export const hoursStore = new DataStore('hours')
 export const invitesStore = new DataStore('invites')
+export const shopOrdersStore = new DataStore('shopOrders')
 
 const year = new Date().getFullYear()
 
@@ -37,7 +39,8 @@ let promises: Promise<any>[] = [
   usersStore.get(),
   bannedUsersStore.get(),
   hoursStore.get(),
-  invitesStore.get()
+  invitesStore.get(),
+  shopOrdersStore.get()
 ]
 promises = await Promise.all(promises)
 
@@ -49,3 +52,4 @@ export const users = promises[4] as unknown as Users
 export const bannedUsers = promises[5] as unknown as BannedUsers
 export const hours = promises[6] as unknown as Hours
 export const invites = promises[7] as unknown as Invites
+export const shopOrders = promises[8] as unknown as ShopOrders

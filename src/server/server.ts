@@ -1,6 +1,7 @@
 import pubsub from './helpers/pubsub.js'
 import Koa from 'koa'
 import http from 'http'
+import net from 'net'
 import { WebSocketServer } from 'ws'
 // external middleware
 import statickoa from 'koa-static'
@@ -22,7 +23,12 @@ import hours from './routes/hours.js'
 import contact from './routes/contact.js'
 import invoice from './routes/invoice.js'
 import media, { publicMedia } from './routes/media.js'
+import shop from './routes/shop.js'
 import { handleWebSocketConnection } from './helpers/websocket.js'
+// catalog sync
+import { syncDescoCatalogWithTracking } from './helpers/desco.js'
+import { syncAlelekCatalogViaScraperWithTracking } from './helpers/alelek.js'
+import { shouldSyncDesco, shouldSyncAlelek } from './helpers/sync-tracker.js'
 
 const api = new Koa()
 
@@ -64,6 +70,7 @@ api.use(media)
 api.use(invoice)
 api.use(jobs)
 api.use(job)
+api.use(shop)
 
 // create a native HTTP server so we can attach a WebSocket server to it
 const server = http.createServer(api.callback())
@@ -75,6 +82,90 @@ wss.on('connection', async (socket, req) => {
   handleWebSocketConnection(socket, req)
 })
 
-server.listen(5678, () => {
-  console.log('Server (HTTP + WS) is running on http://localhost:5678')
+wss.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EADDRINUSE') return
+  console.error('WebSocket server error:', error.message)
+})
+
+// Populate catalogs on startup
+const initializeCatalogs = async () => {
+  console.log('Initializing product catalogs...')
+
+  try {
+    if (await shouldSyncDesco()) {
+      console.log('Syncing Desco catalog...')
+      const descoCatalog = await syncDescoCatalogWithTracking()
+      console.log(`✓ Desco catalog synced: ${descoCatalog.count} items`)
+    } else {
+      console.log('✓ Desco catalog up-to-date (synced within 7 days)')
+    }
+  } catch (error) {
+    console.warn('⚠ Desco sync failed:', error instanceof Error ? error.message : String(error))
+  }
+
+  try {
+    if (await shouldSyncAlelek()) {
+      console.log('Syncing Alelek catalog via scraper...')
+      const alelekCatalog = await syncAlelekCatalogViaScraperWithTracking()
+      console.log(`✓ Alelek catalog synced: ${alelekCatalog.count} items`)
+    } else {
+      console.log('✓ Alelek catalog up-to-date (synced within 7 days)')
+    }
+  } catch (error) {
+    console.warn('⚠ Alelek sync failed:', error instanceof Error ? error.message : String(error))
+  }
+}
+
+const DEFAULT_PORT = 5678
+const MAX_PORT_ATTEMPTS = 10
+
+const resolveStartPort = (): number => {
+  const envPort = Number(process.env.PORT)
+  if (Number.isInteger(envPort) && envPort > 0) return envPort
+  return DEFAULT_PORT
+}
+
+const isPortAvailable = async (port: number): Promise<boolean> => {
+  return new Promise((resolve) => {
+    const tester = net.createServer()
+
+    tester.once('error', () => {
+      resolve(false)
+    })
+
+    tester.once('listening', () => {
+      tester.close(() => resolve(true))
+    })
+
+    tester.listen(port)
+  })
+}
+
+const findAvailablePort = async (startPort: number, maxAttempts: number): Promise<number> => {
+  for (let offset = 0; offset < maxAttempts; offset += 1) {
+    const candidate = startPort + offset
+    if (await isPortAvailable(candidate)) return candidate
+  }
+
+  throw new Error(`No free port found between ${startPort} and ${startPort + maxAttempts - 1}`)
+}
+
+const startServer = async (): Promise<void> => {
+  const preferredPort = resolveStartPort()
+  const port = await findAvailablePort(preferredPort, MAX_PORT_ATTEMPTS)
+
+  if (port !== preferredPort) {
+    console.warn(`Port ${preferredPort} is in use, starting on ${port} instead.`)
+  }
+
+  server.listen(port, async () => {
+    console.log(`Server (HTTP + WS) is running on http://localhost:${port}`)
+    await initializeCatalogs()
+  })
+}
+
+startServer().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error)
+  console.error('Failed to start server:', message)
+  process.exit(1)
 })
