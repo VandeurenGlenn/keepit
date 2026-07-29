@@ -1,6 +1,8 @@
 import Router from '@koa/router'
 import { jobs, jobsStore, hours, hoursStore, users, usersStore } from './../database/database.js'
-import { Prestation } from '../../types/index.js'
+import { Prestation, WorkLocation } from '../../types/index.js'
+import { verifyJobLocation } from '../helpers/geo.js'
+import { findNearbyPlace, findPlaceLocation } from '../helpers/places.js'
 
 const router = new Router({
   prefix: '/api/hours'
@@ -8,14 +10,35 @@ const router = new Router({
 
 type CheckinBody = {
   job?: string
-  userId?: string
   checkin?: number | string
+  location?: WorkLocation
 }
 
 type CheckoutBody = {
   job?: string
-  userId?: string
   checkout?: number | string
+  location?: WorkLocation
+}
+
+const toLocation = (value: WorkLocation | undefined): WorkLocation | undefined => {
+  if (!value) return undefined
+  const latitude = Number(value.latitude)
+  const longitude = Number(value.longitude)
+  const accuracy = value.accuracy === undefined ? undefined : Number(value.accuracy)
+  const capturedAt = Number(value.capturedAt)
+  if (
+    !Number.isFinite(latitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    !Number.isFinite(longitude) ||
+    longitude < -180 ||
+    longitude > 180 ||
+    !Number.isFinite(capturedAt) ||
+    (accuracy !== undefined && (!Number.isFinite(accuracy) || accuracy < 0))
+  ) {
+    return undefined
+  }
+  return { latitude, longitude, accuracy, capturedAt }
 }
 
 const toTimestamp = (value: number | string | undefined): number => {
@@ -27,6 +50,26 @@ const toTimestamp = (value: number | string | undefined): number => {
     if (!Number.isNaN(dateParsed)) return dateParsed
   }
   return Number.NaN
+}
+
+const getJobLocation = async (
+  jobId: string
+): Promise<Pick<WorkLocation, 'latitude' | 'longitude'> | undefined> => {
+  const place = jobs[jobId]?.place
+  const latitude = Number(place?.location?.latitude)
+  const longitude = Number(place?.location?.longitude)
+  if (Number.isFinite(latitude) && Number.isFinite(longitude)) return { latitude, longitude }
+  if (!place?.id) return undefined
+
+  const resolved = await findPlaceLocation(place.id)
+  if (resolved) place.location = resolved
+  return resolved
+}
+
+const prestationForRoles = (prestation: Prestation, roles: string[] = []): Prestation => {
+  if (roles.includes('admin')) return prestation
+  const { checkinLocationVerification, checkoutLocationVerification, ...visiblePrestation } = prestation
+  return visiblePrestation
 }
 
 router.get('/job/:id', async (ctx) => {
@@ -52,6 +95,7 @@ router.get('/job/:id', async (ctx) => {
         const notInvoiced = !prestation.invoiceId && !prestation.invoicedAt
         return hasCheckout && notInvoiced
       })
+      .map((prestation) => prestationForRoles(prestation, users[ctx.state.userid]?.roles))
   }
   ctx.status = 200
   ctx.set('Content-Type', 'application/json')
@@ -59,12 +103,68 @@ router.get('/job/:id', async (ctx) => {
   return
 })
 
+router.get('/me', async (ctx) => {
+  const userId = ctx.state.userid
+  const days = Math.min(90, Math.max(1, Number(ctx.query.days) || 14))
+  const since = Date.now() - days * 24 * 60 * 60 * 1000
+  const prestations = Object.entries(hours[userId] || {})
+    .map(([id, prestation]) => ({ id, ...prestation }))
+    .filter((prestation) => toTimestamp(prestation.checkin) >= since)
+    .sort((a, b) => toTimestamp(b.checkin) - toTimestamp(a.checkin))
+
+  const jobLocations = new Map<string, Pick<WorkLocation, 'latitude' | 'longitude'> | undefined>()
+  await Promise.all(
+    Array.from(new Set(prestations.map((prestation) => prestation.jobId).filter(Boolean))).map(async (jobId) => {
+      jobLocations.set(jobId!, await getJobLocation(jobId!))
+    })
+  )
+  let verificationAdded = false
+  let placeAdded = false
+  let placeLookups = 0
+  for (const prestation of prestations) {
+    const stored = hours[userId]?.[prestation.id]
+    if (!stored || !prestation.jobId) continue
+    const jobLocation = jobLocations.get(prestation.jobId)
+    if (!stored.checkinLocationVerification) {
+      stored.checkinLocationVerification = verifyJobLocation(stored.checkinLocation, jobLocation)
+      prestation.checkinLocationVerification = stored.checkinLocationVerification
+      verificationAdded = true
+    }
+    if (stored.checkout && !stored.checkoutLocationVerification) {
+      stored.checkoutLocationVerification = verifyJobLocation(stored.checkoutLocation, jobLocation)
+      prestation.checkoutLocationVerification = stored.checkoutLocationVerification
+      verificationAdded = true
+    }
+    if (stored.checkinLocation && !stored.checkinPlace && placeLookups < 12) {
+      placeLookups += 1
+      stored.checkinPlace = await findNearbyPlace(stored.checkinLocation)
+      prestation.checkinPlace = stored.checkinPlace
+      placeAdded ||= Boolean(stored.checkinPlace)
+    }
+    if (stored.checkoutLocation && !stored.checkoutPlace && placeLookups < 12) {
+      placeLookups += 1
+      stored.checkoutPlace = await findNearbyPlace(stored.checkoutLocation)
+      prestation.checkoutPlace = stored.checkoutPlace
+      placeAdded ||= Boolean(stored.checkoutPlace)
+    }
+  }
+  if (verificationAdded || placeAdded) await Promise.all([hoursStore.put(hours), jobsStore.put(jobs)])
+
+  ctx.status = 200
+  ctx.set('Content-Type', 'application/json')
+  ctx.body = prestations.map((prestation) => ({
+    id: prestation.id,
+    ...prestationForRoles(prestation, users[userId]?.roles)
+  }))
+})
+
 router.post('/checkin', async (ctx) => {
   const body = (ctx.request.body || {}) as CheckinBody
-  const { job, userId, checkin } = body
-  if (!job || !userId) {
+  const { job, checkin } = body
+  const userId = ctx.state.userid
+  if (!job) {
     ctx.status = 400
-    ctx.body = { error: 'job and userId are required' }
+    ctx.body = { error: 'job is required' }
     return
   }
   if (!users[userId]) {
@@ -95,12 +195,20 @@ router.post('/checkin', async (ctx) => {
   }
 
   const prestationId = crypto.randomUUID()
+  const checkinLocation = toLocation(body.location)
+  const [checkinPlace, jobLocation] = await Promise.all([
+    checkinLocation ? findNearbyPlace(checkinLocation) : Promise.resolve(undefined),
+    getJobLocation(job)
+  ])
   const prestation: Prestation = {
     description: '',
     duration: 0,
     checkin: checkinTs,
     serverCheckin: Date.now(),
-    jobId: job
+    jobId: job,
+    checkinLocation,
+    checkinPlace,
+    checkinLocationVerification: verifyJobLocation(checkinLocation, jobLocation)
   }
 
   if (!hours[userId]) {
@@ -119,7 +227,7 @@ router.post('/checkin', async (ctx) => {
     await Promise.all([jobsStore.put(jobs), hoursStore.put(hours), usersStore.put(users)])
     ctx.status = 200
     ctx.set('Content-Type', 'application/json')
-    ctx.body = prestation
+    ctx.body = prestationForRoles(prestation, users[userId]?.roles)
     return
   } catch (err) {
     console.error('failed to persist checkin', err)
@@ -131,10 +239,11 @@ router.post('/checkin', async (ctx) => {
 
 router.post('/checkout', async (ctx) => {
   const body = (ctx.request.body || {}) as CheckoutBody
-  const { job, userId, checkout } = body
-  if (!job || !userId) {
+  const { job, checkout } = body
+  const userId = ctx.state.userid
+  if (!job) {
     ctx.status = 400
-    ctx.body = { error: 'job and userId are required' }
+    ctx.body = { error: 'job is required' }
     return
   }
   if (!users[userId]) {
@@ -185,9 +294,22 @@ router.post('/checkout', async (ctx) => {
     return
   }
 
+  const checkinTs = toTimestamp(prestation.checkin)
+  if (!Number.isNaN(checkinTs) && checkoutTs < checkinTs) {
+    ctx.status = 400
+    ctx.body = { error: 'Checkout cannot be before check-in' }
+    return
+  }
+
   prestation.checkout = checkoutTs
   prestation.serverCheckout = Date.now()
-  const checkinTs = toTimestamp(prestation.checkin)
+  prestation.checkoutLocation = toLocation(body.location)
+  const [checkoutPlace, jobLocation] = await Promise.all([
+    prestation.checkoutLocation ? findNearbyPlace(prestation.checkoutLocation) : Promise.resolve(undefined),
+    getJobLocation(job)
+  ])
+  prestation.checkoutPlace = checkoutPlace
+  prestation.checkoutLocationVerification = verifyJobLocation(prestation.checkoutLocation, jobLocation)
   if (!Number.isNaN(checkinTs)) {
     prestation.duration = Math.max(0, checkoutTs - checkinTs)
   }
@@ -199,7 +321,7 @@ router.post('/checkout', async (ctx) => {
     await Promise.all(promises)
     ctx.status = 200
     ctx.set('Content-Type', 'application/json')
-    ctx.body = prestation
+    ctx.body = prestationForRoles(prestation, users[userId]?.roles)
     return
   } catch (err) {
     console.error('failed to persist checkout', err)

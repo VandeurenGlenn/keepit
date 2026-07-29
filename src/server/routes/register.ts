@@ -1,36 +1,62 @@
 import Router from '@koa/router'
-import { users, usersStore } from '../database/database.js'
+import { invites, invitesStore, users, usersStore } from '../database/database.js'
 
-const router = new Router({
-  prefix: '/api/register'
-})
+const router = new Router({ prefix: '/api/register' })
 
-router.post('/', async (ctx, next) => {
-  console.log('Registering user', ctx.state.userid)
+router.post('/', async (ctx) => {
   if (users[ctx.state.userid]) {
     ctx.status = 400
     ctx.body = { error: 'User already registered' }
     return
   }
 
+  const hasExistingUsers = Object.keys(users).length > 0
+
+  if (ctx.state.googleProfile.email_verified !== true) {
+    ctx.status = 403
+    ctx.body = { error: 'Verified Google email required', message: 'Google kon dit e-mailadres niet verifiëren.' }
+    return
+  }
+
+  const inviteId = String(ctx.request.body?.inviteId || '').trim()
+  const invite = inviteId ? invites[inviteId] : undefined
+
+  if (hasExistingUsers && !invite) {
+    ctx.status = 403
+    ctx.body = { error: 'Valid invitation required', message: 'Open de persoonlijke uitnodigingslink opnieuw.' }
+    return
+  }
+
+  const invitedEmail = invite?.email?.trim().toLowerCase()
+  if (invitedEmail && Object.values(users).some((user) => user.email?.trim().toLowerCase() === invitedEmail)) {
+    ctx.status = 409
+    ctx.body = { error: 'Invitation already used', message: 'Dit werkadres is al aan een Google-account gekoppeld.' }
+    return
+  }
+
+  const googleEmail = String(ctx.state.googleProfile.email || '').trim().toLowerCase()
+  const now = new Date().toISOString()
+
   users[ctx.state.userid] = {
     name: ctx.request.body.name || ctx.state.googleProfile.name,
-    email: ctx.request.body.email || ctx.state.googleProfile.email,
+    email: invitedEmail || googleEmail,
+    googleEmail,
     picture: ctx.request.body.picture || ctx.state.googleProfile.picture,
     place: ctx.request.body.place || '',
     phone: ctx.request.body.phone || ctx.state.googleProfile.phone || '',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    createdAt: now,
+    updatedAt: now,
+    roles: invite?.roles?.length ? [...invite.roles] : undefined,
+    invited: Boolean(invite)
   }
 
-  if (Object.keys(users).length === 1) {
-    users[ctx.state.userid].roles = ['owner', 'admin']
-  }
-  await usersStore.put(users)
+  if (!hasExistingUsers) users[ctx.state.userid].roles = ['owner', 'admin']
+  if (invite) delete invites[inviteId]
+
+  await Promise.all([usersStore.put(users), invite ? invitesStore.put(invites) : Promise.resolve()])
   ctx.body = { content: users[ctx.state.userid] }
   ctx.status = 201
   ctx.set('Content-Type', 'application/json')
-  return
 })
 
 export default router.routes()

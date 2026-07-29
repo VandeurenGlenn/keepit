@@ -22,7 +22,7 @@ router.post('/', async (ctx) => {
 
   const { name, description, place } = body
 
-  if (!name || !description || !place) {
+  if (!name || !place) {
     ctx.status = 400
     ctx.body = { error: 'Missing required fields' }
     return
@@ -32,7 +32,7 @@ router.post('/', async (ctx) => {
 
   const job = {
     name,
-    description,
+    description: description || '',
     hours: {},
     materials: [],
     place,

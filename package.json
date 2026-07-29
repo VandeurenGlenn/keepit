@@ -17,7 +17,11 @@
     "start": "node ./server/server.js",
     "test": "node --test src/**/*.test.ts",
     "keepit": "node ./server/cli.js",
-    "sync": "node ./server/cli.js sync"
+    "sync": "node ./server/cli.js sync",
+    "images:cache": "node ./server/cli.js images",
+    "catalog:zip": "node ./scripts/catalog-snapshot.mjs",
+    "catalog:recover-desco-cache": "node ./scripts/recover-desco-cache.mjs",
+    "enrich:manufacturers": "node ./scripts/manufacturer-enrichment.mjs"
   },
   "keywords": [],
   "author": "",
@@ -38,6 +42,7 @@
     "mime": "^4.1.0",
     "nodemailer": "^8.0.7",
     "puppeteer": "^24.43.0",
+    "sharp": "^0.35.3",
     "ws": "^8.20.0",
     "xlsx": "^0.18.5"
   },

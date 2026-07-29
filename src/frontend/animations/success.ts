@@ -11,7 +11,11 @@ export class SuccessAnimation extends LiteElement {
         justify-content: center;
         height: 100%;
 
-        font-size: 1.5em;
+        gap: 12px;
+        padding: 24px;
+        box-sizing: border-box;
+        font-size: 1rem;
+        font-weight: 750;
         color: var(--app-success);
         animation: fadeIn 0.5s;
       }
@@ -29,8 +33,8 @@ export class SuccessAnimation extends LiteElement {
   render() {
     return html`
       <svg
-        width="80"
-        height="80"
+        width="56"
+        height="56"
         viewBox="0 0 80 80">
         <circle
           cx="40"
@@ -47,7 +51,7 @@ export class SuccessAnimation extends LiteElement {
           stroke-linecap="round"
           stroke-linejoin="round" />
       </svg>
-      <div style="margin-top: 16px;">${this.message ?? 'success'}</div>
+      <div>${this.message ?? 'Gelukt'}</div>
     `
   }
 }

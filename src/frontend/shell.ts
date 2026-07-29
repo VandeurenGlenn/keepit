@@ -10,6 +10,8 @@ import './elements/user/account-bar.js'
 import './views/loading-view.js'
 import './elements/build-info.js'
 import { api } from './api/client.js'
+import { TimelineTracker } from './helpers/timeline-tracker.js'
+import type { AppNotification } from '../types/index.js'
 
 import './animations/error.js'
 
@@ -23,7 +25,7 @@ export class AppShell extends LiteElement {
 
   @property({ type: Boolean, attribute: 'is-medium-narrow' }) accessor isMediumNarrow
 
-  @property({ type: String, temporaryRender: 500 }) accessor selected
+  @property({ type: String, reflect: true, temporaryRender: 500 }) accessor selected
 
   @property({ type: Boolean, attribute: 'signed-in', reflect: true }) accessor userSignedIn
 
@@ -35,17 +37,72 @@ export class AppShell extends LiteElement {
   @property({ type: Array, provides: true }) accessor invoice
   @property({ type: Object, provides: true }) accessor jobs
   @property({ type: Object, provides: true }) accessor job
+  @property({ type: Object, provides: true }) accessor quotes
+  @property({ type: Object, provides: true }) accessor quote
   @property({ type: Array, provides: true }) accessor companies
   @property({ type: Array, provides: true }) accessor users
 
   @property({ type: Object, consumes: true }) accessor error = null
   @property({ type: Boolean, attribute: 'is-menu-open', reflect: true }) accessor isMenuOpen: any
   @property({ type: Boolean, attribute: 'auth-resolving' }) accessor authResolving = false
+  @property({ type: Object }) accessor appNotification: AppNotification | undefined
 
   googleScriptLoaded = false
   googleScriptPromise: Promise<void> | null = null
   googleInitialized = false
   googlePromptAttempted = false
+  timelineTracker = new TimelineTracker()
+  timelinePreferenceListenerBound = false
+  serviceWorkerRegistered = false
+  notificationListenerBound = false
+
+  capturePendingInvite() {
+    const query = location.hash.split('?')[1]
+    if (!query) return
+
+    const params = new URLSearchParams(query)
+    const inviteId = params.get('uuid')?.trim()
+    const inviteEmail = params.get('email')?.trim().toLowerCase()
+
+    try {
+      if (inviteId) sessionStorage.setItem('keepit.pendingInviteId', inviteId)
+      if (inviteEmail) sessionStorage.setItem('keepit.pendingInviteEmail', inviteEmail)
+    } catch {
+      // Session storage can be unavailable in private browsing modes.
+    }
+  }
+
+  pendingInviteRegistrationHash() {
+    try {
+      const inviteId = sessionStorage.getItem('keepit.pendingInviteId')
+      const inviteEmail = sessionStorage.getItem('keepit.pendingInviteEmail')
+      if (!inviteId) return '#!/register'
+
+      const params = new URLSearchParams({ uuid: inviteId })
+      if (inviteEmail) params.set('email', inviteEmail)
+      return `#!/register?${params.toString()}`
+    } catch {
+      return '#!/register'
+    }
+  }
+
+  registerServiceWorker() {
+    if (!this.serviceWorkerRegistered && 'serviceWorker' in navigator) {
+      this.serviceWorkerRegistered = true
+      void navigator.serviceWorker.register('/service-worker.js').catch((error) => {
+        this.serviceWorkerRegistered = false
+        console.warn('Service worker registration failed', error)
+      })
+    }
+  }
+
+  syncTimelineTracker() {
+    if (this.userSignedIn && this.user?.preferences?.continuousTimelineLocation) {
+      this.timelineTracker.start()
+    } else {
+      this.timelineTracker.stop()
+    }
+  }
 
   renderGoogleButton(target: HTMLElement) {
     const google = globalThis.google
@@ -127,14 +184,36 @@ export class AppShell extends LiteElement {
     if (path === 'jobs') {
       if (!this.jobs) promises.push(this._load('jobs'))
     }
+    if (path === 'planning') {
+      if (!this.jobs) promises.push(this._load('jobs'))
+      if (!this.users) promises.push(this._load('users'))
+    }
+    if (path === 'quote') {
+      if (!this.jobs) promises.push(this._load('jobs'))
+      if (params.selected) {
+        promises.push(api.getQuote(params.selected).then((quote) => { this.quote = quote }))
+      } else {
+        this.quote = undefined
+      }
+    }
+    if (path === 'quotes') {
+      promises.push(this._load('quotes'))
+      if (!this.jobs) promises.push(this._load('jobs'))
+    }
     if (path === 'job') {
       if (!this.job) promises.push(this._load('job', params.selected))
     }
     if (path === 'companies') {
       if (!this.companies) promises.push(this._load('companies'))
     }
+    if (path === 'suppliers') {
+      if (!this.companies) promises.push(this._load('companies'))
+    }
     if (path === 'users') {
       if (!this.users) promises.push(this._load('users'))
+    }
+    if (path === 'home' || path === 'timeline') {
+      if (!this.jobs) promises.push(this._load('jobs'))
     }
     if (path === 'checkin') {
       if (!this.jobs) promises.push(this._load('jobs'))
@@ -149,6 +228,11 @@ export class AppShell extends LiteElement {
   }
 
   beforeRender(): void {
+    this.registerServiceWorker()
+    if (!this.timelinePreferenceListenerBound) {
+      window.addEventListener('keepit-timeline-preference', () => this.syncTimelineTracker())
+      this.timelinePreferenceListenerBound = true
+    }
     this.setupMediaQuery('(prefers-color-scheme: dark)', ({ matches }) => {
       this.darkMode = matches
     })
@@ -172,6 +256,9 @@ export class AppShell extends LiteElement {
     this.authResolving = false
     this.user = undefined
     this.userSignedIn = false
+    this.appNotification = undefined
+    this.notificationListenerBound = false
+    this.timelineTracker.stop()
     this.requestRender()
 
     if (globalThis.client) {
@@ -370,7 +457,8 @@ export class AppShell extends LiteElement {
     let clientTimeout
     if (globalThis.client) return
 
-    const client = new WebSocket('ws://localhost:5678/ws', [`ticket__${localStorage.getItem('ticket')}`])
+    const websocketProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const client = new WebSocket(`${websocketProtocol}//${location.host}/ws`, [`ticket__${localStorage.getItem('ticket')}`])
     console.log(client)
     globalThis.client = client
     client.addEventListener('open', () => {
@@ -380,8 +468,13 @@ export class AppShell extends LiteElement {
           pubsub.publishVerbose(`user`, user)
         }
       })
+      if (!this.notificationListenerBound) {
+        pubsub.subscribe(`notifications.${this.user.id}`, (notification) => this.handleAppNotification(notification))
+        this.notificationListenerBound = true
+      }
       setTimeout(() => {
         client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: 'users.changed' } }))
+        client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: `notifications.${this.user.id}` } }))
       }, 50)
     })
 
@@ -409,8 +502,51 @@ export class AppShell extends LiteElement {
     })
   }
 
+  async handleAppNotification(notification: AppNotification) {
+    if (!notification) return
+    this.appNotification = notification
+    this.requestRender()
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      const options: NotificationOptions = {
+        body: notification.message,
+        icon: '/assets/dimac.svg',
+        badge: '/assets/dimac.svg',
+        tag: notification.id,
+        data: { url: notification.url }
+      }
+      if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.ready
+        await registration.showNotification(notification.title, options)
+      } else {
+        const browserNotification = new Notification(notification.title, options)
+        browserNotification.onclick = () => {
+          location.hash = notification.url
+          window.focus()
+        }
+      }
+    }
+    void api.markNotificationRead(notification.id).catch(() => undefined)
+  }
+
+  async enableAppNotifications() {
+    if (!('Notification' in window)) return
+    await Notification.requestPermission()
+    this.requestRender()
+  }
+
+  async loadUnreadNotifications() {
+    try {
+      const unread = await api.getNotifications(true)
+      if (unread[0]) await this.handleAppNotification(unread[0])
+    } catch (error) {
+      console.warn('Notifications could not be loaded', error)
+    }
+  }
+
   async setUser(credential) {
     this.authResolving = true
+    this.capturePendingInvite()
     const token = localStorage.getItem('token')
     if ((token && token !== credential) || !token) localStorage.setItem('token', credential)
 
@@ -422,7 +558,7 @@ export class AppShell extends LiteElement {
       if (handshakeData === 'NOT_REGISTERED') {
         user.picture = (await this.cacheProfilePicture(user.picture)) || user.picture
         this.user = user
-        location.hash = '#!/register'
+        location.hash = this.pendingInviteRegistrationHash()
         this.userSignedIn = true
         this.authResolving = false
         this._onhashchange()
@@ -437,6 +573,8 @@ export class AppShell extends LiteElement {
       this.user = mergedUser
       this.userSignedIn = true
       this.authResolving = false
+      this.syncTimelineTracker()
+      void this.loadUnreadNotifications()
 
       globalThis.google?.accounts?.id?.cancel?.()
       /**
@@ -556,12 +694,13 @@ export class AppShell extends LiteElement {
       return html` <home-view></home-view> `
     }
 
-    if (path === 'quotes') {
-      return html` <quotes-view></quotes-view> `
+    if (path === 'quote') {
+      return html` <quote-view .quote=${this.quote} .jobs=${this.jobs}></quote-view>`
     }
 
-    if (path === 'quote') {
-      return html` <job-quote-view></job-quote-view>`
+    if (path === 'quotes') {
+      if (!this.quotes) return html` <loading-view type="loading"></loading-view> `
+      return html` <quotes-view .quotes=${this.quotes} .jobs=${this.jobs}></quotes-view>`
     }
 
     if (path === 'register') {
@@ -604,11 +743,22 @@ export class AppShell extends LiteElement {
       return html` <checkout-view></checkout-view> `
     }
 
+    if (path === 'timeline') {
+      return html` <timeline-view></timeline-view> `
+    }
+
     if (path === 'companies') {
       if (!this.companies) {
         return html` <loading-view type="loading"></loading-view> `
       }
       return html` <companies-view></companies-view> `
+    }
+
+    if (path === 'suppliers') {
+      if (!this.companies) {
+        return html` <loading-view type="loading"></loading-view> `
+      }
+      return html` <suppliers-view></suppliers-view> `
     }
 
     if (path === 'shop') {
@@ -620,6 +770,13 @@ export class AppShell extends LiteElement {
         return html` <loading-view type="loading"></loading-view> `
       }
       return html` <jobs-view></jobs-view> `
+    }
+
+    if (path === 'planning') {
+      if (!this.jobs || !this.users) {
+        return html` <loading-view type="loading"></loading-view> `
+      }
+      return html` <planning-view></planning-view> `
     }
 
     if (path === 'job') {
@@ -639,6 +796,29 @@ export class AppShell extends LiteElement {
       <!-- @build-info -->
       ${icons}
 
+      ${this.userSignedIn && this.appNotification
+        ? html`<section class="notification-toast" aria-live="polite">
+            <span class="notification-icon"><custom-icon icon="calendar_month"></custom-icon></span>
+            <div class="notification-copy">
+              <strong>${this.appNotification.title}</strong>
+              <span>${this.appNotification.message}</span>
+              <div class="notification-actions">
+                <button
+                  @click=${() => {
+                    location.hash = this.appNotification.url
+                    this.appNotification = undefined
+                  }}>Bekijk planning</button>
+                ${'Notification' in window && Notification.permission === 'default'
+                  ? html`<button class="quiet" @click=${() => this.enableAppNotifications()}>Meldingen aanzetten</button>`
+                  : ''}
+              </div>
+            </div>
+            <button class="notification-close" aria-label="Melding sluiten" @click=${() => (this.appNotification = undefined)}>
+              <custom-icon icon="close"></custom-icon>
+            </button>
+          </section>`
+        : ''}
+
       <custom-theme
         load-symbols="false"
         load-fonts="false"></custom-theme>
@@ -650,57 +830,67 @@ export class AppShell extends LiteElement {
         : ''}
       ${this.userSignedIn
         ? html`<aside>
-            <img
-              class="logo"
-              loading="lazy"
-              src=${this.darkMode ? '/assets/dimac-dark.svg' : '/assets/dimac.svg'} />
-
-            <custom-divider middle-inset></custom-divider>
-            <span class="nav-container">
+            <div class="logo-area">
+              <img
+                class="logo"
+                loading="lazy"
+                src="https://dimac.be/assets/dimac.svg"
+                alt="Dimac" />
+            </div>
+            <div class="nav-container">
               <a
                 href="#!/home"
                 class="nav-item"
-                ><custom-icon icon="home"></custom-icon>home</a
+                ><custom-icon icon="home"></custom-icon>Home</a
+              >
+              <a
+                href="#!/timeline"
+                class="nav-item"
+                ><custom-icon icon="timeline"></custom-icon>Mijn tijdlijn</a
               >
               <a
                 href="#!/quotes"
                 class="nav-item"
-                ><custom-icon icon="receipt_long"></custom-icon>quotes</a
-              >
-              <a
-                href="#!/quote"
-                class="nav-item"
-                ><custom-icon icon="request_quote"></custom-icon>quote</a
+                ><custom-icon icon="request_quote"></custom-icon>Offertes</a
               >
               <a
                 href="#!/jobs"
                 class="nav-item"
-                ><custom-icon icon="inventory2"></custom-icon>jobs</a
+                ><custom-icon icon="inventory2"></custom-icon>Jobs</a
+              >
+              <a
+                href="#!/planning"
+                class="nav-item"
+                ><custom-icon icon="calendar_month"></custom-icon>Planning</a
               >
               <a
                 href="#!/companies"
                 class="nav-item"
-                ><custom-icon icon="source_environment"></custom-icon>companies</a
+                ><custom-icon icon="source_environment"></custom-icon>Klanten</a
+              >
+              <a
+                href="#!/suppliers"
+                class="nav-item"
+                ><custom-icon icon="local_shipping"></custom-icon>Leveranciers</a
               >
               <a
                 href="#!/invoices"
                 class="nav-item"
-                ><custom-icon icon="receipt"></custom-icon>invoices</a
+                ><custom-icon icon="receipt"></custom-icon>Facturen</a
               >
-
+              <span class="nav-section-label">Materiaal</span>
               <a
                 href="#!/shop"
                 class="nav-item"
-                ><custom-icon icon="storefront"></custom-icon>shop</a
+                ><custom-icon icon="storefront"></custom-icon>Shop</a
               >
-
               <a
                 href="#!/users"
                 class="nav-item"
-                ><custom-icon icon="group"></custom-icon>users</a
+                ><custom-icon icon="group"></custom-icon>Team</a
               >
-            </span>
-            <build-info></build-info>
+            </div>
+            <div class="drawer-bottom"><build-info></build-info></div>
           </aside>`
         : ''}
 

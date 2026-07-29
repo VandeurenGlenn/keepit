@@ -23,7 +23,11 @@ import hours from './routes/hours.js'
 import contact from './routes/contact.js'
 import invoice from './routes/invoice.js'
 import media, { publicMedia } from './routes/media.js'
-import shop from './routes/shop.js'
+import shop, { publicShopImages } from './routes/shop.js'
+import timeline from './routes/timeline.js'
+import planning from './routes/planning.js'
+import notifications from './routes/notifications.js'
+import quotes from './routes/quotes.js'
 import { handleWebSocketConnection } from './helpers/websocket.js'
 // catalog sync
 import { syncDescoCatalogWithTracking } from './helpers/desco.js'
@@ -46,6 +50,7 @@ api.use(bodyParser())
 // contact form
 api.use(contact)
 api.use(publicMedia)
+api.use(publicShopImages)
 
 // internal middleware
 // set/check the user id & see if the user is authenticated
@@ -62,6 +67,10 @@ api.use(isUser)
 
 // main routes
 api.use(hours)
+api.use(timeline)
+api.use(planning)
+api.use(notifications)
+api.use(quotes)
 api.use(users)
 api.use(roles)
 api.use(companies)

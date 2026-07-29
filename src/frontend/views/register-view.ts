@@ -33,10 +33,10 @@ export class RegisterView extends LiteElement {
         flex-direction: column;
         gap: 16px;
         padding: 18px;
-        border-radius: 24px;
-        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
+        border-radius: 20px;
+        background: var(--app-panel);
         border: 1px solid var(--app-border);
-        box-shadow: var(--app-shadow-strong);
+        box-shadow: var(--app-shadow-soft);
         box-sizing: border-box;
       }
 
@@ -46,10 +46,15 @@ export class RegisterView extends LiteElement {
         gap: 6px;
       }
 
+      .profile-panel {
+        flex-direction: row;
+        align-items: center;
+      }
+
       img {
         width: 96px;
         height: 96px;
-        border-radius: 24px;
+        border-radius: 16px;
         object-fit: cover;
         border: 2px solid color-mix(in srgb, var(--app-accent) 26%, white 74%);
       }
@@ -63,8 +68,17 @@ export class RegisterView extends LiteElement {
         color: var(--md-sys-color-on-surface-variant);
       }
 
-      custom-button {
+      .primary {
         width: fit-content;
+        min-height: 44px;
+        padding: 0 17px;
+        border: 1px solid var(--app-accent-strong);
+        border-radius: 12px;
+        background: var(--app-accent);
+        color: var(--md-sys-color-on-primary);
+        font: inherit;
+        font-weight: 750;
+        cursor: pointer;
       }
 
       @media (max-width: 720px) {
@@ -78,44 +92,67 @@ export class RegisterView extends LiteElement {
           border-radius: 20px;
         }
 
-        custom-button {
+        .primary {
           width: 100%;
         }
       }
     `
   ]
 
+  getPendingInvite() {
+    const params = new URLSearchParams(location.hash.split('?')[1] || '')
+
+    try {
+      return {
+        inviteId: params.get('uuid') || sessionStorage.getItem('keepit.pendingInviteId') || '',
+        email: params.get('email') || sessionStorage.getItem('keepit.pendingInviteEmail') || ''
+      }
+    } catch {
+      return { inviteId: params.get('uuid') || '', email: params.get('email') || '' }
+    }
+  }
+
   async _registerUser() {
     try {
+      const invite = this.getPendingInvite()
       const userData = {
         name: this.user.name,
-        email: this.user.email,
+        inviteId: invite.inviteId || undefined,
         picture: this.user.picture,
-        telephone: (this.shadowRoot?.querySelector('data-input[label="telephone"]') as any).value,
+        phone: (this.shadowRoot?.querySelector('data-input[label="telephone"]') as any).value,
         place: (this.shadowRoot?.querySelector('data-input[label="place"]') as any).value
       }
       await api.registerUser(userData)
-      location.href = '#!/users'
+      try {
+        sessionStorage.removeItem('keepit.pendingInviteId')
+        sessionStorage.removeItem('keepit.pendingInviteEmail')
+      } catch {
+        // Ignore unavailable session storage.
+      }
+      location.hash = '#!/users'
+      location.reload()
     } catch (error) {
       console.error('Error registering user:', error)
-      alert('Failed to register user')
+      alert(error instanceof Error ? error.message : 'Registratie mislukt')
     }
   }
 
   render() {
+    const invite = this.getPendingInvite()
     return html`
       <view-header
-        title="Register"
-        description="Create your account"
+        title="Account voltooien"
+        description="Controleer je gegevens en voeg je werkadres toe."
         icon="person"></view-header>
 
       <section class="profile-panel">
         <img
           src=${this.user?.picture}
-          alt="Profile Picture" />
+          alt="Profielfoto" />
         <div class="profile-meta">
           <h2>${this.user?.name}</h2>
-          <p>${this.user?.email}</p>
+          ${invite.email ? html`<p>Werkadres: ${invite.email}</p>` : ''}
+          <p>Google-login: ${this.user?.email}</p>
         </div>
       </section>
 
@@ -126,10 +163,9 @@ export class RegisterView extends LiteElement {
           type="place"
           label="place"></data-input>
 
-        <custom-button
-          label="Register"
-          type="tonal"
-          @click=${() => this._registerUser()}></custom-button>
+        <button
+          class="primary"
+          @click=${() => this._registerUser()}>Account activeren</button>
       </section>
     `
   }

@@ -34,8 +34,14 @@ export const handleWebSocketConnection = async (socket, req) => {
       try {
         if (type === 'pubsub') {
           if (params && params.subscribe) {
+            const channel = String(params.subscribe)
+            if (channel.startsWith('notifications.') && channel !== `notifications.${valid.userid}`) {
+              socket.send(JSON.stringify({ type: 'error', message: 'Forbidden notification channel' }))
+              return
+            }
             pubsub.subscribe(params.subscribe, (value) => {
               console.log(`WebSocket subscription to ${params.subscribe}`)
+              if (socket.readyState !== 1) return
               socket.send(
                 JSON.stringify({
                   type: 'pubsub',

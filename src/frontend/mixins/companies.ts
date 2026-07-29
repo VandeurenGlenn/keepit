@@ -12,22 +12,26 @@ export const CompaniesMixin = (base: typeof LiteElement) =>
 
     @property({ type: Boolean }) accessor creatingCompany = false
 
-    @property({ type: Array }) accessor companySteps = [
+    companyStepsFor(relationshipType: 'customer' | 'supplier') {
+      const relation = relationshipType === 'supplier' ? 'leverancier' : 'klant'
+      return [
       {
+        name: `Naam van de ${relation}`,
+        description: `Gebruik de bedrijfsnaam of naam van de ${relation}.`,
         template: html`<data-input label="name"></data-input> `,
         validateAndReturnValues: (inputs) => {
           const data = {}
 
           for (const input of inputs) {
             data[input.label] = input.value
-            if (!data[input.label]) {
-              return { valid: false, values: data }
-            }
+            if (!data[input.label]) return { valid: false, values: data }
           }
           return { valid: true, values: data }
         }
       },
       {
+        name: 'Adres',
+        description: `Zoek het hoofdadres van de ${relation}.`,
         template: html`
           <data-input
             label="place"
@@ -47,27 +51,28 @@ export const CompaniesMixin = (base: typeof LiteElement) =>
         }
       },
       {
-        description: 'optional',
+        name: 'Omschrijving',
+        description: `Optioneel: voeg nuttige informatie over de ${relation} toe.`,
         template: html`<data-input label="description"></data-input> `,
         validateAndReturnValues: (inputs) => {
           const data = {}
 
           for (const input of inputs) {
             data[input.label] = input.value
-            if (!data[input.label]) {
-              return { valid: false, values: data }
-            }
           }
           return { valid: true, values: data }
         }
       }
-    ]
-    _addCompany = async () => {
+      ]
+    }
+
+    _addCompany = async (relationshipType: 'customer' | 'supplier' = 'customer') => {
       if (this.creatingCompany) return // Prevent multiple clicks
       this.creatingCompany = true
       const dataFlow = new DataFlow()
-      dataFlow.steps = this.companySteps
-      dataFlow.label = 'Add Company'
+      const relation = relationshipType === 'supplier' ? 'leverancier' : 'klant'
+      dataFlow.steps = this.companyStepsFor(relationshipType)
+      dataFlow.label = `Nieuwe ${relation}`
       document.body.appendChild(dataFlow)
       const stepResults = await dataFlow.done
       this.creatingCompany = false
@@ -77,14 +82,17 @@ export const CompaniesMixin = (base: typeof LiteElement) =>
       }
 
       try {
-        const companyData = (stepResults as Array<Record<string, any>>).reduce((acc, item) => ({ ...acc, ...item }), {})
+        const companyData = {
+          ...(stepResults as Array<Record<string, any>>).reduce((acc, item) => ({ ...acc, ...item }), {}),
+          relationshipType
+        }
         const data = await api.createCompany(companyData)
         this.companies = this.companies || {}
-        this.companies[data.uuid] = data
+        this.companies = { ...this.companies, [data.uuid]: data.content }
         document.body.removeChild(dataFlow)
         const success = document.createElement('success-animation') as HTMLElement & { message?: string }
         document.body.appendChild(success)
-        success.message = 'Company created successfully!'
+        success.message = `${relationshipType === 'supplier' ? 'Leverancier' : 'Klant'} aangemaakt`
         setTimeout(() => {
           document.body.removeChild(success)
         }, 1200) // 1.2s for animation
@@ -92,12 +100,13 @@ export const CompaniesMixin = (base: typeof LiteElement) =>
         console.error('Error creating company:', error)
         this.creatingCompany = false
         document.body.removeChild(dataFlow)
-        alert('Failed to create company')
+        alert(`De ${relation} kon niet aangemaakt worden.`)
       }
     }
 
-    _deleteCompany = async (uuid) => {
-      const answer = confirm('Are you sure you want to delete this company?')
+    _deleteCompany = async (uuid, relationshipType: 'customer' | 'supplier' = 'customer') => {
+      const relation = relationshipType === 'supplier' ? 'leverancier' : 'klant'
+      const answer = confirm(`Ben je zeker dat je deze ${relation} wilt verwijderen?`)
       if (!answer) return
 
       try {
@@ -106,7 +115,7 @@ export const CompaniesMixin = (base: typeof LiteElement) =>
         this.requestRender()
       } catch (error) {
         console.error('Error deleting company:', error)
-        alert('Failed to delete company')
+        alert(`De ${relation} kon niet verwijderd worden.`)
       }
     }
 

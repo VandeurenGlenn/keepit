@@ -45,7 +45,7 @@ router.patch('/:uuid', async (ctx) => {
   }
 
   ctx.status = 200
-  ctx.body = { uuid, content: jobs[uuid] }
+  ctx.body = jobs[uuid]
 })
 
 export default router.routes()

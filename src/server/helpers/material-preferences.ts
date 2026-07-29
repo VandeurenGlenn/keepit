@@ -2,12 +2,15 @@ import { mkdir, readFile, writeFile } from 'fs/promises'
 import { resolve } from 'path'
 import { MaterialLine } from '../../types/index.js'
 
-type StoredMaterial = {
+export type StoredMaterial = {
   name: string
   articleNumber?: string
+  productNumber?: string
   unit?: string
   unitPrice?: number
+  packagingQuantity?: number
   timestamp?: number
+  usageCount?: number
 }
 
 type MaterialPreferences = {
@@ -46,9 +49,12 @@ export const addToHistory = async (material: MaterialLine): Promise<void> => {
   const item: StoredMaterial = {
     name: material.name,
     articleNumber: material.articleNumber,
+    productNumber: material.productNumber,
     unit: material.unit,
     unitPrice: material.unitPrice,
-    timestamp: Date.now()
+    packagingQuantity: material.packagingQuantity,
+    timestamp: Date.now(),
+    usageCount: (prefs.history.find((entry) => entry.name === material.name)?.usageCount || 0) + 1
   }
 
   // Remove if already exists, then add to front
@@ -66,8 +72,10 @@ export const addToFavorites = async (material: MaterialLine): Promise<void> => {
     prefs.favorites.push({
       name: material.name,
       articleNumber: material.articleNumber,
+      productNumber: material.productNumber,
       unit: material.unit,
-      unitPrice: material.unitPrice
+      unitPrice: material.unitPrice,
+      packagingQuantity: material.packagingQuantity
     })
     await writePreferences(prefs)
   }
@@ -86,7 +94,10 @@ export const getFavorites = async (): Promise<StoredMaterial[]> => {
 
 export const getHistory = async (): Promise<StoredMaterial[]> => {
   const prefs = await readPreferences()
-  return prefs.history
+  return [...prefs.history].sort(
+    (left, right) =>
+      (right.usageCount || 1) - (left.usageCount || 1) || (right.timestamp || 0) - (left.timestamp || 0)
+  )
 }
 
 export const isFavorite = async (name: string): Promise<boolean> => {

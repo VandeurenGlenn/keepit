@@ -22,21 +22,21 @@ export class LoadingView extends LiteElement {
         flex-direction: column;
         align-items: center;
         gap: 12px;
-        padding: 24px 28px;
-        border-radius: 24px;
-        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
+        padding: 20px 24px;
+        border-radius: 18px;
+        background: var(--app-panel);
         border: 1px solid var(--app-border);
-        box-shadow: var(--app-shadow-strong);
+        box-shadow: var(--app-shadow-soft);
       }
 
       .loader {
-        border: 16px solid var(--md-sys-color-tertiary);
-        border-top: 16px solid var(--md-sys-color-on-tertiary);
+        border: 4px solid var(--app-accent-soft);
+        border-top-color: var(--app-accent);
         border-radius: 50%;
-        width: 60px;
-        height: 60px;
-        animation: spin 2s linear infinite;
-        margin-top: 20px;
+        width: 30px;
+        height: 30px;
+        animation: spin .8s linear infinite;
+        margin-top: 6px;
       }
       @keyframes spin {
         0% {
@@ -62,11 +62,11 @@ export class LoadingView extends LiteElement {
   render() {
     return html`
       <div class="loading-panel">
-        ${this.type === 'signin' ? html`<h1>Welcome back!</h1>` : html`<h1>Loading...</h1>`}
+        ${this.type === 'signin' ? html`<h1>Welkom terug</h1>` : html`<h1>Even laden</h1>`}
         <p>
           ${this.type === 'signin'
-            ? html`Please wait while we sign you in.`
-            : html`Please wait while we load the content for you.`}
+            ? html`We melden je veilig aan.`
+            : html`We halen de nieuwste gegevens op.`}
         </p>
         <div class="loader"></div>
       </div>

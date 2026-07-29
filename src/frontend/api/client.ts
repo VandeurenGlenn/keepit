@@ -4,10 +4,17 @@ import {
   User,
   Company,
   Prestation,
+  WorkLocation,
+  TimelineLocationEvent,
   MaterialLine,
   ShopProduct,
   ShopOrder,
   ShopOrderItem,
+  Jobs,
+  PlanningEntry,
+  AppNotification,
+  Quote,
+  Quotes,
   jobId,
   userId,
   invoiceId
@@ -67,12 +74,16 @@ class ApiClient {
   }
 
   // Hours API
-  async checkIn(job: jobId, userId: userId, checkin: number): Promise<Prestation> {
-    return this.request('POST', '/hours/checkin', { job, userId, checkin })
+  async checkIn(job: jobId, checkin: number, location?: WorkLocation): Promise<Prestation> {
+    return this.request('POST', '/hours/checkin', { job, checkin, location })
   }
 
-  async checkOut(job: jobId, userId: userId, checkout: number): Promise<Prestation> {
-    return this.request('POST', '/hours/checkout', { job, userId, checkout })
+  async checkOut(job: jobId, checkout: number, location?: WorkLocation): Promise<Prestation> {
+    return this.request('POST', '/hours/checkout', { job, checkout, location })
+  }
+
+  async getMyTimeline(days = 14): Promise<Array<Prestation & { id: string }>> {
+    return this.request('GET', `/hours/me?days=${days}`)
   }
 
   async getJobHours(jobId: jobId, billableOnly = false): Promise<Record<string, Prestation[]>> {
@@ -81,11 +92,13 @@ class ApiClient {
   }
 
   // Jobs API
-  async getJobs(): Promise<Job[]> {
+  async getJobs(): Promise<Jobs> {
     return this.request('GET', '/jobs')
   }
 
-  async createJob(job: { name: string; description?: string; place: any; uuid?: string }): Promise<Job> {
+  async createJob(
+    job: { name: string; description?: string; place: any; uuid?: string }
+  ): Promise<{ uuid: string; content: Job }> {
     return this.request('POST', '/jobs', job)
   }
 
@@ -99,6 +112,57 @@ class ApiClient {
 
   async deleteJob(jobId: jobId): Promise<void> {
     return this.request('DELETE', `/jobs/${jobId}`)
+  }
+
+  // Planning API
+  async getPlanning(from: string, to: string): Promise<PlanningEntry[]> {
+    const params = new URLSearchParams({ from, to })
+    return this.request('GET', `/planning?${params.toString()}`)
+  }
+
+  async createPlanning(input: Pick<PlanningEntry, 'jobId' | 'userIds' | 'start' | 'end' | 'notes'>) {
+    return this.request<PlanningEntry>('POST', '/planning', input)
+  }
+
+  async updatePlanning(id: string, updates: Partial<Pick<PlanningEntry, 'jobId' | 'userIds' | 'start' | 'end' | 'notes'>>) {
+    return this.request<PlanningEntry>('PATCH', `/planning/${id}`, updates)
+  }
+
+  async deletePlanning(id: string): Promise<void> {
+    return this.request('DELETE', `/planning/${id}`)
+  }
+
+  async getNotifications(unreadOnly = false): Promise<AppNotification[]> {
+    return this.request('GET', `/notifications${unreadOnly ? '?unread=true' : ''}`)
+  }
+
+  async markNotificationRead(id: string): Promise<void> {
+    return this.request('PATCH', `/notifications/${id}/read`)
+  }
+
+  // Quotes API
+  async getQuotes(): Promise<Quotes> {
+    return this.request('GET', '/quotes')
+  }
+
+  async getQuote(id: string): Promise<Quote> {
+    return this.request('GET', `/quotes/${id}`)
+  }
+
+  async createQuote(input: Pick<Quote, 'name' | 'jobId' | 'status' | 'materials'> & Partial<Quote>): Promise<Quote> {
+    return this.request('POST', '/quotes', input)
+  }
+
+  async updateQuote(id: string, updates: Partial<Quote>): Promise<Quote> {
+    return this.request('PATCH', `/quotes/${id}`, updates)
+  }
+
+  async duplicateQuote(id: string): Promise<Quote> {
+    return this.request('POST', `/quotes/${id}/duplicate`)
+  }
+
+  async deleteQuote(id: string): Promise<void> {
+    return this.request('DELETE', `/quotes/${id}`)
   }
 
   // Invoices API
@@ -158,20 +222,41 @@ class ApiClient {
     return this.request('GET', `/users/${userId}`)
   }
 
+  async updateContinuousTimelinePreference(enabled: boolean): Promise<{ continuousTimelineLocation: boolean }> {
+    return this.request('PATCH', '/users/me/preferences', { continuousTimelineLocation: enabled })
+  }
+
+  async submitTimelinePosition(location: WorkLocation): Promise<{
+    accepted: boolean
+    events?: TimelineLocationEvent[]
+    shouldNotifyCheckout?: boolean
+    currentJob?: { id: string; name: string }
+  }> {
+    return this.request('POST', '/timeline/position', { location })
+  }
+
+  async getMyLocationTimeline(days = 30): Promise<TimelineLocationEvent[]> {
+    return this.request('GET', `/timeline/me?days=${days}`)
+  }
+
+  async clearMyLocationTimeline(): Promise<void> {
+    return this.request('DELETE', '/timeline/me')
+  }
+
   async getHandshake(): Promise<string> {
     return this.request('GET', '/handshake')
   }
 
-  async registerUser(user: Partial<User>): Promise<User> {
+  async registerUser(user: Partial<User> & { inviteId?: string }): Promise<User> {
     return this.request('POST', '/register', user)
   }
 
   // Companies API
-  async getCompanies(): Promise<Company[]> {
+  async getCompanies(): Promise<Record<string, Company>> {
     return this.request('GET', '/companies')
   }
 
-  async createCompany(company: Partial<Company>): Promise<Company> {
+  async createCompany(company: Partial<Company>): Promise<{ uuid: string; content: Company }> {
     return this.request('POST', '/companies', company)
   }
 
@@ -190,16 +275,24 @@ class ApiClient {
   // Shop API
   async getShopProducts(
     search?: string,
-    options?: { limit?: number; offset?: number }
+    options?: { limit?: number; offset?: number; popular?: boolean }
   ): Promise<{ total: number; products: ShopProduct[] }> {
     const params = new URLSearchParams()
 
     if (search) params.set('search', search)
     if (options?.limit !== undefined) params.set('limit', String(options.limit))
     if (options?.offset !== undefined) params.set('offset', String(options.offset))
+    if (options?.popular) params.set('popular', 'true')
 
     const query = params.size > 0 ? `?${params.toString()}` : ''
     return this.request('GET', `/shop/products${query}`)
+  }
+
+  async importShopCart(
+    source: 'desco' | 'alelek',
+    text: string
+  ): Promise<{ materials: MaterialLine[]; unmatched: string[] }> {
+    return this.request('POST', '/shop/cart-import', { source, text })
   }
 
   async getShopAutocomplete(query: string): Promise<{ suggestions: string[] }> {

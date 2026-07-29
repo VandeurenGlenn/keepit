@@ -7,6 +7,7 @@ import '@vandeurenglenn/lite-elements/list-item.js'
 import { CustomSelector } from '@vandeurenglenn/lite-elements/selector'
 import '@vandeurenglenn/lite-elements/selector.js'
 import '@material/web/textfield/outlined-text-field.js'
+import type { Place } from '../../types/index.js'
 
 declare const google: typeof globalThis.google
 
@@ -17,7 +18,7 @@ export class DataInput extends LiteElement {
 
   @property({ type: String }) accessor type: 'text' | 'number' | 'place' = 'text'
 
-  @property({ type: Object }) accessor place: { formattedAddress: string; displayName: string }
+  @property({ type: Object }) accessor place: Place
 
   timeout?: ReturnType<typeof setTimeout>
   suggestions: any[] = []
@@ -205,15 +206,26 @@ export class DataInput extends LiteElement {
     console.log(event.detail)
     let place = this.suggestions[event.detail].placePrediction.toPlace() // Get first predicted place.
     const fields = await place.fetchFields({
-      fields: ['displayName', 'formattedAddress']
+      fields: ['id', 'displayName', 'formattedAddress', 'location']
     })
     console.log(fields)
 
     console.log(fields.place.displayName)
 
-    this.place = fields.place
+    const selectedPlace = fields.place
+    this.place = {
+      id: selectedPlace.id,
+      displayName: selectedPlace.displayName,
+      formattedAddress: selectedPlace.formattedAddress,
+      location: selectedPlace.location
+        ? {
+            latitude: selectedPlace.location.lat(),
+            longitude: selectedPlace.location.lng()
+          }
+        : undefined
+    }
 
-    this.value = fields.place.displayName
+    this.value = selectedPlace.displayName
     this.dispatchEvent(
       new CustomEvent('data-input-changed', {
         detail: { value: this.value },
@@ -224,12 +236,13 @@ export class DataInput extends LiteElement {
     this.dropdown.open = false
   }
   render() {
+    const displayLabel = ({ name: 'Naam', place: 'Locatie', description: 'Omschrijving', telephone: 'Telefoon' } as Record<string, string>)[this.label] || this.label
     return html`
       <div class="input">
         <md-outlined-text-field
           @input=${(e) => this._change(e)}
           .type=${this.type}
-          .label=${this.label}
+          .label=${displayLabel}
           .value=${this.value}>
           ${this.type === 'place'
             ? html`<custom-icon
@@ -246,7 +259,7 @@ export class DataInput extends LiteElement {
             @selected=${(event) => this.select(event)}></custom-selector>
         </custom-dropdown>
 
-        ${this.type === 'place' ? html`<p>${this.place?.formattedAddress}</p>` : ''}
+        ${this.type === 'place' && this.place?.formattedAddress ? html`<p>${this.place.formattedAddress}</p>` : ''}
       </div>
     `
   }

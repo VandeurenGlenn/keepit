@@ -1,16 +1,27 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
+import { arrayRepeatBy, createKeyedLazyRepeatState, type KeyedLazyRepeatState } from '@vandeurenglenn/lite/helpers.js'
 import { api } from '../api/client.js'
 import { ShopProduct } from '../../types/index.js'
 
 export class ShopView extends LiteElement {
   @property({ type: String }) accessor searchQuery = ''
   @property({ type: Array }) accessor products: ShopProduct[] = []
-  @property({ type: Boolean }) accessor loading = false
+  @property({ type: Boolean }) accessor loading = true
+  @property({ type: Array }) accessor autocompleteSuggestions: string[] = []
   @property({ type: Object }) accessor cart: Map<string, number> = new Map()
   @property({ type: Object }) accessor draftQuantities: Map<string, number> = new Map()
   @property({ type: Boolean }) accessor showCart = false
+  @property({ type: String }) accessor sourceFilter = 'all'
+  @property({ type: String }) accessor categoryFilter = 'all'
+  @property({ type: String }) accessor priceFilter = 'all'
+  @property({ type: Boolean }) accessor favoritesOnly = false
+  @property({ type: Object }) accessor selectedProduct: ShopProduct | undefined
 
   favoriteNames: Set<string> = new Set()
+  private readonly lazyProductState: KeyedLazyRepeatState = createKeyedLazyRepeatState()
+  private currentLoadToken = 0
+  private autocompleteLoadToken = 0
+  private autocompleteTimer: ReturnType<typeof setTimeout> | undefined
 
   static styles = [
     css`
@@ -18,6 +29,7 @@ export class ShopView extends LiteElement {
         display: block;
         width: 100%;
         height: 100%;
+        overflow: hidden;
         box-sizing: border-box;
         padding: 18px;
         font-family: 'Avenir Next', 'Segoe UI', sans-serif;
@@ -35,11 +47,22 @@ export class ShopView extends LiteElement {
       }
 
       .container {
-        max-width: 1280px;
+        max-width: 1800px;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
         margin: 0 auto;
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        overflow: hidden;
+      }
+
+      .controls {
+        display: flex;
+        flex: none;
+        flex-direction: column;
+        gap: 10px;
+        padding-bottom: 14px;
       }
 
       .header {
@@ -51,6 +74,74 @@ export class ShopView extends LiteElement {
 
       .search-bar {
         flex: 1;
+        min-width: 180px;
+      }
+
+      .filter-bar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .filter-select,
+      .filter-toggle,
+      .clear-filters {
+        min-height: 38px;
+        border-radius: 11px;
+        border: 1px solid color-mix(in srgb, var(--app-border) 75%, transparent 25%);
+        background: color-mix(in srgb, var(--md-sys-color-surface) 90%, var(--app-panel) 10%);
+        color: var(--md-sys-color-on-surface);
+        font: inherit;
+        font-size: 0.82rem;
+        font-weight: 600;
+      }
+
+      .filter-select {
+        padding: 0 34px 0 12px;
+        cursor: pointer;
+      }
+
+      .filter-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 12px;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .filter-toggle input {
+        width: 16px;
+        height: 16px;
+        margin: 0;
+        accent-color: var(--app-accent);
+      }
+
+      .clear-filters {
+        padding: 0 12px;
+        cursor: pointer;
+      }
+
+      .clear-filters:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+
+      .filter-select:focus-visible,
+      .filter-toggle:focus-within,
+      .clear-filters:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--app-accent) 22%, transparent 78%);
+      }
+
+      .result-count {
+        margin-left: auto;
+        padding: 0 4px;
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: 0.8rem;
+        font-weight: 600;
+        white-space: nowrap;
       }
 
       .search-input {
@@ -87,6 +178,7 @@ export class ShopView extends LiteElement {
       .cart-button,
       .cart-icon-button,
       .qty-button,
+      .detail-button,
       .checkout-button,
       .close-button,
       .remove-btn {
@@ -105,6 +197,7 @@ export class ShopView extends LiteElement {
       .cart-button:focus-visible,
       .cart-icon-button:focus-visible,
       .qty-button:focus-visible,
+      .detail-button:focus-visible,
       .favorite-button:focus-visible,
       .checkout-button:focus-visible,
       .close-button:focus-visible,
@@ -166,6 +259,17 @@ export class ShopView extends LiteElement {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
         gap: 16px;
+        width: 100%;
+      }
+
+      .products-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 2px 4px 18px 2px;
+        scrollbar-gutter: stable;
+        overscroll-behavior: contain;
       }
 
       .product-card {
@@ -190,6 +294,8 @@ export class ShopView extends LiteElement {
           transform 180ms ease,
           border-color 180ms ease,
           box-shadow 180ms ease;
+        cursor: pointer;
+        box-sizing: border-box;
       }
 
       .product-card:hover {
@@ -200,11 +306,67 @@ export class ShopView extends LiteElement {
           0 0 0 1px color-mix(in srgb, var(--app-accent) 10%, transparent 90%) inset;
       }
 
+      .product-image-wrap {
+        position: relative;
+        width: 100%;
+        height: 176px;
+        padding: 4px;
+        box-sizing: border-box;
+        border-radius: 12px;
+        overflow: hidden;
+        background: white;
+      }
+
+      .product-image-placeholder {
+        position: absolute;
+        inset: 4px;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 8px;
+        border-radius: 8px;
+        color: #263238;
+        background:
+          radial-gradient(circle at 25% 20%, rgb(255 255 255 / 72%), transparent 38%),
+          linear-gradient(145deg, #e8f0f2, #cfdde1);
+        text-align: center;
+      }
+
+      .product-placeholder-icon {
+        font-size: 42px;
+        line-height: 1;
+        color: #42636c;
+      }
+
+      .product-placeholder-label {
+        max-width: 170px;
+        font-size: 12px;
+        font-weight: 750;
+        letter-spacing: 0.035em;
+        text-transform: uppercase;
+      }
+
+      .product-placeholder-note {
+        font-size: 10px;
+        color: #607d86;
+      }
+
+      .product-image {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+        border-radius: 8px;
+      }
+
       .product-name {
         font-size: 0.98rem;
         font-weight: 700;
         line-height: 1.3;
         letter-spacing: 0.004em;
+        height: 3.9em;
         display: -webkit-box;
         -webkit-line-clamp: 3;
         -webkit-box-orient: vertical;
@@ -227,6 +389,73 @@ export class ShopView extends LiteElement {
         font-weight: 500;
         letter-spacing: 0.005em;
         color: var(--md-sys-color-on-surface-variant);
+      }
+
+      .product-description {
+        margin-top: 2px;
+        font-size: 0.82rem;
+        line-height: 1.35;
+        color: var(--md-sys-color-on-surface-variant);
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .product-specs {
+        border: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent 28%);
+        border-radius: 12px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--app-panel-strong) 82%, #000 18%);
+      }
+
+      .product-specs summary {
+        padding: 9px 11px;
+        cursor: pointer;
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: 0.78rem;
+        font-weight: 700;
+      }
+
+      .product-spec-list {
+        display: grid;
+        grid-template-columns: minmax(90px, 0.8fr) minmax(0, 1.2fr);
+        margin: 0;
+        padding: 0 11px 10px;
+        gap: 5px 10px;
+        font-size: 0.74rem;
+      }
+
+      .product-spec-list dt,
+      .product-spec-list dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .product-spec-list dt {
+        color: var(--md-sys-color-on-surface-variant);
+        font-weight: 600;
+      }
+
+      .product-spec-list dd {
+        color: var(--md-sys-color-on-surface);
+      }
+
+      .product-sources {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .product-source-link {
+        color: var(--md-sys-color-primary, #3451b2);
+        font-size: 12px;
+        text-decoration: none;
+      }
+
+      .product-source-link:hover {
+        text-decoration: underline;
       }
 
       .product-meta {
@@ -332,6 +561,24 @@ export class ShopView extends LiteElement {
         margin-top: auto;
       }
 
+      .detail-button {
+        width: 100%;
+        min-height: 36px;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent 28%);
+        background: color-mix(in srgb, var(--app-panel-strong) 82%, black 18%);
+        color: var(--md-sys-color-on-surface);
+        font-size: 0.8rem;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .detail-button:hover {
+        border-color: color-mix(in srgb, var(--app-accent) 34%, var(--app-border) 66%);
+        color: var(--app-accent);
+      }
+
       .favorite-button {
         width: 40px;
         height: 40px;
@@ -394,6 +641,88 @@ export class ShopView extends LiteElement {
 
       .cart-modal.open {
         display: flex;
+      }
+
+      .product-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 1100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        box-sizing: border-box;
+        background: rgb(0 0 0 / 62%);
+        backdrop-filter: blur(5px);
+      }
+
+      .product-detail {
+        width: min(1040px, 100%);
+        max-height: min(90vh, 980px);
+        overflow: auto;
+        display: grid;
+        grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.15fr);
+        gap: 28px;
+        padding: 24px;
+        border-radius: 24px;
+        box-sizing: border-box;
+        background: color-mix(in srgb, var(--md-sys-color-surface) 94%, var(--app-panel) 6%);
+        border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent 18%);
+        box-shadow: 0 28px 80px rgb(0 0 0 / 45%);
+      }
+
+      .product-detail-media {
+        position: sticky;
+        top: 0;
+        align-self: start;
+      }
+
+      .product-detail-media .product-image-wrap {
+        height: min(420px, 48vh);
+      }
+
+      .product-detail-content {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .product-detail-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .product-detail-title {
+        margin: 0 0 8px;
+        font-size: clamp(1.35rem, 3vw, 2rem);
+        line-height: 1.18;
+      }
+
+      .product-detail-description {
+        margin: 0;
+        color: var(--md-sys-color-on-surface-variant);
+        line-height: 1.55;
+      }
+
+      .product-detail-section h3 {
+        margin: 0 0 10px;
+        font-size: 0.95rem;
+      }
+
+      .product-detail-section .product-spec-list {
+        padding: 0;
+        font-size: 0.82rem;
+      }
+
+      .product-detail-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding-top: 4px;
       }
 
       .cart-content {
@@ -493,40 +822,52 @@ export class ShopView extends LiteElement {
         box-shadow: 0 3px 10px color-mix(in srgb, var(--app-accent-strong) 12%, transparent 88%);
       }
 
+      @media (max-width: 1100px) {
+        .products-grid {
+          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        }
+      }
       @media (max-width: 720px) {
         :host {
           padding: 12px;
         }
-
-        .container {
-          gap: 14px;
-        }
-
-        .header {
-          flex-direction: column;
-          align-items: stretch;
-        }
-
-        .cart-button {
-          width: 100%;
-        }
-
         .products-grid {
           grid-template-columns: 1fr;
-          gap: 14px;
+          gap: 10px;
         }
-
-        .product-card {
-          min-height: 0;
+        .header {
+          gap: 8px;
         }
-
-        .cart-item {
+        .cart-button {
+          padding: 0 13px;
+        }
+        .filter-bar {
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          padding-bottom: 3px;
+        }
+        .filter-select,
+        .filter-toggle,
+        .clear-filters {
+          flex: none;
+        }
+        .result-count {
+          margin-left: 4px;
+        }
+        .product-modal {
+          padding: 10px;
+        }
+        .product-detail {
           grid-template-columns: 1fr;
+          gap: 18px;
+          padding: 16px;
+          border-radius: 18px;
         }
-
-        .remove-btn,
-        .checkout-button {
-          width: 100%;
+        .product-detail-media {
+          position: static;
+        }
+        .product-detail-media .product-image-wrap {
+          height: 260px;
         }
       }
     `
@@ -538,19 +879,63 @@ export class ShopView extends LiteElement {
   }
 
   async loadProducts() {
+    const loadToken = ++this.currentLoadToken
     this.loading = true
+
     try {
-      const data = await api.getShopProducts(this.searchQuery || undefined)
-      this.products = data.products || []
+      const search = this.searchQuery || undefined
+      const initialLimit = this.getInitialProductLimit()
+      const firstPage = await api.getShopProducts(search, {
+        limit: initialLimit,
+        offset: 0
+      })
+
+      if (loadToken !== this.currentLoadToken) return
+
+      this.products = firstPage.products || []
 
       // Load favorites
       const favorites = await api.getFavorites()
+      if (loadToken !== this.currentLoadToken) return
       this.favoriteNames = new Set(favorites.map((m) => m.name))
+
+      if (firstPage.total > this.products.length) {
+        void this.loadRemainingProducts(search, this.products.length, loadToken)
+      }
     } catch (error) {
+      if (loadToken !== this.currentLoadToken) return
       console.error('Failed to load products:', error)
       this.products = []
     } finally {
-      this.loading = false
+      if (loadToken === this.currentLoadToken) {
+        this.loading = false
+      }
+    }
+  }
+
+  private getInitialProductLimit(): number {
+    if (typeof window === 'undefined') return 24
+
+    const cardApproxHeight = 300
+    const cardApproxWidth = 300
+    const viewportHeight = Math.max(window.innerHeight, 600)
+    const viewportWidth = Math.max(window.innerWidth, 360)
+    const rows = Math.max(2, Math.ceil(viewportHeight / cardApproxHeight) + 1)
+    const columns = Math.max(1, Math.ceil(viewportWidth / cardApproxWidth))
+
+    return Math.max(12, Math.min(60, rows * columns))
+  }
+
+  private async loadRemainingProducts(search: string | undefined, offset: number, loadToken: number): Promise<void> {
+    try {
+      const remaining = await api.getShopProducts(search, { offset })
+      if (loadToken !== this.currentLoadToken) return
+      if (!remaining.products?.length) return
+
+      this.products = [...this.products, ...remaining.products]
+    } catch (error) {
+      if (loadToken !== this.currentLoadToken) return
+      console.error('Failed to load remaining products:', error)
     }
   }
 
@@ -558,7 +943,7 @@ export class ShopView extends LiteElement {
     try {
       const favorites = await api.getFavorites()
       this.favoriteNames = new Set(favorites.map((m) => m.name))
-      this.requestUpdate()
+      this.requestRender()
     } catch (error) {
       console.error('Failed to refresh favorites:', error)
     }
@@ -567,7 +952,37 @@ export class ShopView extends LiteElement {
   handleSearch = (event: Event) => {
     const input = event.target as HTMLInputElement | null
     this.searchQuery = input?.value || ''
+
+    if (this.autocompleteTimer) {
+      clearTimeout(this.autocompleteTimer)
+    }
+
+    const query = this.searchQuery.trim()
+    if (!query) {
+      this.autocompleteSuggestions = []
+      void this.loadProducts()
+      return
+    }
+
+    this.autocompleteTimer = setTimeout(() => {
+      void this.loadAutocompleteSuggestions(query)
+    }, 120)
+
     void this.loadProducts()
+  }
+
+  private async loadAutocompleteSuggestions(query: string): Promise<void> {
+    const token = ++this.autocompleteLoadToken
+
+    try {
+      const data = await api.getShopAutocomplete(query)
+      if (token !== this.autocompleteLoadToken) return
+      this.autocompleteSuggestions = data.suggestions || []
+    } catch (error) {
+      if (token !== this.autocompleteLoadToken) return
+      console.error('Failed to load autocomplete suggestions:', error)
+      this.autocompleteSuggestions = []
+    }
   }
 
   getProductMeta(product: ShopProduct): string[] {
@@ -576,6 +991,86 @@ export class ShopView extends LiteElement {
     if (product.productNumber) meta.push(`PROD: ${product.productNumber}`)
     if (typeof product.packagingQuantity === 'number') meta.push(`VPH: ${product.packagingQuantity}`)
     return meta
+  }
+
+  getProductDescription(product: ShopProduct): string {
+    const description = (product.description || '').trim()
+    if (!description) return ''
+
+    const lowered = description.toLowerCase()
+    if (
+      lowered === 'winkelwagen' ||
+      lowered === 'artikel' ||
+      lowered.includes('bevestiging terug toon alle artikelen')
+    ) {
+      return ''
+    }
+
+    return description
+  }
+
+  getProductTechnicalData(product: ShopProduct): Array<[string, string]> {
+    if (!product.technicalData) return []
+
+    return Object.entries(product.technicalData)
+      .map(([label, value]) => [label.trim(), String(value).trim()] as [string, string])
+      .filter(([label, value]) => Boolean(label && value))
+      .sort(([left], [right]) => left.localeCompare(right, 'nl'))
+  }
+
+  getProductSources(product: ShopProduct) {
+    return (product.dataSources || []).filter(
+      (source) => source.pageUrl.startsWith('https://') && Boolean(source.provider)
+    )
+  }
+
+  getManufacturerData(product: ShopProduct): Array<[string, string]> {
+    if (!product.manufacturerData) return []
+    return Object.entries(product.manufacturerData)
+      .map(([label, value]) => [label.trim(), String(value).trim()] as [string, string])
+      .filter(([label, value]) => Boolean(label && value))
+  }
+
+  getProductVisualCategory(product: ShopProduct): { icon: string; label: string } {
+    const text = `${product.name} ${product.description || ''}`.toLowerCase()
+    if (/douche|bad\b|toilet|\bwc\b|spoel/.test(text)) return { icon: '▤', label: 'Sanitair' }
+    if (/kraan|mengkraan|tapkraan/.test(text)) return { icon: '⌁', label: 'Kranen' }
+    if (/ketel|brander|boiler|radiator|verwarm|thermostaat/.test(text)) return { icon: '♨', label: 'Verwarming' }
+    if (/pomp|circulat/.test(text)) return { icon: '⟳', label: 'Pompen' }
+    if (/buis|bocht|mof\b|koppeling|fitting|leiding/.test(text)) return { icon: '⑂', label: 'Leidingen & fittingen' }
+    if (/tang|zaag|boor|sleutel|gereedschap/.test(text)) return { icon: '⌕', label: 'Gereedschap' }
+    if (/ventiel|klep|afsluiter/.test(text)) return { icon: '◉', label: 'Kleppen & ventielen' }
+    return { icon: '◇', label: 'Installatiemateriaal' }
+  }
+
+  getFilteredProducts(): ShopProduct[] {
+    return this.products.filter((product) => {
+      if (this.sourceFilter !== 'all' && product.source !== this.sourceFilter) return false
+      if (this.categoryFilter !== 'all' && this.getProductVisualCategory(product).label !== this.categoryFilter) {
+        return false
+      }
+      if (this.priceFilter === 'under-25' && product.price >= 25) return false
+      if (this.priceFilter === '25-100' && (product.price < 25 || product.price > 100)) return false
+      if (this.priceFilter === '100-plus' && product.price <= 100) return false
+      if (this.favoritesOnly && !this.favoriteNames.has(product.name)) return false
+      return true
+    })
+  }
+
+  hasActiveFilters(): boolean {
+    return (
+      this.sourceFilter !== 'all' ||
+      this.categoryFilter !== 'all' ||
+      this.priceFilter !== 'all' ||
+      this.favoritesOnly
+    )
+  }
+
+  clearFilters() {
+    this.sourceFilter = 'all'
+    this.categoryFilter = 'all'
+    this.priceFilter = 'all'
+    this.favoritesOnly = false
   }
 
   addToCart(product: ShopProduct) {
@@ -588,7 +1083,18 @@ export class ShopView extends LiteElement {
     nextCart.set(product.id, (nextCart.get(product.id) || 0) + nextQuantity)
     this.cart = nextCart
     // Track in history
-    void api.addToHistory(product)
+    void api.addToHistory({
+      name: product.name,
+      quantity: product.quantity || 1,
+      unit: product.unit,
+      unitPrice: product.price,
+      articleNumber: product.articleNumber,
+      productNumber: product.productNumber,
+      packagingQuantity: product.packagingQuantity,
+      description: product.description,
+      image: product.image,
+      technicalData: product.technicalData
+    })
   }
 
   getDraftQuantity(productId: string): number {
@@ -621,6 +1127,14 @@ export class ShopView extends LiteElement {
 
   toggleCart() {
     this.showCart = !this.showCart
+  }
+
+  openProduct(product: ShopProduct) {
+    this.selectedProduct = product
+  }
+
+  closeProduct() {
+    this.selectedProduct = undefined
   }
 
   getCartItem(productId: string): ShopProduct | undefined {
@@ -659,11 +1173,11 @@ export class ShopView extends LiteElement {
       })
 
       if (result.ok) {
-        alert(`Order #${result.orderId} created successfully!`)
+        alert(`Bestelling #${result.orderId} is aangemaakt.`)
         this.cart = new Map()
         this.showCart = false
       } else {
-        alert('Failed to create order')
+        alert('De bestelling kon niet aangemaakt worden.')
       }
     } catch (error) {
       console.error('Checkout error:', error)
@@ -671,118 +1185,395 @@ export class ShopView extends LiteElement {
     }
   }
 
-  render() {
+  private renderProductDetail(product?: ShopProduct) {
+    if (!product) return ''
+
+    const meta = this.getProductMeta(product)
+    const description = this.getProductDescription(product)
+    const technicalData = this.getProductTechnicalData(product)
+    const manufacturerData = this.getManufacturerData(product)
+    const sources = this.getProductSources(product)
+    const visualCategory = this.getProductVisualCategory(product)
+    const draftQuantity = this.getDraftQuantity(product.id)
+
     return html`
-      <div class="container">
-        <div class="header">
-          <div class="search-bar">
-            <input
-              class="search-input"
-              type="text"
-              placeholder="Search products..."
-              .value=${this.searchQuery}
-              @input=${this.handleSearch} />
+      <div
+        class="product-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label=${product.name}
+        @click=${(event: Event) => {
+          if (event.target === event.currentTarget) this.closeProduct()
+        }}>
+        <article class="product-detail">
+          <div class="product-detail-media">
+            <div class="product-image-wrap">
+              <div class="product-image-placeholder">
+                <span class="product-placeholder-icon">${visualCategory.icon}</span>
+                <span class="product-placeholder-label">${visualCategory.label}</span>
+                <span class="product-placeholder-note">Illustratie · foto volgt</span>
+              </div>
+              ${product.image
+                ? html`<img
+                    class="product-image"
+                    src=${`/api/shop/image?variant=detail&url=${encodeURIComponent(product.image)}`}
+                    alt=${product.name}
+                    decoding="async"
+                    @error=${(event: Event) => {
+                      const image = event.currentTarget as HTMLImageElement
+                      if (image.dataset.originalFallback !== 'true') {
+                        image.dataset.originalFallback = 'true'
+                        image.src = product.image!
+                      } else {
+                        image.hidden = true
+                      }
+                    }} />`
+                : ''}
+            </div>
           </div>
 
-          <button
-            class="cart-button"
-            @click=${this.toggleCart}>
-            Cart ${this.getCartItemCount() > 0 ? html`<span class="cart-count">${this.getCartItemCount()}</span>` : ''}
-          </button>
+          <div class="product-detail-content">
+            <div class="product-detail-header">
+              <div>
+                <h2 class="product-detail-title">${product.name}</h2>
+                <div class="product-price">€${product.price.toFixed(2)}</div>
+                ${product.unit ? html`<span class="product-unit">per ${product.unit}</span>` : ''}
+              </div>
+              <button
+                class="close-button"
+                aria-label="Sluit productdetails"
+                @click=${() => this.closeProduct()}>
+                ✕
+              </button>
+            </div>
+
+            ${description ? html`<p class="product-detail-description">${description}</p>` : ''}
+            ${meta.length
+              ? html`<div class="product-meta">${meta.map((label) => html`<span class="meta-badge">${label}</span>`)}</div>`
+              : ''}
+
+            ${technicalData.length
+              ? html`<section class="product-detail-section">
+                  <h3>Technische informatie</h3>
+                  <dl class="product-spec-list">
+                    ${technicalData.map(([label, value]) => html`<dt>${label}</dt><dd>${value}</dd>`)}
+                  </dl>
+                </section>`
+              : ''}
+
+            ${manufacturerData.length
+              ? html`<section class="product-detail-section">
+                  <h3>Fabrikantgegevens</h3>
+                  <dl class="product-spec-list">
+                    ${manufacturerData.map(([label, value]) => html`<dt>${label}</dt><dd>${value}</dd>`)}
+                  </dl>
+                </section>`
+              : ''}
+
+            ${sources.length
+              ? html`<section class="product-detail-section">
+                  <h3>Bronnen</h3>
+                  <div class="product-sources">
+                    ${sources.map(
+                      (source) => html`<a
+                        class="product-source-link"
+                        href=${source.pageUrl}
+                        target="_blank"
+                        rel="noopener noreferrer">${source.provider}</a>`
+                    )}
+                  </div>
+                </section>`
+              : ''}
+
+            <div class="product-detail-actions">
+              <button
+                class="favorite-button"
+                title="Favoriet"
+                @click=${() => {
+                  const action = this.favoriteNames.has(product.name)
+                    ? api.removeFromFavorites(product.name)
+                    : api.addToFavorites({
+                        name: product.name,
+                        quantity: product.quantity || 1,
+                        unit: product.unit,
+                        unitPrice: product.price,
+                        articleNumber: product.articleNumber,
+                        productNumber: product.productNumber,
+                        packagingQuantity: product.packagingQuantity,
+                        description: product.description,
+                        image: product.image,
+                        technicalData: product.technicalData
+                      })
+                  void action.then(() => this.refreshFavorites())
+                }}>
+                ${this.favoriteNames.has(product.name) ? '★' : '☆'}
+              </button>
+              <div class="quantity-control">
+                <button
+                  class="qty-button"
+                  ?disabled=${draftQuantity <= 1}
+                  @click=${() => this.adjustDraftQuantity(product.id, -1)}>−</button>
+                <input
+                  class="qty-input"
+                  type="number"
+                  min="1"
+                  .value=${String(draftQuantity)}
+                  @input=${(event: Event) => {
+                    const input = event.target as HTMLInputElement
+                    this.setDraftQuantity(product.id, Number.parseInt(input.value || '1', 10))
+                  }} />
+                <button
+                  class="qty-button"
+                  @click=${() => this.adjustDraftQuantity(product.id, 1)}>+</button>
+              </div>
+              <button
+                class="cart-button"
+                @click=${() => this.addToCartWithQuantity(product, this.getDraftQuantity(product.id))}>
+                Voeg toe aan winkelmand
+              </button>
+            </div>
+          </div>
+        </article>
+      </div>
+    `
+  }
+
+  private renderProducts(products: ShopProduct[]) {
+    return arrayRepeatBy(
+      products,
+      (product: ShopProduct) => product.id,
+      (product: ShopProduct) => {
+        const draftQuantity = this.getDraftQuantity(product.id)
+        const visualCategory = this.getProductVisualCategory(product)
+
+        return html`
+          <div
+            class="product-card"
+            @click=${() => this.openProduct(product)}>
+            <div class="product-image-wrap">
+              <div
+                class="product-image-placeholder"
+                role="img"
+                aria-label=${`${visualCategory.label} illustratie; productfoto nog niet beschikbaar`}>
+                <span class="product-placeholder-icon">${visualCategory.icon}</span>
+                <span class="product-placeholder-label">${visualCategory.label}</span>
+                <span class="product-placeholder-note">Illustratie · foto volgt</span>
+              </div>
+              ${product.image
+                ? html`
+                    <img
+                      class="product-image"
+                      src=${`/api/shop/image?variant=card&url=${encodeURIComponent(product.image)}`}
+                      alt=${product.name}
+                      loading="lazy"
+                      decoding="async"
+                      @error=${(event: Event) => {
+                        const image = event.currentTarget as HTMLImageElement
+                        if (image.dataset.originalFallback !== 'true') {
+                          image.dataset.originalFallback = 'true'
+                          image.src = product.image!
+                        } else {
+                          image.hidden = true
+                        }
+                      }} />
+                  `
+                : ''}
+            </div>
+            <div class="product-name">${product.name}</div>
+            <div class="product-price">€${product.price.toFixed(2)}</div>
+            <button
+              class="detail-button"
+              @click=${() => this.openProduct(product)}>
+              Bekijk product
+            </button>
+            <div
+              class="product-actions"
+              @click=${(event: Event) => event.stopPropagation()}
+              @keydown=${(event: Event) => event.stopPropagation()}>
+              <button
+                class="favorite-button"
+                title=${this.favoriteNames.has(product.name) ? 'Remove from favorites' : 'Add to favorites'}
+                @click=${() => {
+                  if (this.favoriteNames.has(product.name)) {
+                    void api.removeFromFavorites(product.name).then(() => this.refreshFavorites())
+                  } else {
+                    void api
+                      .addToFavorites({
+                        name: product.name,
+                        quantity: product.quantity || 1,
+                        unit: product.unit,
+                        unitPrice: product.price,
+                        articleNumber: product.articleNumber,
+                        productNumber: product.productNumber,
+                        packagingQuantity: product.packagingQuantity,
+                        description: product.description,
+                        image: product.image,
+                        technicalData: product.technicalData
+                      })
+                      .then(() => this.refreshFavorites())
+                  }
+                }}>
+                ${this.favoriteNames.has(product.name) ? '★' : '☆'}
+              </button>
+              <div class="quantity-control">
+                <button
+                  class="qty-button"
+                  ?disabled=${draftQuantity <= 1}
+                  title="Decrease quantity"
+                  @click=${() => this.adjustDraftQuantity(product.id, -1)}>
+                  -
+                </button>
+                <input
+                  class="qty-input"
+                  type="number"
+                  min="1"
+                  .value=${String(draftQuantity)}
+                  @input=${(event: Event) => {
+                    const input = event.target as HTMLInputElement | null
+                    this.setDraftQuantity(product.id, Number.parseInt(input?.value || '1', 10))
+                  }} />
+                <button
+                  class="qty-button"
+                  title="Increase quantity"
+                  @click=${() => this.adjustDraftQuantity(product.id, 1)}>
+                  +
+                </button>
+              </div>
+              <button
+                class="cart-icon-button"
+                title="Add to cart"
+                @click=${() => this.addToCartWithQuantity(product, draftQuantity)}>
+                <svg
+                  class="cart-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true">
+                  <path
+                    d="M3 4h2.2c.5 0 1 .4 1.1.9L6.7 7h12.7c.8 0 1.4.7 1.2 1.5l-1 5.2c-.1.6-.6 1-1.2 1H8.3"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round" />
+                  <circle
+                    cx="9.2"
+                    cy="18.2"
+                    r="1.4"
+                    fill="currentColor" />
+                  <circle
+                    cx="17.2"
+                    cy="18.2"
+                    r="1.4"
+                    fill="currentColor" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        `
+      },
+      this.lazyProductState
+    )
+  }
+
+  render() {
+    const filteredProducts = this.getFilteredProducts()
+    return html`
+      <div class="container">
+        <div class="controls">
+          <div class="header">
+            <div class="search-bar">
+              <input
+                class="search-input"
+                type="text"
+                list="shop-autocomplete"
+                autocomplete="off"
+                placeholder="Zoek op product, artikel- of productnummer..."
+                .value=${this.searchQuery}
+                @input=${this.handleSearch} />
+              <datalist id="shop-autocomplete">
+                ${this.autocompleteSuggestions.map((suggestion) => html`<option value=${suggestion}></option> `)}
+              </datalist>
+            </div>
+
+            <button
+              class="cart-button"
+              @click=${this.toggleCart}>
+              Winkelmand
+              ${this.getCartItemCount() > 0 ? html`<span class="cart-count">${this.getCartItemCount()}</span>` : ''}
+            </button>
+          </div>
+
+          <div
+            class="filter-bar"
+            aria-label="Productfilters">
+            <select
+              class="filter-select"
+              aria-label="Leverancier"
+              .value=${this.sourceFilter}
+              @change=${(event: Event) => {
+                this.sourceFilter = (event.target as HTMLSelectElement).value
+              }}>
+              <option value="all">Alle leveranciers</option>
+              <option value="desco">Desco</option>
+              <option value="alelek">Alelek</option>
+            </select>
+            <select
+              class="filter-select"
+              aria-label="Categorie"
+              .value=${this.categoryFilter}
+              @change=${(event: Event) => {
+                this.categoryFilter = (event.target as HTMLSelectElement).value
+              }}>
+              <option value="all">Alle categorieën</option>
+              <option value="Sanitair">Sanitair</option>
+              <option value="Kranen">Kranen</option>
+              <option value="Verwarming">Verwarming</option>
+              <option value="Pompen">Pompen</option>
+              <option value="Leidingen & fittingen">Leidingen &amp; fittingen</option>
+              <option value="Gereedschap">Gereedschap</option>
+              <option value="Kleppen & ventielen">Kleppen &amp; ventielen</option>
+              <option value="Installatiemateriaal">Installatiemateriaal</option>
+            </select>
+            <select
+              class="filter-select"
+              aria-label="Prijs"
+              .value=${this.priceFilter}
+              @change=${(event: Event) => {
+                this.priceFilter = (event.target as HTMLSelectElement).value
+              }}>
+              <option value="all">Alle prijzen</option>
+              <option value="under-25">Tot €25</option>
+              <option value="25-100">€25 – €100</option>
+              <option value="100-plus">Meer dan €100</option>
+            </select>
+            <label class="filter-toggle">
+              <input
+                type="checkbox"
+                .checked=${this.favoritesOnly}
+                @change=${(event: Event) => {
+                  this.favoritesOnly = (event.target as HTMLInputElement).checked
+                }} />
+              Alleen favorieten
+            </label>
+            <button
+              class="clear-filters"
+              ?disabled=${!this.hasActiveFilters()}
+              @click=${this.clearFilters}>
+              Wis filters
+            </button>
+            <span class="result-count">${filteredProducts.length} producten</span>
+          </div>
         </div>
 
-        ${this.loading
-          ? html`<div class="loading">Loading products...</div>`
-          : this.products.length === 0
-            ? html`<div class="empty">No products found</div>`
-            : html`
-                <div class="products-grid">
-                  ${this.products.map((product) => {
-                    const meta = this.getProductMeta(product)
-                    const draftQuantity = this.getDraftQuantity(product.id)
-                    return html`
-                      <div class="product-card">
-                        <div class="product-name">${product.name}</div>
-                        <div class="product-price">€${product.price.toFixed(2)}</div>
-                        ${product.unit ? html`<div class="product-unit">per ${product.unit}</div>` : ''}
-                        ${meta.length
-                          ? html`<div class="product-meta">
-                              ${meta.slice(0, 2).map((label) => html`<span class="meta-badge">${label}</span>`)}
-                              ${meta.length > 2 ? html`<span class="meta-badge">+${meta.length - 2}</span>` : ''}
-                            </div>`
-                          : ''}
-                        <div class="product-source">${product.source}</div>
-                        <div class="product-actions">
-                          <button
-                            class="favorite-button"
-                            title=${this.favoriteNames.has(product.name) ? 'Remove from favorites' : 'Add to favorites'}
-                            @click=${() => {
-                              if (this.favoriteNames.has(product.name)) {
-                                void api.removeFromFavorites(product.name).then(() => this.refreshFavorites())
-                              } else {
-                                void api.addToFavorites(product).then(() => this.refreshFavorites())
-                              }
-                            }}>
-                            ${this.favoriteNames.has(product.name) ? '★' : '☆'}
-                          </button>
-                          <div class="quantity-control">
-                            <button
-                              class="qty-button"
-                              ?disabled=${draftQuantity <= 1}
-                              title="Decrease quantity"
-                              @click=${() => this.adjustDraftQuantity(product.id, -1)}>
-                              -
-                            </button>
-                            <input
-                              class="qty-input"
-                              type="number"
-                              min="1"
-                              .value=${String(draftQuantity)}
-                              @input=${(event: Event) => {
-                                const input = event.target as HTMLInputElement | null
-                                this.setDraftQuantity(product.id, Number.parseInt(input?.value || '1', 10))
-                              }} />
-                            <button
-                              class="qty-button"
-                              title="Increase quantity"
-                              @click=${() => this.adjustDraftQuantity(product.id, 1)}>
-                              +
-                            </button>
-                          </div>
-                          <button
-                            class="cart-icon-button"
-                            title="Add to cart"
-                            @click=${() => this.addToCartWithQuantity(product, draftQuantity)}>
-                            <svg
-                              class="cart-icon"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              aria-hidden="true">
-                              <path
-                                d="M3 4h2.2c.5 0 1 .4 1.1.9L6.7 7h12.7c.8 0 1.4.7 1.2 1.5l-1 5.2c-.1.6-.6 1-1.2 1H8.3"
-                                stroke="currentColor"
-                                stroke-width="1.8"
-                                stroke-linecap="round"
-                                stroke-linejoin="round" />
-                              <circle
-                                cx="9.2"
-                                cy="18.2"
-                                r="1.4"
-                                fill="currentColor" />
-                              <circle
-                                cx="17.2"
-                                cy="18.2"
-                                r="1.4"
-                                fill="currentColor" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    `
-                  })}
-                </div>
-              `}
+        <div class="products-scroll">
+          ${this.loading
+            ? html`<div class="loading">Producten laden...</div>`
+            : filteredProducts.length === 0
+              ? html`<div class="empty">Geen producten gevonden met deze zoekopdracht en filters.</div>`
+              : html` <div class="products-grid">${this.renderProducts(filteredProducts)}</div> `}
+        </div>
       </div>
+
+      ${this.renderProductDetail(this.selectedProduct)}
 
       <div class="cart-modal ${this.showCart ? 'open' : ''}">
         <div class="cart-content">
@@ -821,11 +1612,11 @@ export class ShopView extends LiteElement {
                       </div>
                     `
                 )}
-                <div class="cart-total">Total: €${this.getCartTotal().toFixed(2)}</div>
+                <div class="cart-total">Totaal: €${this.getCartTotal().toFixed(2)}</div>
                 <button
                   class="checkout-button"
                   @click=${this.checkout}>
-                  Checkout
+                  Bestellen
                 </button>
               `}
         </div>

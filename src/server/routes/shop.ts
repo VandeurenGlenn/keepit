@@ -4,8 +4,12 @@ import { readDescoCatalog } from '../helpers/desco.js'
 import { readAlelekCatalog } from '../helpers/alelek.js'
 import { ShopProduct, ShopOrder } from '../../types/index.js'
 import { getAuthToken } from './../middleware/auth.js'
+import { getFavorites, getHistory } from '../helpers/material-preferences.js'
+import { importCartText, type CartImportSource } from '../helpers/cart-import.js'
+import { getCatalogImageUrls, getProductImage, type ProductImageVariant } from '../helpers/product-images.js'
 
 const router = new Router({ prefix: '/api/shop' })
+const publicImageRouter = new Router({ prefix: '/api/shop' })
 
 const generateProductId = (name: string, source: string): string => {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -20,6 +24,33 @@ const parseNonNegativeInteger = (value: unknown): number | undefined => {
 
   return parsed
 }
+
+/**
+ * GET /api/shop/image?url=<catalog image>&variant=card|detail
+ * Returns a cached WebP sized and compressed for its actual shop view.
+ * Only URLs already present in our trusted product catalogs are accepted.
+ */
+publicImageRouter.get('/image', async (ctx) => {
+  const imageUrl = typeof ctx.query.url === 'string' ? ctx.query.url : ''
+  const variant: ProductImageVariant = ctx.query.variant === 'detail' ? 'detail' : 'card'
+  if (!imageUrl || !(await getCatalogImageUrls()).has(imageUrl)) {
+    ctx.status = 404
+    ctx.body = { error: 'Unknown product image' }
+    return
+  }
+
+  try {
+    ctx.body = await getProductImage(imageUrl, variant)
+    ctx.status = 200
+    ctx.set('Content-Type', 'image/webp')
+    ctx.set('Cache-Control', 'private, max-age=604800, immutable')
+    ctx.set('Vary', 'Accept-Encoding')
+  } catch (error) {
+    console.warn('Product image conversion failed:', error instanceof Error ? error.message : String(error))
+    ctx.status = 502
+    ctx.body = { error: 'Product image unavailable' }
+  }
+})
 
 /**
  * GET /api/shop/products
@@ -46,7 +77,10 @@ router.get('/products', async (ctx) => {
         packagingQuantity: item.packagingQuantity,
         description: item.description,
         image: item.image,
-        technicalData: item.technicalData
+        technicalData: item.technicalData,
+        manufacturerData: item.manufacturerData,
+        dataSources: item.dataSources,
+        imageCandidates: item.imageCandidates
       })
     })
 
@@ -64,7 +98,10 @@ router.get('/products', async (ctx) => {
         packagingQuantity: item.packagingQuantity,
         description: item.description,
         image: item.image,
-        technicalData: item.technicalData
+        technicalData: item.technicalData,
+        manufacturerData: item.manufacturerData,
+        dataSources: item.dataSources,
+        imageCandidates: item.imageCandidates
       })
     })
 
@@ -72,7 +109,7 @@ router.get('/products', async (ctx) => {
     const search = (ctx.query.search as string)?.toLowerCase() || ''
     const terms = search.split(/\s+/).filter(Boolean)
 
-    const filtered =
+    let filtered =
       terms.length === 0
         ? products
         : products
@@ -108,6 +145,19 @@ router.get('/products', async (ctx) => {
             .sort((a, b) => b.score - a.score)
             .map((item) => item.product)
 
+    if (String(ctx.query.popular).toLowerCase() === 'true' && terms.length === 0) {
+      const [history, favorites] = await Promise.all([getHistory(), getFavorites()])
+      const ranks = new Map<string, number>()
+      favorites.forEach((material, index) => ranks.set(material.name.toLowerCase(), 10_000 - index))
+      history.forEach((material, index) => {
+        const key = material.name.toLowerCase()
+        ranks.set(key, Math.max(ranks.get(key) || 0, (material.usageCount || 1) * 100 - index))
+      })
+      filtered = filtered
+        .filter((product) => ranks.has(product.name.toLowerCase()))
+        .sort((left, right) => (ranks.get(right.name.toLowerCase()) || 0) - (ranks.get(left.name.toLowerCase()) || 0))
+    }
+
     const offset = parseNonNegativeInteger(ctx.query.offset) || 0
     const limit = parseNonNegativeInteger(ctx.query.limit)
     const pagedProducts = limit === undefined ? filtered.slice(offset) : filtered.slice(offset, offset + limit)
@@ -123,6 +173,38 @@ router.get('/products', async (ctx) => {
     }
     ctx.status = 500
   }
+})
+
+router.post('/cart-import', async (ctx) => {
+  const body = (ctx.request.body || {}) as { source?: unknown; text?: unknown }
+  const source = body.source === 'desco' || body.source === 'alelek' ? (body.source as CartImportSource) : undefined
+  const text = typeof body.text === 'string' ? body.text.trim() : ''
+  if (!source || !text || text.length > 1_000_000) {
+    ctx.status = 400
+    ctx.body = { error: 'Kies Desco of Alelek en geef maximaal 1 MB winkelwagengegevens mee.' }
+    return
+  }
+
+  const [descoCatalog, alelekCatalog] = await Promise.all([readDescoCatalog(), readAlelekCatalog()])
+  const products: ShopProduct[] = [
+    ...descoCatalog.items.map((item) => ({
+      id: generateProductId(item.name, 'desco'),
+      name: item.name,
+      price: item.unitPrice || 0,
+      source: 'desco' as const,
+      ...item
+    })),
+    ...alelekCatalog.items.map((item) => ({
+      id: generateProductId(item.name, 'alelek'),
+      name: item.name,
+      price: item.unitPrice || 0,
+      source: 'alelek' as const,
+      ...item
+    }))
+  ]
+
+  ctx.body = importCartText(text, source, products)
+  ctx.status = 200
 })
 
 /**
@@ -399,4 +481,5 @@ router.patch('/orders/:orderId', async (ctx) => {
   }
 })
 
+export const publicShopImages = publicImageRouter.routes()
 export default router.routes()

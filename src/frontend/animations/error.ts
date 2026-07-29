@@ -13,7 +13,12 @@ export class ErrorAnimation extends LiteElement {
         justify-content: center;
         height: 100%;
 
-        font-size: 1.5em;
+        gap: 12px;
+        padding: 24px;
+        box-sizing: border-box;
+        text-align: center;
+        font-size: 1rem;
+        font-weight: 700;
         color: var(--md-sys-color-error);
         animation: fadeIn 0.5s;
       }
@@ -36,8 +41,8 @@ export class ErrorAnimation extends LiteElement {
   render() {
     return html`
       <svg
-        width="80"
-        height="80"
+        width="56"
+        height="56"
         viewBox="0 0 80 80">
         <circle
           cx="40"
@@ -63,7 +68,7 @@ export class ErrorAnimation extends LiteElement {
           stroke-width="6"
           stroke-linecap="round" />
       </svg>
-      ${this.message ? html`<div style="margin-top: 16px;">${this.message ?? 'error'}</div>` : ''}
+      ${this.message ? html`<div>${this.message ?? 'Er ging iets mis'}</div>` : ''}
       ${this.action
         ? html`<div style="margin-top: 16px;">
             <a
@@ -80,7 +85,7 @@ export class ErrorAnimation extends LiteElement {
         : ''}
       ${this.currentJob
         ? html`<div style="margin-top: 16px;">
-            <a href="#!/checkout?job=${this.currentJob}"><custom-button label="click to checkout"></custom-button></a>
+            <a href="#!/checkout?job=${this.currentJob}"><custom-button label="Ga naar checkout"></custom-button></a>
           </div>`
         : ''}
     `

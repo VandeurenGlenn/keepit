@@ -1,15 +1,14 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { resolve } from 'path'
 import { MaterialLine } from '../../types/index.js'
-import { scrapeAlekCategories, ScrapedProduct } from './alelek-scraper.js'
+import { scrapeAlekCategories, ScrapedProduct, type AlelekScraperProgress } from './alelek-scraper.js'
 import { recordSync } from './sync-tracker.js'
-import { scrapeAlekWithAuth } from './alelek-scraper.js'
 
 type JsonObject = Record<string, unknown>
 
 type AlelekConfig = {
   getAllProductsUrl?: string
-  authorization?: string
+  authorization?: string | { user?: string; pass?: string }
   cookie?: string
 }
 
@@ -52,10 +51,17 @@ const readAlelekConfig = async (): Promise<AlelekConfig> => {
   }
 
   const alelekConfig = maybeAlelek as JsonObject
+  const authorization = alelekConfig.authorization
 
   return {
     getAllProductsUrl: normalizeString(alelekConfig.getAllProductsUrl),
-    authorization: normalizeString(alelekConfig.authorization),
+    authorization:
+      authorization && typeof authorization === 'object'
+        ? {
+            user: normalizeString((authorization as JsonObject).user),
+            pass: normalizeString((authorization as JsonObject).pass)
+          }
+        : normalizeString(authorization),
     cookie: normalizeString(alelekConfig.cookie)
   }
 }
@@ -67,7 +73,17 @@ const getConfiguredAlelekUrl = async (): Promise<string> => {
 
 const getConfiguredAuthorization = async (): Promise<string> => {
   const config = await readAlelekConfig()
-  return config.authorization || normalizeString(process.env.KEEPIT_ALELEK_AUTHORIZATION)
+  return typeof config.authorization === 'string'
+    ? config.authorization
+    : normalizeString(process.env.KEEPIT_ALELEK_AUTHORIZATION)
+}
+
+const getConfiguredScraperCredentials = async (): Promise<{ username?: string; password?: string }> => {
+  const config = await readAlelekConfig()
+  const configured = typeof config.authorization === 'object' ? config.authorization : undefined
+  const username = configured?.user || normalizeString(process.env.KEEPIT_ALELEK_USERNAME)
+  const password = configured?.pass || normalizeString(process.env.KEEPIT_ALELEK_PASSWORD)
+  return { username: username || undefined, password: password || undefined }
 }
 
 const getConfiguredCookie = async (): Promise<string> => {
@@ -479,16 +495,30 @@ export const syncAlelekCatalogWithTracking = async (): Promise<AlelekCatalog> =>
   return catalog
 }
 
-export const syncAlelekCatalogViaScraperWithTracking = async (categoryUrls?: string[]): Promise<AlelekCatalog> => {
-  const catalog = await syncAlelekCatalogViaScraper(categoryUrls)
+export const syncAlelekCatalogViaScraperWithTracking = async (
+  categoryUrls?: string[],
+  onProgress?: (progress: AlelekScraperProgress) => void
+): Promise<AlelekCatalog> => {
+  const catalog = await syncAlelekCatalogViaScraper(categoryUrls, onProgress)
   await recordSync('alelek')
   return catalog
 }
 
-export const syncAlelekCatalogViaScraper = async (categoryUrls?: string[]): Promise<AlelekCatalog> => {
+export const syncAlelekCatalogViaScraper = async (
+  categoryUrls?: string[],
+  onProgress?: (progress: AlelekScraperProgress) => void
+): Promise<AlelekCatalog> => {
+  const credentials = await getConfiguredScraperCredentials()
   const products = await scrapeAlekCategories(categoryUrls, {
-    headless: true,
-    timeout: 30000
+    headless: process.env.KEEPIT_ALELEK_SCRAPER_HEADLESS !== 'false',
+    timeout: 45000,
+    maxProductsPerRun: Number(process.env.KEEPIT_ALELEK_SCRAPER_MAX_PRODUCTS) || undefined,
+    dailyLimit: Number(process.env.KEEPIT_ALELEK_SCRAPER_DAILY_LIMIT) || undefined,
+    scrollStepsPerRun: Number(process.env.KEEPIT_ALELEK_SCRAPER_SCROLL_STEPS) || undefined,
+    minProductDelayMs: Number(process.env.KEEPIT_ALELEK_SCRAPER_MIN_PRODUCT_DELAY_MS) || undefined,
+    maxProductDelayMs: Number(process.env.KEEPIT_ALELEK_SCRAPER_MAX_PRODUCT_DELAY_MS) || undefined,
+    onProgress,
+    ...credentials
   })
 
   if (products.length === 0) {
@@ -505,8 +535,17 @@ export const syncAlelekCatalogViaScraper = async (categoryUrls?: string[]): Prom
     .map((product: ScrapedProduct) => ({
       name: product.name,
       quantity: 1,
-      unit: undefined,
-      unitPrice: product.price
+      unit: product.unit,
+      unitPrice: product.price,
+      packagingQuantity: product.packagingQuantity,
+      articleNumber: product.sku,
+      productNumber: product.sku,
+      description: product.description,
+      image: product.image,
+      technicalData: product.technicalData,
+      dataSources: product.url
+        ? [{ provider: 'Groep Alelek webshop', pageUrl: product.url, productNumber: product.sku, fetchedAt: new Date().toISOString() }]
+        : undefined
     }))
 
   if (items.length === 0) {
@@ -519,37 +558,4 @@ export const syncAlelekCatalogViaScraper = async (categoryUrls?: string[]): Prom
   }
 
   return writeAlelekCatalog(items)
-}
-
-export const scrapeAndStoreAlekMaterials = async (): Promise<void> => {
-  const categoryUrls = [
-    'https://webshop.groepalelek.be/nl/producten/installatie-pgn1',
-    'https://webshop.groepalelek.be/nl/producten/multimedia-pgn2',
-    'https://webshop.groepalelek.be/nl/producten/industrie-pgn3'
-  ]
-
-  const username = process.env.ALELEK_USERNAME || 'default-username'
-  const password = process.env.ALELEK_PASSWORD || 'default-password'
-
-  const products = await scrapeAlekWithAuth(categoryUrls, {
-    headless: true,
-    timeout: 30000,
-    username,
-    password
-  })
-
-  const catalog: AlelekCatalog = {
-    source: 'alelek',
-    updatedAt: new Date().toISOString(),
-    count: products.length,
-    items: products.map((product) => ({
-      name: product.name,
-      unit: 'piece',
-      unitPrice: product.price,
-      quantity: 1
-    }))
-  }
-
-  await writeFile(alelekCatalogPath, JSON.stringify(catalog, null, 2), 'utf8')
-  console.log(`Scraped and stored ${products.length} Alelek materials.`)
 }

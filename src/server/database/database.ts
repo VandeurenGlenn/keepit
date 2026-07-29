@@ -7,7 +7,13 @@ import {
   Hours,
   Invites,
   MediaAssets,
-  ShopOrders
+  ShopOrders,
+  TimelinePlaceCache,
+  TimelineLocationEvents,
+  TimelineTrackingStates,
+  PlanningEntries,
+  AppNotifications,
+  Quotes
 } from '../../types/index.js'
 import { DataStore } from './store.js'
 import { opendir, mkdir } from 'fs/promises'
@@ -28,6 +34,12 @@ export const bannedUsersStore = new DataStore('bannedUsers')
 export const hoursStore = new DataStore('hours')
 export const invitesStore = new DataStore('invites')
 export const shopOrdersStore = new DataStore('shopOrders')
+export const timelineLocationsStore = new DataStore('timelineLocations')
+export const timelineTrackingStatesStore = new DataStore('timelineTrackingStates')
+export const timelinePlaceCacheStore = new DataStore('timelinePlaceCache')
+export const planningStore = new DataStore('planning')
+export const notificationsStore = new DataStore('notifications')
+export const quotesStore = new DataStore('quotes')
 
 const year = new Date().getFullYear()
 
@@ -40,7 +52,13 @@ let promises: Promise<any>[] = [
   bannedUsersStore.get(),
   hoursStore.get(),
   invitesStore.get(),
-  shopOrdersStore.get()
+  shopOrdersStore.get(),
+  timelineLocationsStore.get(),
+  timelineTrackingStatesStore.get(),
+  timelinePlaceCacheStore.get(),
+  planningStore.get(),
+  notificationsStore.get(),
+  quotesStore.get()
 ]
 promises = await Promise.all(promises)
 
@@ -53,3 +71,18 @@ export const bannedUsers = promises[5] as unknown as BannedUsers
 export const hours = promises[6] as unknown as Hours
 export const invites = promises[7] as unknown as Invites
 export const shopOrders = promises[8] as unknown as ShopOrders
+export const timelineLocations = promises[9] as unknown as TimelineLocationEvents
+export const timelineTrackingStates = promises[10] as unknown as TimelineTrackingStates
+export const timelinePlaceCache = promises[11] as unknown as TimelinePlaceCache
+export const planning = promises[12] as unknown as PlanningEntries
+export const notifications = promises[13] as unknown as AppNotifications
+export const quotes = promises[14] as unknown as Quotes
+
+const legacySupplierPattern = /^(facq|tecmine)(\s|$)/i
+let relationshipsMigrated = false
+for (const company of Object.values(companies)) {
+  if (company.relationshipType) continue
+  company.relationshipType = legacySupplierPattern.test(company.name.trim()) ? 'supplier' : 'customer'
+  relationshipsMigrated = true
+}
+if (relationshipsMigrated) await companiesStore.put(companies)

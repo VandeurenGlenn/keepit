@@ -20,8 +20,8 @@
 .hero {
   background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
   color: var(--md-sys-color-on-surface-container-high);
-  padding: 24px;
-  border-radius: 28px;
+  padding: 22px;
+  border-radius: 20px;
   box-shadow: var(--app-shadow-strong);
   border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
   width: min(100%, 560px);
@@ -41,6 +41,12 @@ header {
   align-items: center;
   gap: 12px;
   width: 100%;
+}
+
+header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 
 header small {
@@ -88,12 +94,6 @@ footer {
   justify-content: flex-end;
 }
 
-custom-icon-button[icon='close'] {
-  position: absolute;
-  top: 28px;
-  right: 28px;
-}
-
 @media (max-width: 720px) {
   :host {
     padding: 12px;
@@ -104,18 +104,7 @@ custom-icon-button[icon='close'] {
     border-radius: 22px;
   }
 
-  header,
-  footer {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
   header small {
     width: fit-content;
-  }
-
-  custom-icon-button[icon='close'] {
-    top: 18px;
-    right: 18px;
   }
 }

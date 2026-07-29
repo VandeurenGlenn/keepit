@@ -77,8 +77,9 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         flex-direction: column;
         height: 100%;
         width: 100%;
-        gap: 18px;
-        padding: 16px;
+        max-width: 1180px;
+        gap: 16px;
+        padding: 22px;
         box-sizing: border-box;
       }
 
@@ -90,10 +91,10 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         gap: 16px;
         width: 100%;
         padding: 18px;
-        border-radius: 24px;
+        border-radius: 20px;
         background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
         border: 1px solid var(--app-border);
-        box-shadow: var(--app-shadow-strong);
+        box-shadow: var(--app-shadow-soft);
         box-sizing: border-box;
       }
 
@@ -148,18 +149,15 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
         background: color-mix(in srgb, var(--md-sys-color-surface) 94%, white 6%);
         color: var(--md-sys-color-on-surface);
-        border-radius: 999px;
-        padding: 10px 16px;
+        min-height: 40px;
+        border-radius: 11px;
+        padding: 0 14px;
         font: inherit;
         cursor: pointer;
       }
 
       button.primary {
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--app-accent) 88%, white 12%),
-          var(--app-accent-strong)
-        );
+        background: var(--app-accent);
         color: var(--md-sys-color-on-primary);
         border-color: color-mix(in srgb, var(--app-accent) 82%, white 18%);
       }
@@ -204,6 +202,61 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         flex-direction: column;
         gap: 16px;
       }
+      .invoice-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .invoice-card {
+        position: relative;
+        display: flex;
+        min-width: 0;
+        min-height: 92px;
+        border: 1px solid var(--app-border);
+        border-radius: 17px;
+        background: linear-gradient(145deg, var(--app-panel-strong), var(--app-panel));
+        box-shadow: var(--app-shadow-soft);
+      }
+      .invoice-link {
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr);
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 15px 54px 15px 15px;
+        box-sizing: border-box;
+        color: inherit;
+        text-decoration: none;
+      }
+      .invoice-icon {
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 13px;
+        background: var(--app-accent-soft);
+        color: var(--app-accent);
+        --custom-icon-color: currentColor;
+        --custom-icon-size: 22px;
+      }
+      .invoice-copy { min-width: 0; }
+      .invoice-copy strong,.invoice-copy span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .invoice-copy strong { font-size:.94rem; }
+      .invoice-copy span { margin-top:5px; color:var(--md-sys-color-on-surface-variant); font-size:.76rem; }
+      .invoice-delete {
+        position:absolute;
+        top:50%;
+        right:12px;
+        width:34px;
+        height:34px;
+        min-height:34px;
+        padding:0;
+        transform:translateY(-50%);
+        color:var(--md-sys-color-on-surface-variant);
+        background:transparent;
+      }
+      .invoice-delete:hover { color:var(--md-sys-color-error); }
+      .invoice-delete custom-icon { --custom-icon-color:currentColor; --custom-icon-size:18px; }
       .invoice-item {
         border: 1px solid var(--md-sys-color-outline);
         border-radius: 8px;
@@ -390,6 +443,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
           grid-column: span 2;
         }
       }
+      @media (max-width: 780px) { .invoice-grid { grid-template-columns:1fr; } }
     `
   ]
 
@@ -553,7 +607,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     try {
       const favorites = await api.getFavorites()
       this.favoriteNames = new Set(favorites.map((m) => m.name))
-      this.requestUpdate()
+      this.materialSuggestions = [...this.materialSuggestions]
     } catch (error) {
       console.error('Failed to refresh favorites:', error)
     }
@@ -696,9 +750,9 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     const materials = this.sanitizedMaterials
     if (!userId) return alert('No active user found')
 
-    if (!this.notes && !selectedJob) return alert('Please select a job or add notes')
+    if (!this.notes && !selectedJob) return alert('Kies een job of voeg een notitie toe.')
     if (!this.notes) this.notes = 'No notes'
-    if (!selectedCompany) return alert('Please select a company')
+    if (!selectedCompany) return alert('Kies een company.')
 
     const _date = new Date()
     const date = _date.toISOString()
@@ -743,7 +797,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       this.requestRender()
     } catch (error) {
       console.error('Error saving invoice:', error)
-      alert('Failed to save invoice')
+      alert('De factuur kon niet bewaard worden.')
       this.takingPicture = false
       this.addingInvoice = false
       this.currentStream?.getTracks().forEach((track) => track.stop())
@@ -769,7 +823,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       return html`
         <section class="capture-panel">
           <div class="workspace-head">
-            <span class="panel-kicker">Capture</span>
+          <span class="panel-kicker">Opname</span>
             <div class="panel-title-wrap">
               <h2 class="panel-title">Factuur vastleggen</h2>
               <p class="panel-description">Maak een scherpe opname en werk daarna metadata en notities bij.</p>
@@ -792,7 +846,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     return html`
       <section class="capture-panel">
         <div class="workspace-head">
-          <span class="panel-kicker">Review</span>
+        <span class="panel-kicker">Controle</span>
           <div class="panel-title-row">
             <div class="panel-title-wrap">
               <h2 class="panel-title">Factuur bewaren</h2>
@@ -845,10 +899,12 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
             }}
             .chips=${(
               Object.entries(((this as any).companies || {}) as Record<string, any>) as Array<[string, any]>
-            ).map(([uuid, data]) => ({
-              label: data.name,
-              value: uuid
-            }))}
+            )
+              .filter(([, data]) => (data.relationshipType || 'customer') === 'customer')
+              .map(([uuid, data]) => ({
+                label: data.name,
+                value: uuid
+              }))}
             @selection-changed=${() => {
               const selectedCompany = this.companyChips?.selected?.[0]
               void this.loadMaterialSuggestions(selectedCompany)
@@ -1038,7 +1094,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   }
 
   _deleteInvoice = async (key: string) => {
-    if (!confirm('Are you sure you want to delete this invoice?')) return
+    if (!confirm('Ben je zeker dat je deze factuur wilt verwijderen?')) return
 
     try {
       await api.deleteInvoice(key)
@@ -1046,22 +1102,25 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       this.requestRender()
     } catch (error) {
       console.error('Failed to delete invoice:', error)
-      alert('Failed to delete invoice')
+      alert('De factuur kon niet verwijderd worden.')
     }
   }
 
   render() {
+    const invoiceEntries = Object.entries(this.invoices || {}).sort(([, left], [, right]) =>
+      String(right?.createdAt || '').localeCompare(String(left?.createdAt || ''))
+    )
     return this.addingInvoice
       ? this.renderAddInvoice()
       : html`
           <section class="workspace-panel">
             <div class="workspace-head">
-              <span class="panel-kicker">Finance workspace</span>
+              <span class="panel-kicker">Administratie</span>
               <div class="panel-title-row">
                 <div class="panel-title-wrap">
-                  <h2 class="panel-title">Invoices</h2>
+                  <h2 class="panel-title">Facturen</h2>
                   <p class="panel-description">
-                    Beheer inkomende facturen en voeg nieuwe beelden of notities toe vanuit dezelfde workspace.
+                    Bewaar facturen, koppel ze aan jobs en houd alle details samen.
                   </p>
                 </div>
                 <button
@@ -1074,20 +1133,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
           </section>
 
           <section class="list-panel">
-            <div class="list-stack">
-              ${Object.entries(this.invoices || {}).map(
-                ([key, invoice]) => html`
-                  <list-item
-                    .href=${`#!/invoice?selected=${key}`}
-                    .headline=${invoice?.name}
-                    .subheadline=${invoice?.description || invoice?.createdAt}
-                    .key=${key}
-                    .delete=${((event: Event) => {
-                      void this._deleteInvoice(key)
-                    }) as (event: Event) => void}></list-item>
-                `
-              )}
-            </div>
+            ${invoiceEntries.length ? html`<div class="invoice-grid">${invoiceEntries.map(([key,invoice])=>html`<article class="invoice-card"><a class="invoice-link" href=${`#!/invoice?selected=${key}`}><span class="invoice-icon"><custom-icon icon="receipt"></custom-icon></span><span class="invoice-copy"><strong>${invoice?.name || 'Naamloze factuur'}</strong><span>${invoice?.description || new Date(invoice?.createdAt).toLocaleDateString('nl-BE')}</span></span></a><button class="invoice-delete" aria-label="Factuur verwijderen" @click=${()=>this._deleteInvoice(key)}><custom-icon icon="delete"></custom-icon></button></article>`)}</div>` : html`<div class="material-summary">Nog geen facturen toegevoegd.</div>`}
           </section>
         `
   }

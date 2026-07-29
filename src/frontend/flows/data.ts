@@ -45,7 +45,7 @@ export class DataFlow extends LiteElement {
     if (step?.validateAndReturnValues) {
       const inputs = this.shadowRoot.querySelectorAll('data-input')
       const { valid, values } = step.validateAndReturnValues(Array.from(inputs))
-
+      if (!valid) return
       this.stepResults[this.step] = values
     }
     this.step++
@@ -62,7 +62,7 @@ export class DataFlow extends LiteElement {
 
       const inputs = this.shadowRoot.querySelectorAll('data-input')
       const { valid, values } = step.validateAndReturnValues(Array.from(inputs))
-
+      if (!valid) return
       this.stepResults[this.step] = values
     }
     this.step--
@@ -97,7 +97,7 @@ export class DataFlow extends LiteElement {
     if (step?.validateAndReturnValues) {
       const inputs = this.shadowRoot.querySelectorAll('data-input')
       const { valid, values } = step.validateAndReturnValues(Array.from(inputs))
-
+      if (!valid) return
       this.stepResults[this.step] = values
     }
 
@@ -122,15 +122,15 @@ export class DataFlow extends LiteElement {
   }
 
   render() {
-    if (this.steps?.length === 0) return html`<p>No steps available</p>`
+    if (this.steps?.length === 0) return html`<p>Geen stappen beschikbaar</p>`
     return html`
-      <custom-icon-button
-        icon="close"
-        @click=${() => this.close()}></custom-icon-button>
       <div class="hero">
         <header>
-          <h2>${this.label}</h2>
-          <small>Step ${this.step + 1} of ${this.steps?.length || 1}</small>
+          <div><small>Stap ${this.step + 1} van ${this.steps?.length || 1}</small><h2>${this.label}</h2></div>
+          <custom-icon-button
+            icon="close"
+            aria-label="Sluiten"
+            @click=${() => this.close()}></custom-icon-button>
         </header>
 
         <div class="step-info">

@@ -12,6 +12,7 @@ import '../animations/error.js'
 import '@material/web/select/outlined-select.js'
 import '@material/web/select/select-option.js'
 import { MdOutlinedSelect } from '@material/web/select/outlined-select.js'
+import { captureWorkLocation } from '../helpers/work-location.js'
 
 export class CheckinView extends JobsMixin(LiteElement) {
   @property({ type: Object, consumes: true }) accessor user
@@ -19,8 +20,9 @@ export class CheckinView extends JobsMixin(LiteElement) {
   @property({ type: String }) accessor error
   @property({ type: Array }) accessor steps
   @property({ type: String }) accessor currentJob
+  @property({ type: Boolean }) accessor submitting = false
 
-  date = new Date().toISOString().split('T')[0]
+  date = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Brussels' }).format(new Date())
 
   time = new Date().toLocaleTimeString('nl-BE', {
     hour: '2-digit',
@@ -39,7 +41,7 @@ export class CheckinView extends JobsMixin(LiteElement) {
         display: flex;
         flex-direction: column;
         height: 100%;
-        max-width: 760px;
+        max-width: 820px;
         width: 100%;
         padding: 16px;
         box-sizing: border-box;
@@ -52,10 +54,10 @@ export class CheckinView extends JobsMixin(LiteElement) {
         gap: 16px;
         width: 100%;
         padding: 18px;
-        border-radius: 24px;
-        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
+        border-radius: 20px;
+        background: var(--app-panel);
         border: 1px solid var(--app-border);
-        box-shadow: var(--app-shadow-strong);
+        box-shadow: var(--app-shadow-soft);
         box-sizing: border-box;
       }
 
@@ -70,10 +72,9 @@ export class CheckinView extends JobsMixin(LiteElement) {
         width: 100%;
         justify-content: space-between;
         box-sizing: border-box;
-        border-radius: 18px;
-        box-shadow: var(--app-shadow-soft);
+        border-radius: 13px;
         border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
-        background: color-mix(in srgb, var(--app-panel-strong) 95%, white 5%);
+        background: var(--app-panel-strong);
         cursor: pointer;
       }
 
@@ -112,16 +113,23 @@ export class CheckinView extends JobsMixin(LiteElement) {
 
       button.primary {
         border: 1px solid color-mix(in srgb, var(--app-accent) 82%, white 18%);
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--app-accent) 88%, white 12%),
-          var(--app-accent-strong)
-        );
+        background: var(--app-accent);
         color: var(--md-sys-color-on-primary);
-        border-radius: 999px;
+        border-radius: 12px;
         padding: 12px 18px;
         font: inherit;
         cursor: pointer;
+      }
+
+      button.primary[disabled] {
+        opacity: 0.62;
+        cursor: wait;
+      }
+
+      .error {
+        margin: 0;
+        color: var(--md-sys-color-error);
+        font-weight: 650;
       }
 
       @media (max-width: 720px) {
@@ -153,9 +161,8 @@ export class CheckinView extends JobsMixin(LiteElement) {
       return
     }
 
-    const date = this.dateInput.value // e.g. "2025-05-20"
-    const time = this.timeInput.value // e.g. "14:30"
-    // Combine date and time
+    const date = this.dateInput.value
+    const time = this.timeInput.value
     const checkin = new Date(`${date}T${time}`).getTime()
 
     this.select.checkValidity() // Ensure the select is valid
@@ -163,36 +170,39 @@ export class CheckinView extends JobsMixin(LiteElement) {
       console.error('Select is not valid')
       return
     }
-    this.select.reportValidity()
-    console.log(this.user)
-
+    this.error = ''
+    this.submitting = true
     try {
-      await api.checkIn(this.select.value, this.user.id, checkin)
-      this.success = true // <-- Show animation
+      const workLocation = await captureWorkLocation()
+      await api.checkIn(this.select.value, checkin, workLocation)
+      this.user.currentJob = this.select.value
+      this.success = true
       setTimeout(() => {
         location.href = '#!/home'
-      }, 1200) // 1.2s for animation
+      }, 1200)
     } catch (error) {
       console.error('Checkin failed:', error)
-      this.error = error instanceof Error ? error.message : 'Checkin failed'
+      this.error = error instanceof Error ? error.message : 'Check-in mislukt'
+    } finally {
+      this.submitting = false
     }
   }
 
   render() {
     if (this.success) {
-      return html` <success-animation message="Checked-in successfully!"></success-animation>`
+      return html` <success-animation message="Je werkdag is gestart"></success-animation>`
     }
     if (this.user?.currentJob) {
       return html`
         <error-animation
-          message="Checkout previous job first."
-          .action=${{ label: 'click to checkout', href: `#!/checkout?job=${this.user.currentJob}` }}></error-animation>
+          message="Je bent nog ingecheckt op een andere job."
+          .action=${{ label: 'Ga naar checkout', href: `#!/checkout?job=${this.user.currentJob}` }}></error-animation>
       `
     }
     return html`
       <view-header
-        title="Checkin"
-        description="Checkin!"
+        title="Check-in"
+        description="Start je werkdag op de juiste job."
         icon="arrow_downward"></view-header>
 
       <section class="form-panel">
@@ -224,6 +234,7 @@ export class CheckinView extends JobsMixin(LiteElement) {
 
         <md-outlined-select
           label="Job"
+          .value=${new URLSearchParams(location.hash.split('?')[1] || '').get('job') || ''}
           required>
           ${(Object.entries(this.jobs || {}) as Array<[string, any]>).map(
             ([uuid, data]) => html`
@@ -236,10 +247,12 @@ export class CheckinView extends JobsMixin(LiteElement) {
           )}
         </md-outlined-select>
 
+        ${this.error ? html`<p class="error">${this.error}</p>` : ''}
         <button
           class="primary"
+          ?disabled=${this.submitting}
           @click=${() => this._addCheckin()}>
-          Bewaar check-in
+          ${this.submitting ? 'Bezig met starten…' : 'Start deze job'}
         </button>
       </section>
     `

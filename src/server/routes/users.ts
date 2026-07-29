@@ -1,6 +1,13 @@
 import Router from '@koa/router'
 
-import { invites, invitesStore, users, usersStore } from './../database/database.js'
+import {
+  invites,
+  invitesStore,
+  timelineTrackingStates,
+  timelineTrackingStatesStore,
+  users,
+  usersStore
+} from './../database/database.js'
 import { sendInviteMail } from '../helpers/mailer.js'
 
 const router = new Router({
@@ -8,18 +15,25 @@ const router = new Router({
 })
 
 router.post('/', async (ctx) => {
-  const { email } = ctx.request.body
-  if (!email) {
-    ctx.status = 400
-    ctx.body = { error: 'Email is required', message: 'Please provide an email address' }
+  const actor = users[ctx.state.userid]
+  if (!actor?.roles?.some((role) => role === 'admin' || role === 'roles')) {
+    ctx.status = 403
+    ctx.body = { error: 'Forbidden', message: 'Je hebt geen rechten om gebruikers uit te nodigen' }
     return
   }
 
-  // Check if user already exists
-  const existingUser = Object.values(users).find((user) => user.email === email)
-  if (existingUser) {
+  const email = String(ctx.request.body?.email || '').trim().toLowerCase()
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     ctx.status = 400
-    ctx.body = { error: 'User already exists', message: 'A user with this email already exists' }
+    ctx.body = { error: 'Valid email is required', message: 'Geef een geldig e-mailadres op' }
+    return
+  }
+
+  const existingUser = Object.values(users).find((user) => user.email?.trim().toLowerCase() === email)
+  const existingInvite = Object.values(invites).find((invite) => invite.email?.trim().toLowerCase() === email)
+  if (existingUser || existingInvite) {
+    ctx.status = 400
+    ctx.body = { error: 'User already exists', message: 'Dit e-mailadres is al geregistreerd of uitgenodigd' }
     return
   }
 
@@ -48,6 +62,42 @@ router.post('/', async (ctx) => {
   ctx.status = 201
   ctx.body = newUser
   ctx.set('Content-Type', 'application/json')
+})
+
+router.patch('/me/preferences', async (ctx) => {
+  const userId = ctx.state.userid
+  const user = users[userId]
+  if (!user) {
+    ctx.status = 404
+    ctx.body = { error: 'User not found' }
+    return
+  }
+
+  const value = ctx.request.body?.continuousTimelineLocation
+  if (typeof value !== 'boolean') {
+    ctx.status = 400
+    ctx.body = { error: 'continuousTimelineLocation must be a boolean' }
+    return
+  }
+
+  user.preferences = {
+    ...user.preferences,
+    continuousTimelineLocation: value
+  }
+  user.updatedAt = new Date().toISOString()
+  if (!value) delete timelineTrackingStates[userId]
+
+  try {
+    await Promise.all([
+      usersStore.put(users),
+      !value ? timelineTrackingStatesStore.put(timelineTrackingStates) : Promise.resolve()
+    ])
+    ctx.status = 200
+    ctx.body = user.preferences
+  } catch {
+    ctx.status = 500
+    ctx.body = { error: 'Failed to persist preferences' }
+  }
 })
 
 router.get('/:uuid', async (ctx) => {

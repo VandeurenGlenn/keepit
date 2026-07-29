@@ -2,19 +2,19 @@
   "session": {
     "secret": "replace-with-a-long-random-session-secret"
   },
+  "google": {
+    "placesApiKey": ""
+  },
+  "icecat": {
+    "username": "",
+    "appKey": ""
+  },
   "email": {
     "service": "mailtrap",
     "auth": {
       "user": "",
       "pass": ""
     }
-  },
-  "desco": {
-    "getAllProductsUrl": "",
-    "authorization": "",
-    "cookie": "",
-    "referer": "",
-    "userAgent": ""
   },
   "alelek": {
     "getAllProductsUrl": "",

@@ -20,8 +20,9 @@ export class UsersView extends LiteElement {
         flex-direction: column;
         height: 100%;
         width: 100%;
-        gap: 20px;
-        padding: 16px;
+        max-width: 1180px;
+        gap: 16px;
+        padding: 22px;
         box-sizing: border-box;
       }
 
@@ -30,15 +31,15 @@ export class UsersView extends LiteElement {
         flex-direction: column;
         gap: 16px;
         width: 100%;
-        padding: 18px;
-        border-radius: 24px;
+        padding: 22px 24px;
+        border-radius: 22px;
         background: linear-gradient(
           180deg,
           color-mix(in srgb, var(--workspace-panel) 96%, white 4%),
           var(--workspace-panel)
         );
         border: 1px solid var(--workspace-border);
-        box-shadow: var(--app-shadow-strong);
+        box-shadow: var(--app-shadow-soft);
         box-sizing: border-box;
       }
 
@@ -101,15 +102,16 @@ export class UsersView extends LiteElement {
       .user-card {
         display: flex;
         flex-direction: column;
-        gap: 14px;
-        padding: 16px;
-        border-radius: 20px;
+        gap: 12px;
+        padding: 15px;
+        border-radius: 17px;
         border: 1px solid color-mix(in srgb, var(--workspace-border) 88%, transparent 12%);
         background: linear-gradient(
           180deg,
           color-mix(in srgb, var(--workspace-panel-strong) 94%, white 6%),
           color-mix(in srgb, var(--workspace-panel-strong) 100%, black 0%)
         );
+        box-shadow: var(--app-shadow-soft);
       }
 
       .user-header {
@@ -158,17 +160,17 @@ export class UsersView extends LiteElement {
         border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 45%, transparent 55%);
         background: var(--md-sys-color-surface);
         color: var(--md-sys-color-on-surface);
-        border-radius: 999px;
-        padding: 8px 14px;
+        min-height: 38px;
+        border-radius: 10px;
+        padding: 0 13px;
+        font: inherit;
+        font-size: .76rem;
+        font-weight: 700;
         cursor: pointer;
       }
 
       button.primary {
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--workspace-accent) 88%, white 12%),
-          var(--workspace-accent-strong)
-        );
+        background: var(--workspace-accent);
         border-color: color-mix(in srgb, var(--workspace-accent) 82%, white 18%);
         color: var(--md-sys-color-on-primary);
       }
@@ -207,7 +209,7 @@ export class UsersView extends LiteElement {
         .workspace-panel,
         .user-card {
           padding: 16px;
-          border-radius: 20px;
+          border-radius: 17px;
         }
 
         .panel-title-row {
@@ -345,7 +347,7 @@ export class UsersView extends LiteElement {
     })
     if (!response.ok) {
       const { error, message } = await response.json()
-      this.error = { label: 'Click to go back', href: '#!/users', message: message || error || 'Failed to add user' }
+      this.error = { label: 'Terug naar team', href: '#!/users', message: message || error || 'Gebruiker toevoegen mislukt' }
       this.requestRender()
       return
     }
@@ -361,7 +363,7 @@ export class UsersView extends LiteElement {
   }
 
   _deleteUser = async (uuid: string) => {
-    const answer = confirm('Are you sure you want to delete this user?')
+    const answer = confirm('Ben je zeker dat je deze gebruiker wilt verwijderen?')
     if (!answer) return
     const response = await fetch(`/api/users/${uuid}`, {
       method: 'DELETE',
@@ -369,7 +371,7 @@ export class UsersView extends LiteElement {
     })
     if (!response.ok) {
       const { error, message } = await response.json()
-      this.error = { label: 'Click to go back', href: '#!/users', message: message || error || 'Failed to delete user' }
+      this.error = { label: 'Terug naar team', href: '#!/users', message: message || error || 'Gebruiker verwijderen mislukt' }
       this.requestRender()
       return
     }
@@ -405,7 +407,10 @@ export class UsersView extends LiteElement {
 
           <div class="user-meta">
             <strong>${user.name}</strong>
-            <span class="muted">${user.email}</span>
+            <span class="muted">Werkadres: ${user.email}</span>
+            ${user.googleEmail && user.googleEmail !== user.email
+              ? html`<span class="muted">Google-login: ${user.googleEmail}</span>`
+              : ''}
             <span class="muted">${user.place?.formattedAddress || 'Geen adres ingesteld'}</span>
           </div>
         </div>
@@ -442,9 +447,9 @@ export class UsersView extends LiteElement {
     return html`
       <section class="workspace-panel">
         ${this.renderPanelHeader(
-          'Users',
-          'Beheer rechten en toegang in dezelfde rustige admin-omgeving als projecten en media.',
-          'Team workspace',
+          'Team',
+          'Beheer medewerkers, toegang en verantwoordelijkheden.',
+          'Teambeheer',
           html`
             <div class="summary-row">
               <span class="badge"><strong>Totaal</strong>&nbsp;${this.userEntries.length}</span>

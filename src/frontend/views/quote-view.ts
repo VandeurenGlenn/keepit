@@ -1,218 +1,78 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
+import '@vandeurenglenn/lite-elements/icon.js'
+import type { Jobs, MaterialLine, Quote, QuoteStatus, ShopProduct } from '../../types/index.js'
+import { api } from '../api/client.js'
 
-interface QuoteItem {
-  description: string
-  quantity: number
-  unitPrice: number
-}
+const statusLabels: Record<QuoteStatus, string> = { draft:'Concept', sent:'Verzonden', approved:'Goedgekeurd', rejected:'Afgewezen' }
 
 export class QuoteView extends LiteElement {
-  static styles = [
-    css`
-      :host {
-        display: flex;
-        flex-direction: column;
-        gap: 24px;
-        padding: 32px;
-        width: min(100%, 700px);
-        max-width: 700px;
-        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 95%, white 5%), var(--app-panel));
-        border-radius: 24px;
-        box-shadow: var(--app-shadow-strong);
-        border: 1px solid var(--app-border);
-        font-family: 'Avenir Next', 'Segoe UI', sans-serif;
-        box-sizing: border-box;
-      }
-      .header {
-        display: flex;
-        align-items: center;
-        gap: 20px;
-        margin-bottom: 16px;
-        justify-content: space-between;
-        flex-wrap: wrap;
-      }
-      .logo {
-        height: 56px;
-        width: auto;
-      }
-      h2 {
-        margin: 0;
-        font-size: 2rem;
-        color: var(--md-sys-color-on-surface);
-      }
-      table {
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-        background: color-mix(in srgb, var(--app-panel-strong) 94%, white 6%);
-        border-radius: 18px;
-        overflow: hidden;
-        box-shadow: var(--app-shadow-soft);
-        border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent 14%);
-      }
-      th,
-      td {
-        padding: 12px 10px;
-        text-align: left;
-      }
-      th {
-        background: color-mix(in srgb, var(--app-accent) 10%, var(--app-panel) 90%);
-        color: var(--app-accent-strong);
-        font-weight: 600;
-        border-bottom: 1px solid color-mix(in srgb, var(--app-border) 90%, transparent 10%);
-      }
-      td {
-        border-bottom: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent 22%);
-      }
-      tfoot td {
-        font-weight: bold;
-        background: color-mix(in srgb, var(--app-accent) 8%, var(--app-panel) 92%);
-        color: var(--app-accent-strong);
-        border-bottom: none;
-      }
-      .actions {
-        display: flex;
-        gap: 12px;
-        margin-top: 18px;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-      input[type='number'],
-      input[type='text'] {
-        padding: 10px 12px;
-        border: 1px solid color-mix(in srgb, var(--app-border) 88%, transparent 12%);
-        border-radius: 14px;
-        font-size: 1rem;
-        width: 120px;
-        background: color-mix(in srgb, var(--app-panel-strong) 96%, white 4%);
-        color: var(--md-sys-color-on-surface);
-      }
-      input[type='text'] {
-        width: 220px;
-      }
-      button {
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--app-accent) 88%, white 12%),
-          var(--app-accent-strong)
-        );
-        color: var(--md-sys-color-on-primary);
-        border: 1px solid color-mix(in srgb, var(--app-accent) 84%, white 16%);
-        border-radius: 999px;
-        padding: 10px 18px;
-        font-size: 1rem;
-        cursor: pointer;
-        transition:
-          transform 0.18s ease,
-          box-shadow 0.18s ease,
-          filter 0.18s ease;
-      }
-      button:hover {
-        transform: translateY(-1px);
-        box-shadow: var(--app-shadow-soft);
-        filter: brightness(1.03);
-      }
+  @property({ type:Object, consumes:true }) accessor jobs: Jobs = {}
+  @property({ type:Object, consumes:true }) accessor quote: Quote | undefined
+  @property({ type:String }) accessor name = `Offerte ${new Date().toLocaleDateString('nl-BE')}`
+  @property({ type:String }) accessor selectedJob = ''
+  @property({ type:String }) accessor status: QuoteStatus = 'draft'
+  @property({ type:String }) accessor notes = ''
+  @property({ type:String }) accessor validUntil = ''
+  @property({ type:Array }) accessor materials: MaterialLine[] = []
+  @property({ type:String }) accessor description = ''
+  @property({ type:Number }) accessor quantity = 1
+  @property({ type:Number }) accessor unitPrice = 0
+  @property({ type:Boolean }) accessor saving = false
+  @property({ type:String }) accessor message = ''
+  @property({ type:Boolean }) accessor pickerOpen = false
+  @property({ type:String }) accessor pickerQuery = ''
+  @property({ type:Array }) accessor pickerProducts: ShopProduct[] = []
+  @property({ type:Boolean }) accessor pickerLoading = false
+  @property({ type:Object }) accessor pickerQuantities: Record<string,number> = {}
+  @property({ type:String }) accessor importSource: 'desco'|'alelek' = 'desco'
+  @property({ type:String }) accessor importText = ''
+  @property({ type:Boolean }) accessor importing = false
+  @property({ type:Array }) accessor unmatched: string[] = []
+  syncedQuoteId = ''
+  pickerTimer?: ReturnType<typeof setTimeout>
+  pickerToken = 0
 
-      @media (max-width: 720px) {
-        :host {
-          width: 100%;
-          padding: 18px;
-          gap: 18px;
-          border-radius: 20px;
-        }
+  static styles=[css`
+    :host{display:flex;flex-direction:column;width:100%;max-width:1180px;min-height:100%;gap:16px;padding:22px;box-sizing:border-box}h1,h2,h3,h4,p{margin:0}button,input,select,textarea{font:inherit}.page-header{position:relative;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:20px 22px;border:1px solid var(--app-border);border-radius:22px;background:radial-gradient(circle at 92% 10%,var(--app-accent-soft),transparent 32%),linear-gradient(145deg,var(--app-panel-strong),var(--app-panel));box-shadow:var(--app-shadow-soft);overflow:hidden}.page-header::before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:var(--app-accent)}.heading{display:flex;align-items:center;gap:14px;min-width:0}.back{display:grid;place-items:center;width:42px;height:42px;flex:none;border:1px solid var(--app-border);border-radius:12px;color:var(--md-sys-color-on-surface);text-decoration:none}.back custom-icon{--custom-icon-color:currentColor;--custom-icon-size:20px}.eyebrow{color:var(--app-accent);font-size:.7rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase}h1{margin-top:3px;font-size:clamp(1.45rem,3vw,2rem);line-height:1.05}.subtitle{margin-top:5px;color:var(--md-sys-color-on-surface-variant);font-size:.8rem}.header-actions{display:flex;gap:8px}.button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 14px;border:1px solid var(--app-border);border-radius:11px;background:var(--app-panel);color:var(--md-sys-color-on-surface);font-weight:720;cursor:pointer}.button.primary{border-color:var(--app-accent-strong);background:var(--app-accent);color:var(--md-sys-color-on-primary)}.button custom-icon{--custom-icon-color:currentColor;--custom-icon-size:18px}.layout{display:grid;grid-template-columns:310px minmax(0,1fr);gap:16px;align-items:start}.panel{padding:18px;border:1px solid var(--app-border);border-radius:18px;background:var(--app-panel);box-shadow:var(--app-shadow-soft)}.settings{display:flex;flex-direction:column;gap:13px;position:sticky;top:16px}.field{display:flex;flex-direction:column;gap:6px;color:var(--md-sys-color-on-surface-variant);font-size:.71rem;font-weight:750}.field input,.field select,.field textarea,.manual input{width:100%;box-sizing:border-box;border:1px solid var(--app-border);border-radius:11px;background:var(--app-panel-strong);color:var(--md-sys-color-on-surface)}.field input,.field select,.manual input{height:42px;padding:0 11px}.field textarea{min-height:90px;padding:10px;resize:vertical}.message{padding:10px 12px;border-radius:10px;background:var(--app-accent-soft);color:var(--app-accent);font-size:.74rem;font-weight:700}.quote-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:15px;border-bottom:1px solid var(--app-border)}.quote-head h2{font-size:1.05rem}.quote-head p{margin-top:5px;color:var(--md-sys-color-on-surface-variant);font-size:.76rem}.total{color:var(--app-accent);font-size:1.4rem;font-weight:850;white-space:nowrap}.material-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:16px 0 8px}.material-actions h3{font-size:.9rem}.add-material{background:var(--app-accent-soft);color:var(--app-accent);border-color:color-mix(in srgb,var(--app-accent) 25%,var(--app-border))}.manual{display:grid;grid-template-columns:minmax(0,1fr) 72px 100px auto;gap:8px;padding:10px 0 14px}.manual input{padding:0 10px}.manual .button{padding:0 12px}.lines{display:flex;flex-direction:column}.line{display:grid;grid-template-columns:minmax(0,1fr) 82px 110px 90px 34px;gap:9px;align-items:center;padding:11px 0;border-top:1px solid var(--app-border);font-size:.77rem}.line input{width:100%;height:36px;padding:0 8px;box-sizing:border-box;border:1px solid transparent;border-radius:9px;background:transparent;color:inherit}.line input:hover,.line input:focus{border-color:var(--app-border);background:var(--app-panel-strong);outline:none}.line-name{min-width:0}.line-name strong,.line-name small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.line-name small{margin-top:4px;color:var(--md-sys-color-on-surface-variant);font-size:.66rem}.money{text-align:right}.delete{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:9px;background:transparent;color:var(--md-sys-color-on-surface-variant);cursor:pointer}.delete:hover{color:var(--md-sys-color-error)}.delete custom-icon{--custom-icon-color:currentColor;--custom-icon-size:17px}.empty{padding:42px 16px;border-top:1px solid var(--app-border);color:var(--md-sys-color-on-surface-variant);font-size:.8rem;text-align:center}.picker-backdrop{position:fixed;z-index:1000;inset:0;background:rgb(0 0 0/.48);backdrop-filter:blur(3px)}.picker{position:absolute;inset:0 0 0 auto;display:flex;flex-direction:column;width:min(560px,92vw);background:var(--md-sys-color-surface);border-left:1px solid var(--app-border);box-shadow:-16px 0 44px rgb(0 0 0/.25)}.picker-head,.picker-tools,.picker-foot{padding:18px}.picker-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border-bottom:1px solid var(--app-border)}.picker-head h3{font-size:1.08rem}.picker-head p{margin-top:5px;color:var(--md-sys-color-on-surface-variant);font-size:.75rem}.close{display:grid;place-items:center;width:36px;height:36px;border:1px solid var(--app-border);border-radius:10px;background:transparent;color:inherit;cursor:pointer}.picker-tools{padding-bottom:10px}.picker-tools input{width:100%;height:44px;padding:0 13px;box-sizing:border-box;border:1px solid var(--app-border);border-radius:12px;background:var(--app-panel);color:inherit}.picker-body{flex:1;overflow:auto;padding:0 18px 18px}.section-title{margin:4px 0 10px;font-size:.76rem;color:var(--md-sys-color-on-surface-variant);text-transform:uppercase;letter-spacing:.07em}.products{display:flex;flex-direction:column;gap:8px}.product{display:grid;grid-template-columns:44px minmax(0,1fr) 62px auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--app-border);border-radius:13px;background:var(--app-panel)}.product-image,.placeholder{width:44px;height:44px;border-radius:10px;object-fit:contain;background:var(--app-panel-strong)}.placeholder{display:grid;place-items:center;color:var(--app-accent);font-weight:850}.product-copy{min-width:0}.product-copy strong,.product-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.product-copy strong{font-size:.78rem}.product-copy small{margin-top:4px;color:var(--md-sys-color-on-surface-variant);font-size:.66rem}.product input{width:62px;height:36px;padding:0 7px;box-sizing:border-box;border:1px solid var(--app-border);border-radius:9px;background:var(--app-panel-strong);color:inherit}.product button{min-height:36px;padding:0 10px;border:1px solid var(--app-accent-strong);border-radius:9px;background:var(--app-accent);color:var(--md-sys-color-on-primary);font-weight:750;cursor:pointer}.loading{padding:34px;color:var(--md-sys-color-on-surface-variant);text-align:center}.import{margin-top:18px;border-top:1px solid var(--app-border);padding-top:14px}.import summary{cursor:pointer;font-size:.78rem;font-weight:800}.import-grid{display:flex;flex-direction:column;gap:9px;margin-top:12px}.import select,.import textarea{width:100%;box-sizing:border-box;border:1px solid var(--app-border);border-radius:10px;background:var(--app-panel);color:inherit}.import select{height:40px;padding:0 10px}.import textarea{min-height:90px;padding:10px;resize:vertical}.unmatched{font-size:.7rem;color:var(--md-sys-color-error)}.picker-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--app-border);font-size:.74rem}.picker-foot .button{background:var(--app-accent);color:var(--md-sys-color-on-primary)}@media(max-width:820px){:host{padding:12px}.layout{grid-template-columns:1fr}.settings{position:static}.page-header{padding:15px}.header-actions .button:not(.primary){display:none}.button-label{display:none}.primary{padding:0 12px}.manual{grid-template-columns:minmax(0,1fr) 66px}.manual .price{display:none}.line{grid-template-columns:minmax(0,1fr) 68px 34px}.line>.money:first-of-type{display:none}.line>.money:last-of-type{display:none}.picker{inset:auto 0 0;width:100%;height:min(88vh,760px);border-left:0;border-top:1px solid var(--app-border);border-radius:20px 20px 0 0}.product{grid-template-columns:40px minmax(0,1fr) 56px}.product-image,.placeholder{width:40px;height:40px}.product button{grid-column:2/4}.picker-head,.picker-tools,.picker-foot{padding:14px}}@media print{.page-header,.settings,.material-actions,.manual,.delete{display:none!important}:host{padding:0}.layout{display:block}.panel{border:0;box-shadow:none}.line input{border:0}.quote-head{padding-top:20px}}
+  `]
 
-        .actions {
-          flex-direction: column;
-          align-items: stretch;
-        }
-
-        input[type='number'],
-        input[type='text'],
-        button {
-          width: 100%;
-        }
-
-        th,
-        td {
-          padding: 10px 8px;
-          font-size: 0.92rem;
-        }
-      }
-    `
-  ]
-
-  @property({ type: Array }) accessor items: QuoteItem[] = []
-  @property({ type: String }) accessor jobName: string = ''
-
-  private newItem: QuoteItem = { description: '', quantity: 1, unitPrice: 0 }
-
-  render() {
-    const total = this.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
-    return html`
-      <div class="header">
-        <img
-          class="logo"
-          src="./assets/dimac.svg"
-          alt="Dimac Logo" />
-        <h2>Quote for: ${this.jobName}</h2>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Description</th>
-            <th>Qty</th>
-            <th>Unit Price</th>
-            <th>Line Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${this.items.map(
-            (item) => html`
-              <tr>
-                <td>${item.description}</td>
-                <td>${item.quantity}</td>
-                <td>€${item.unitPrice.toFixed(2)}</td>
-                <td>€${(item.quantity * item.unitPrice).toFixed(2)}</td>
-              </tr>
-            `
-          )}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td colspan="3">Total</td>
-            <td>€${total.toFixed(2)}</td>
-          </tr>
-        </tfoot>
-      </table>
-      <div class="actions">
-        <input
-          placeholder="Description"
-          .value=${this.newItem.description}
-          @input=${(e: Event) => (this.newItem.description = (e.target as HTMLInputElement).value)} />
-        <input
-          type="number"
-          min="1"
-          placeholder="Qty"
-          .value=${String(this.newItem.quantity)}
-          @input=${(e: Event) => (this.newItem.quantity = Number((e.target as HTMLInputElement).value))} />
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          placeholder="Unit Price"
-          .value=${String(this.newItem.unitPrice)}
-          @input=${(e: Event) => (this.newItem.unitPrice = Number((e.target as HTMLInputElement).value))} />
-        <button @click=${this.addItem}>Add Item</button>
-      </div>
-    `
+  onChange(propertyKey: string, value: unknown) {
+    if (propertyKey === 'quote' && value && (value as Quote).id !== this.syncedQuoteId) this.loadQuote(value as Quote)
   }
 
-  addItem = () => {
-    if (!this.newItem.description || this.newItem.quantity < 1 || this.newItem.unitPrice < 0) return
-    this.items = [...this.items, { ...this.newItem }]
-    this.newItem = { description: '', quantity: 1, unitPrice: 0 }
-    this.requestRender()
+  loadQuote(quote: Quote) {
+    this.syncedQuoteId = quote.id; this.name = quote.name; this.selectedJob = quote.jobId; this.status = quote.status
+    this.notes = quote.notes || ''; this.validUntil = quote.validUntil || ''; this.materials = structuredClone(quote.materials || [])
   }
+
+  get total() { return this.materials.reduce((sum,item)=>sum+item.quantity*(item.unitPrice||0),0) }
+
+  addManual=()=>{const name=this.description.trim();if(!name||this.quantity<=0||this.unitPrice<0)return;this.mergeMaterials([{name,quantity:this.quantity,unitPrice:this.unitPrice}]);this.description='';this.quantity=1;this.unitPrice=0}
+  removeMaterial=(index:number)=>{this.materials=this.materials.filter((_,current)=>current!==index)}
+  update=(index:number,key:'quantity'|'unitPrice',value:number)=>{this.materials=this.materials.map((item,current)=>current===index?{...item,[key]:Number.isFinite(value)&&value>=0?value:0}:item)}
+
+  mergeMaterials(incoming: MaterialLine[]) {
+    const merged = [...this.materials]
+    for (const material of incoming) {
+      const index = merged.findIndex((item)=>(material.articleNumber&&item.articleNumber===material.articleNumber)||(material.productNumber&&item.productNumber===material.productNumber)||item.name.trim().toLowerCase()===material.name.trim().toLowerCase())
+      if (index >= 0) merged[index] = { ...merged[index], quantity: merged[index].quantity + material.quantity }
+      else merged.push({ ...material })
+    }
+    this.materials = merged
+  }
+
+  openPicker=async()=>{this.pickerOpen=true;this.unmatched=[];await this.loadProducts()}
+  closePicker=()=>{this.pickerOpen=false;if(this.pickerTimer)clearTimeout(this.pickerTimer)}
+  searchPicker=(event:Event)=>{this.pickerQuery=(event.target as HTMLInputElement).value;if(this.pickerTimer)clearTimeout(this.pickerTimer);this.pickerTimer=setTimeout(()=>void this.loadProducts(),220)}
+  async loadProducts(){const token=++this.pickerToken;const query=this.pickerQuery.trim();this.pickerLoading=true;try{let result=await api.getShopProducts(query||undefined,{limit:24,popular:!query});if(!query&&!result.products.length)result=await api.getShopProducts(undefined,{limit:24});if(token===this.pickerToken)this.pickerProducts=result.products}catch(error){console.error(error);if(token===this.pickerToken)this.message='Shopmaterialen konden niet geladen worden.'}finally{if(token===this.pickerToken)this.pickerLoading=false}}
+  addProduct=(product:ShopProduct)=>{const quantity=this.pickerQuantities[product.id]||1;this.mergeMaterials([{name:product.name,quantity,unit:product.unit,unitPrice:product.price,articleNumber:product.articleNumber,productNumber:product.productNumber,packagingQuantity:product.packagingQuantity,description:product.description,image:product.image,technicalData:product.technicalData,manufacturerData:product.manufacturerData,dataSources:product.dataSources,imageCandidates:product.imageCandidates}]);void api.addToHistory({name:product.name,quantity,unit:product.unit,unitPrice:product.price,articleNumber:product.articleNumber})}
+  setProductQuantity=(id:string,value:number)=>{this.pickerQuantities={...this.pickerQuantities,[id]:Number.isFinite(value)&&value>0?value:1}}
+  importCart=async()=>{if(!this.importText.trim())return;this.importing=true;try{const result=await api.importShopCart(this.importSource,this.importText.trim());this.mergeMaterials(result.materials);this.unmatched=result.unmatched;this.message=`${result.materials.length} materiaalregels geïmporteerd.`}catch(error){console.error(error);this.message='De winkelwagen kon niet geïmporteerd worden.'}finally{this.importing=false}}
+
+  save=async()=>{if(!this.name.trim()){this.message='Geef de offerte een naam.';return}if(!this.selectedJob){this.message='Kies eerst een job.';return}this.saving=true;this.message='';const input={name:this.name.trim(),jobId:this.selectedJob,status:this.status,materials:this.materials,notes:this.notes.trim()||undefined,validUntil:this.validUntil||undefined};try{const saved=this.quote?.id?await api.updateQuote(this.quote.id,input):await api.createQuote(input);this.quote=saved;this.loadQuote(saved);this.message='Offerte opgeslagen.';if(!location.hash.includes('selected='))history.replaceState(null,'',`#!/quote?selected=${saved.id}`)}catch(error){console.error(error);this.message='De offerte kon niet opgeslagen worden.'}finally{this.saving=false}}
+
+  renderPicker(){const searching=Boolean(this.pickerQuery.trim());return html`<div class="picker-backdrop" @click=${(event:Event)=>{if(event.target===event.currentTarget)this.closePicker()}}><aside class="picker" role="dialog" aria-modal="true"><header class="picker-head"><div><h3>Materiaal toevoegen</h3><p>Zoek in Desco en Alelek of kies een vaak gebruikt artikel.</p></div><button class="close" aria-label="Sluiten" @click=${this.closePicker}>✕</button></header><div class="picker-tools"><input type="search" placeholder="Zoek naam, artikel- of productnummer…" .value=${this.pickerQuery} @input=${this.searchPicker}/></div><div class="picker-body"><h4 class="section-title">${searching?'Zoekresultaten':'Meest gebruikt'}</h4>${this.pickerLoading?html`<div class="loading">Materialen laden…</div>`:this.pickerProducts.length?html`<div class="products">${this.pickerProducts.map(product=>html`<article class="product">${product.image?html`<img class="product-image" src=${product.image} alt="" loading="lazy"/>`:html`<span class="placeholder">${product.source==='desco'?'D':'A'}</span>`}<div class="product-copy"><strong>${product.name}</strong><small>${product.source==='desco'?'Desco':'Alelek'}${product.articleNumber?` · ${product.articleNumber}`:''} · € ${product.price.toFixed(2)}</small></div><input type="number" min="0.01" step="0.01" aria-label=${`Aantal ${product.name}`} .value=${String(this.pickerQuantities[product.id]||1)} @input=${(event:Event)=>this.setProductQuantity(product.id,Number((event.target as HTMLInputElement).value))}/><button @click=${()=>this.addProduct(product)}>Toevoegen</button></article>`)}</div>`:html`<div class="loading">Geen materialen gevonden.</div>`}<details class="import"><summary>Winkelwagen van Desco of Alelek importeren</summary><div class="import-grid"><select .value=${this.importSource} @change=${(event:Event)=>(this.importSource=(event.target as HTMLSelectElement).value as 'desco'|'alelek')}><option value="desco">Desco</option><option value="alelek">Alelek</option></select><textarea placeholder="Plak hier artikelnummer, omschrijving en aantal…" .value=${this.importText} @input=${(event:Event)=>(this.importText=(event.target as HTMLTextAreaElement).value)}></textarea><button class="button" ?disabled=${this.importing} @click=${this.importCart}>${this.importing?'Importeren…':'Winkelwagen importeren'}</button>${this.unmatched.length?html`<p class="unmatched">${this.unmatched.length} regels niet herkend: ${this.unmatched.slice(0,5).join(' · ')}</p>`:null}</div></details></div><footer class="picker-foot"><span>${this.materials.length} regels · € ${this.total.toFixed(2)}</span><button class="button" @click=${this.closePicker}>Klaar</button></footer></aside></div>`}
+
+  render(){const job=this.jobs?.[this.selectedJob];return html`<header class="page-header"><div class="heading"><a class="back" href="#!/quotes" aria-label="Terug naar offertes"><custom-icon icon="arrow_back"></custom-icon></a><div><span class="eyebrow">${this.quote?.id?'Offerte bewerken':'Nieuwe offerte'}</span><h1>${this.name||'Naamloze offerte'}</h1><p class="subtitle">${job?.name||'Kies een job en voeg materiaal toe'}</p></div></div><div class="header-actions"><button class="button" @click=${()=>window.print()}><custom-icon icon="print"></custom-icon><span class="button-label">Afdrukken</span></button><button class="button primary" ?disabled=${this.saving} @click=${this.save}><custom-icon icon="save"></custom-icon><span>${this.saving?'Opslaan…':'Opslaan'}</span></button></div></header>${this.message?html`<div class="message" role="status">${this.message}</div>`:null}<section class="layout"><aside class="panel settings"><label class="field">Offertenaam<input .value=${this.name} @input=${(event:Event)=>(this.name=(event.target as HTMLInputElement).value)}/></label><label class="field">Job<select .value=${this.selectedJob} @change=${(event:Event)=>(this.selectedJob=(event.target as HTMLSelectElement).value)}><option value="">Kies een job</option>${Object.entries(this.jobs||{}).map(([id,item])=>html`<option value=${id} ?selected=${id===this.selectedJob}>${item.name}</option>`)}</select></label><label class="field">Status<select .value=${this.status} @change=${(event:Event)=>(this.status=(event.target as HTMLSelectElement).value as QuoteStatus)}>${Object.entries(statusLabels).map(([value,label])=>html`<option value=${value} ?selected=${value===this.status}>${label}</option>`)}</select></label><label class="field">Geldig tot<input type="date" .value=${this.validUntil} @input=${(event:Event)=>(this.validUntil=(event.target as HTMLInputElement).value)}/></label><label class="field">Notities<textarea placeholder="Voorwaarden of opmerkingen…" .value=${this.notes} @input=${(event:Event)=>(this.notes=(event.target as HTMLTextAreaElement).value)}></textarea></label></aside><div class="panel"><div class="quote-head"><div><h2>${job?.name||'Conceptofferte'}</h2><p>${job?.place?.formattedAddress||'Nog geen job geselecteerd'}</p></div><strong class="total">€ ${this.total.toFixed(2)}</strong></div><div class="material-actions"><h3>Materiaal en werk</h3><button class="button add-material" @click=${this.openPicker}><custom-icon icon="add_shopping_cart"></custom-icon>Materiaal kiezen</button></div><div class="manual"><input placeholder="Vrije omschrijving" .value=${this.description} @input=${(event:Event)=>(this.description=(event.target as HTMLInputElement).value)}/><input type="number" min="0.01" step="0.01" aria-label="Aantal" .value=${String(this.quantity)} @input=${(event:Event)=>(this.quantity=Number((event.target as HTMLInputElement).value))}/><input class="price" type="number" min="0" step="0.01" aria-label="Stukprijs" .value=${String(this.unitPrice)} @input=${(event:Event)=>(this.unitPrice=Number((event.target as HTMLInputElement).value))}/><button class="button" @click=${this.addManual}><custom-icon icon="add"></custom-icon></button></div>${this.materials.length?html`<div class="lines">${this.materials.map((item,index)=>html`<div class="line"><div class="line-name"><strong>${item.name}</strong><small>${item.articleNumber||item.productNumber||item.unit||'Vrije regel'}</small></div><input type="number" min="0.01" step="0.01" aria-label="Aantal" .value=${String(item.quantity)} @input=${(event:Event)=>this.update(index,'quantity',Number((event.target as HTMLInputElement).value))}/><input class="money" type="number" min="0" step="0.01" aria-label="Stukprijs" .value=${String(item.unitPrice||0)} @input=${(event:Event)=>this.update(index,'unitPrice',Number((event.target as HTMLInputElement).value))}/><strong class="money">€ ${(item.quantity*(item.unitPrice||0)).toFixed(2)}</strong><button class="delete" aria-label="Verwijderen" @click=${()=>this.removeMaterial(index)}><custom-icon icon="delete"></custom-icon></button></div>`)}</div>`:html`<div class="empty">Nog geen regels. Kies materiaal uit de shop of voeg een vrije regel toe.</div>`}</div></section>${this.pickerOpen?this.renderPicker():null}`}
 }
-
-customElements.define('job-quote-view', QuoteView)
+customElements.define('quote-view',QuoteView)

@@ -61,7 +61,7 @@ export const sendInviteMail = async (email, uuid) => {
 
         <p>Je bent uitgenodigd om lid te worden van de Dimac organisatie op Keepit, het platform voor tijdsregistratie en projectbeheer.</p>
         <p>Klik op de onderstaande link om je account aan te maken en toegang te krijgen tot de organisatie:</p>
-        <a href="https://keepit.dimac.be/#!/register?uuid=${uuid}&email=${email}">Account aanmaken</a>
+        <a href="https://keepit.dimac.be/#!/register?uuid=${encodeURIComponent(uuid)}&email=${encodeURIComponent(email)}">Account aanmaken</a>
         <br />
         <strong>Gebruik keepit elke dag voor het registreren van je werkuren.</strong>
         <br />

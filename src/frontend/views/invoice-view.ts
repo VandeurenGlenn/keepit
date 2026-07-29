@@ -1,78 +1,22 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
-import '@material/web/textfield/outlined-text-field.js'
-import { Invoice } from '../../types/index.js'
-import '../elements/view/header.js'
+import '@vandeurenglenn/lite-elements/icon.js'
+import type { Companies, Invoice, Jobs } from '../../types/index.js'
+import { api } from '../api/client.js'
 
 export class InvoiceView extends LiteElement {
-  static styles = [
-    css`
-      :host {
-        display: flex;
-        flex-direction: column;
-        width: 100%;
-        height: 100%;
-        max-width: 760px;
-        padding: 16px;
-        box-sizing: border-box;
-        gap: 18px;
-      }
+  @property({type:Object,consumes:true}) accessor invoice:Invoice
+  @property({type:Object,consumes:true}) accessor jobs:Jobs={}
+  @property({type:Object,consumes:true}) accessor companies:Companies={}
+  @property({type:Boolean}) accessor saving=false
+  @property({type:String}) accessor status=''
 
-      .invoice-panel {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        width: 100%;
-        padding: 18px;
-        border-radius: 24px;
-        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
-        border: 1px solid var(--app-border);
-        box-shadow: var(--app-shadow-strong);
-        box-sizing: border-box;
-      }
+  static styles=[css`
+    :host{display:flex;flex-direction:column;width:100%;max-width:1100px;min-height:100%;gap:16px;padding:22px;box-sizing:border-box}h1,h2,h3,p{margin:0}button,input,textarea{font:inherit}.page-header{position:relative;display:flex;align-items:center;gap:15px;padding:22px 24px;border:1px solid var(--app-border);border-radius:22px;background:radial-gradient(circle at 92% 10%,var(--app-accent-soft),transparent 32%),linear-gradient(145deg,var(--app-panel-strong),var(--app-panel));box-shadow:var(--app-shadow-soft);overflow:hidden}.page-header::before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:var(--app-accent)}.page-icon{display:grid;place-items:center;width:52px;height:52px;border-radius:15px;background:var(--app-accent-soft);color:var(--app-accent);--custom-icon-color:currentColor;--custom-icon-size:27px}.eyebrow{color:var(--app-accent);font-size:.72rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase}h1{margin-top:3px;font-size:clamp(1.55rem,3vw,2.2rem)}.subtitle{margin-top:6px;color:var(--md-sys-color-on-surface-variant);font-size:.82rem}.layout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(280px,.75fr);gap:16px;align-items:start}.panel{display:flex;flex-direction:column;gap:15px;padding:18px;border:1px solid var(--app-border);border-radius:18px;background:var(--app-panel);box-shadow:var(--app-shadow-soft)}.panel h2{font-size:1rem}.fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{display:flex;flex-direction:column;gap:6px;color:var(--md-sys-color-on-surface-variant);font-size:.72rem;font-weight:750}label.wide{grid-column:1/-1}input,textarea{width:100%;box-sizing:border-box;border:1px solid var(--app-border);border-radius:11px;background:var(--app-panel-strong);color:var(--md-sys-color-on-surface)}input{height:43px;padding:0 11px}textarea{min-height:90px;padding:11px;resize:vertical}.actions{display:flex;align-items:center;justify-content:flex-end;gap:10px}.primary{min-height:42px;padding:0 15px;border:1px solid var(--app-accent-strong);border-radius:11px;background:var(--app-accent);color:var(--md-sys-color-on-primary);font-weight:750;cursor:pointer}.status{margin-right:auto;color:var(--app-success);font-size:.75rem;font-weight:700}.meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.meta{padding:11px;border:1px solid var(--app-border);border-radius:12px;background:var(--app-panel-strong)}.meta span,.meta strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.meta span{color:var(--md-sys-color-on-surface-variant);font-size:.66rem}.meta strong{margin-top:4px;font-size:.78rem}.summary{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--app-border);font-size:.78rem}.summary:last-child{border-bottom:0}.summary span{color:var(--md-sys-color-on-surface-variant)}.gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.gallery img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:12px;border:1px solid var(--app-border)}.empty{padding:24px;color:var(--md-sys-color-on-surface-variant);font-size:.78rem;text-align:center}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--app-accent) 23%,transparent 77%)}@media(max-width:760px){:host{padding:12px}.page-header{padding:18px;border-radius:19px}.page-icon{display:none}.layout{grid-template-columns:1fr}.fields{grid-template-columns:1fr}label.wide{grid-column:auto}}
+  `]
 
-      @media (max-width: 720px) {
-        :host {
-          padding: 12px;
-        }
+  async save(){const id=new URLSearchParams(location.hash.split('?')[1]||'').get('selected');if(!id)return;this.saving=true;this.status='';try{await api.updateInvoice(id,{name:this.invoice.name,description:this.invoice.description});this.status='Bewaard'}catch(error){this.status='Bewaren mislukt'}finally{this.saving=false}}
 
-        .invoice-panel {
-          padding: 16px;
-          border-radius: 20px;
-        }
-      }
-    `
-  ]
-
-  @property({ type: Object, consumes: true }) accessor invoice: Invoice
-
-  render() {
-    return html`
-      ${this.invoice
-        ? html`
-            <view-header
-              .title=${this.invoice.name}
-              .description=${this.invoice.description || this.invoice.createdAt}
-              icon="inventory2"></view-header>
-            <section class="invoice-panel">
-              <md-outlined-text-field
-                label="Invoice Name"
-                value=${this.invoice.name}
-                @input=${(event: Event) => {
-                  const input = event.target as HTMLInputElement
-                  this.invoice.name = input.value
-                }}></md-outlined-text-field>
-              <md-outlined-text-field
-                label="Invoice Description"
-                value=${this.invoice.description}
-                @input=${(event: Event) => {
-                  const input = event.target as HTMLInputElement
-                  this.invoice.description = input.value
-                }}></md-outlined-text-field>
-            </section>
-          `
-        : html`<loading-view></loading-view>`}
-    `
-  }
+  render(){if(!this.invoice)return html`<loading-view></loading-view>`;const job=this.jobs?.[this.invoice.job];const company=this.companies?.[this.invoice.company];const materials=this.invoice.materials||[];const materialTotal=materials.reduce((sum,item)=>sum+(Number(item.quantity)||0)*(Number(item.unitPrice)||0),0);const images=this.invoice.invoiceImages||[]
+    return html`<header class="page-header"><span class="page-icon"><custom-icon icon="receipt"></custom-icon></span><div><span class="eyebrow">Factuurdetail</span><h1>${this.invoice.name||'Naamloze factuur'}</h1><p class="subtitle">${this.invoice.createdAt?new Date(this.invoice.createdAt).toLocaleDateString('nl-BE'):'Datum onbekend'}</p></div></header><section class="layout"><div class="panel"><h2>Gegevens</h2><div class="fields"><label>Naam<input .value=${this.invoice.name||''} @input=${(event:Event)=>(this.invoice.name=(event.target as HTMLInputElement).value)} /></label><label class="wide">Omschrijving<textarea .value=${this.invoice.description||''} @input=${(event:Event)=>(this.invoice.description=(event.target as HTMLTextAreaElement).value)}></textarea></label></div><div class="actions"><span class="status">${this.status}</span><button class="primary" ?disabled=${this.saving} @click=${()=>this.save()}>${this.saving?'Bewaren…':'Wijzigingen bewaren'}</button></div></div><aside class="panel"><h2>Koppelingen</h2><div class="meta-grid"><div class="meta"><span>Job</span><strong>${job?.name||'Niet gekoppeld'}</strong></div><div class="meta"><span>Klant</span><strong>${company?.name||'Niet gekoppeld'}</strong></div></div><div><div class="summary"><span>Materialen</span><strong>${materials.length} ${materials.length===1?'regel':'regels'}</strong></div><div class="summary"><span>Materiaalwaarde</span><strong>€ ${materialTotal.toFixed(2)}</strong></div><div class="summary"><span>Beelden</span><strong>${images.length}</strong></div></div>${images.length?html`<div class="gallery">${images.map(image=>html`<img src=${image} alt="Factuurbeeld" />`)}</div>`:html`<div class="empty">Geen beelden bij deze factuur.</div>`}</aside></section>`}
 }
-
-customElements.define('invoice-view', InvoiceView)
+customElements.define('invoice-view',InvoiceView)

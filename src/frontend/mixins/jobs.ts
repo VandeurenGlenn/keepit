@@ -1,4 +1,4 @@
-import { html, property, LiteElement, query } from '@vandeurenglenn/lite'
+import { html, property, LiteElement } from '@vandeurenglenn/lite'
 import { DataFlow } from '../flows/data.js'
 import { api } from '../api/client.js'
 import '../flows/data.js'
@@ -13,6 +13,8 @@ export const JobsMixin = (base: typeof LiteElement) =>
 
     @property({ type: Array }) accessor jobSteps = [
       {
+        name: 'Naam van de job',
+        description: 'Geef de werf of opdracht een herkenbare naam.',
         template: html`<data-input label="name"></data-input> `,
         validateAndReturnValues: (inputs) => {
           const data = {}
@@ -27,6 +29,8 @@ export const JobsMixin = (base: typeof LiteElement) =>
         }
       },
       {
+        name: 'Werflocatie',
+        description: 'Zoek het adres waar het werk uitgevoerd wordt.',
         template: html`
           <data-input
             label="place"
@@ -46,16 +50,14 @@ export const JobsMixin = (base: typeof LiteElement) =>
         }
       },
       {
-        description: 'optional',
+        name: 'Omschrijving',
+        description: 'Optioneel: voeg extra context voor het team toe.',
         template: html`<data-input label="description"></data-input> `,
         validateAndReturnValues: (inputs) => {
           const data = {}
 
           for (const input of inputs) {
             data[input.label] = input.value
-            if (!data[input.label]) {
-              return { valid: false, values: data }
-            }
           }
           return { valid: true, values: data }
         }
@@ -66,7 +68,7 @@ export const JobsMixin = (base: typeof LiteElement) =>
       this.creatingJob = true
       const dataFlow = new DataFlow()
       dataFlow.steps = this.jobSteps
-      dataFlow.label = 'Add Job'
+      dataFlow.label = 'Nieuwe job'
       document.body.appendChild(dataFlow)
       const stepResults = await dataFlow.done
       if (!stepResults) {
@@ -74,31 +76,32 @@ export const JobsMixin = (base: typeof LiteElement) =>
         this.creatingJob = false
         return
       }
-      const result = (stepResults as Array<Record<string, any>>).reduce((acc, curr) => {
-        return { ...acc, ...curr }
-      }, {})
+      const result = (stepResults as Array<Record<string, any>>).reduce(
+        (acc, curr) => ({ ...acc, ...curr }),
+        {}
+      ) as { name: string; description?: string; place: any }
 
       try {
         const data = await api.createJob(result)
-        this.jobs[data.uuid] = data
+        this.jobs = { ...this.jobs, [data.uuid]: data.content }
         this.creatingJob = false
         document.body.removeChild(dataFlow)
 
         const success = document.createElement('success-animation') as HTMLElement & { message?: string }
         document.body.appendChild(success)
-        success.message = 'Job created successfully!'
+        success.message = 'Job aangemaakt'
         setTimeout(() => {
           document.body.removeChild(success)
         }, 1200) // 1.2s for animation
       } catch (error) {
         console.error('Error creating job:', error)
         this.creatingJob = false
-        alert('Failed to create job')
+        alert('De job kon niet aangemaakt worden.')
       }
     }
 
     _deleteJob = async (uuid) => {
-      const answer = confirm('Are you sure you want to delete this job?')
+      const answer = confirm('Ben je zeker dat je deze job wilt verwijderen?')
       if (!answer) return
 
       try {
@@ -107,7 +110,7 @@ export const JobsMixin = (base: typeof LiteElement) =>
         this.requestRender()
       } catch (error) {
         console.error('Error deleting job:', error)
-        alert('Failed to delete job')
+        alert('De job kon niet verwijderd worden.')
       }
     }
 

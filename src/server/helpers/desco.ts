@@ -2,32 +2,16 @@ import { mkdir, readFile, writeFile } from 'fs/promises'
 import { resolve } from 'path'
 import { MaterialLine } from '../../types/index.js'
 import { recordSync } from './sync-tracker.js'
+import { mergeDescoMetadataItems, type DescoMaterialMetadata } from './desco-metadata.js'
 import * as XLSX from 'xlsx'
 
 type JsonObject = Record<string, unknown>
-
-type DescoConfig = {
-  getAllProductsUrl?: string
-  authorization?: string
-  cookie?: string
-  referer?: string
-  userAgent?: string
-}
 
 type DescoCatalog = {
   source: 'desco'
   updatedAt: string
   count: number
   items: MaterialLine[]
-}
-
-type DescoMaterialMetadata = {
-  articleNumber?: string
-  productNumber?: string
-  name?: string
-  description?: string
-  image?: string
-  technicalData?: Record<string, string>
 }
 
 type DescoMetadataCatalog = {
@@ -38,6 +22,7 @@ type DescoMetadataCatalog = {
 
 const descoCatalogPath = resolve('.database', 'desco-materials.json')
 const descoMetadataPath = resolve('.database', 'desco-materials.metadata.json')
+const descoArticlesPath = resolve('.database', 'desco', 'articles.xlsx')
 
 const normalizeString = (value: unknown): string => {
   if (typeof value !== 'string') return ''
@@ -51,250 +36,49 @@ const normalizePrice = (value: unknown): number | undefined => {
   return parsed
 }
 
-const normalizeKey = (value: string | undefined): string => value?.trim().toLowerCase() || ''
+const fallbackDescriptionPhrases = [
+  'geen beschrijving',
+  'omschrijving volgt',
+  'beschrijving niet beschikbaar',
+  'n/a',
+  'onbekend',
+  'lorem ipsum'
+]
+
+const hasTechnicalData = (value: unknown): value is Record<string, string> => {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0)
+}
+
+const hasValidDescription = (value: unknown): value is string => {
+  const description = normalizeString(value)
+  if (description.length < 10) return false
+
+  const normalized = description.toLowerCase()
+  return !fallbackDescriptionPhrases.some((phrase) => normalized.includes(phrase))
+}
+
+const hasValidImage = (value: unknown): value is string => {
+  const image = normalizeString(value)
+  if (!image) return false
+
+  return (
+    image.startsWith('http://') ||
+    image.startsWith('https://') ||
+    image.startsWith('/media/') ||
+    image.startsWith('/cache/desco/')
+  )
+}
 
 const isMetadataEnriched = (meta: DescoMaterialMetadata | undefined): boolean => {
   if (!meta) return false
-  return Boolean(meta.description || meta.image || (meta.technicalData && Object.keys(meta.technicalData).length > 0))
+
+  const enrichedAt = normalizeString(meta.enrichedAt)
+  if (!enrichedAt) return false
+
+  return hasValidDescription(meta.description) && (hasValidImage(meta.image) || hasTechnicalData(meta.technicalData))
 }
 
-const mergeTechnicalData = (rows: Array<{ label: string; value: string }>): Record<string, string> | undefined => {
-  const technicalData: Record<string, string> = {}
-
-  for (const row of rows) {
-    const label = normalizeString(row.label)
-    const value = normalizeString(row.value)
-    if (!label || !value) continue
-
-    if (technicalData[label]) {
-      technicalData[label] = `${technicalData[label]}, ${value}`
-      continue
-    }
-
-    technicalData[label] = value
-  }
-
-  return Object.keys(technicalData).length > 0 ? technicalData : undefined
-}
-
-const buildDescoSearchQuery = (material: MaterialLine): string => {
-  return material.articleNumber || material.productNumber || material.name
-}
-
-const runWithConcurrency = async <T>(items: T[], limit: number, task: (item: T) => Promise<void>): Promise<void> => {
-  let currentIndex = 0
-
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (currentIndex < items.length) {
-      const nextIndex = currentIndex
-      currentIndex += 1
-      await task(items[nextIndex])
-    }
-  })
-
-  await Promise.all(workers)
-}
-
-const createDescoBrowser = async (): Promise<Browser> => {
-  return puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  })
-}
-
-const findDescoDetailUrl = async (page: Page, material: MaterialLine): Promise<string | undefined> => {
-  const query = buildDescoSearchQuery(material)
-  if (!query) return undefined
-
-  await page.goto(`${descoSearchUrl}#s=${encodeURIComponent(query)}`, {
-    waitUntil: 'networkidle2',
-    timeout: 60000
-  })
-
-  await page.waitForSelector('body', { timeout: 15000 })
-  await page
-    .waitForFunction(
-      (searchQuery) => {
-        return (
-          document.body.innerText.includes(searchQuery) ||
-          Boolean(document.querySelector('a[href*="/producten/info/"]')) ||
-          Boolean(document.querySelector('a[href*="qpid="]'))
-        )
-      },
-      { timeout: 20000 },
-      query
-    )
-    .catch(() => undefined)
-
-  return page.evaluate((articleNumber) => {
-    const links = Array.from(document.querySelectorAll('a[href]'))
-      .map((anchor) => (anchor as HTMLAnchorElement).href)
-      .filter((href) => href.includes('/producten/info/'))
-
-    const exactMatch = articleNumber ? links.find((href) => href.includes(`qpid=${articleNumber}`)) : undefined
-    return exactMatch || links[0] || undefined
-  }, material.articleNumber)
-}
-
-const scrapeDescoDetailMetadata = async (
-  page: Page,
-  detailUrl: string,
-  material: MaterialLine
-): Promise<DescoMaterialMetadata | undefined> => {
-  await page.goto(detailUrl, {
-    waitUntil: 'networkidle2',
-    timeout: 60000
-  })
-
-  await page.waitForSelector('body', { timeout: 15000 })
-  await page
-    .waitForFunction(
-      (articleNumber, fallbackName) => {
-        const text = document.body.innerText.toLowerCase()
-        return (
-          Boolean(articleNumber && document.body.innerText.includes(articleNumber)) ||
-          Boolean(fallbackName && text.includes(fallbackName.toLowerCase())) ||
-          text.includes('kenmerken')
-        )
-      },
-      { timeout: 20000 },
-      material.articleNumber,
-      material.name
-    )
-    .catch(() => undefined)
-
-  return page
-    .evaluate((fallbackName) => {
-      const clean = (value: string | null | undefined): string => value?.replace(/\s+/g, ' ').trim() || ''
-      const ignoredHeadings = new Set([
-        'toegang aanvragen als',
-        'verkooppunten',
-        'logistiek',
-        'kenmerken',
-        'foute productinfo'
-      ])
-
-      const name = Array.from(document.querySelectorAll('h1, h2'))
-        .map((element) => clean(element.textContent))
-        .find((value) => value && !ignoredHeadings.has(value.toLowerCase()))
-
-      const imageSources = Array.from(document.images)
-        .map((image) => image.src)
-        .filter((src) => /\/files\/OCA\//i.test(src))
-
-      const image =
-        imageSources.find((src) => /_M\./i.test(src)) ||
-        imageSources.find((src) => /_XL\./i.test(src)) ||
-        imageSources.find((src) => /_XS\./i.test(src)) ||
-        imageSources[0] ||
-        ''
-
-      const knownLabels = new Set([
-        'categorie',
-        'uitvoering',
-        'merk',
-        'reeks',
-        'materiaal',
-        'toepassing',
-        'diameter',
-        'radius',
-        'type',
-        'kleur',
-        'vermogen',
-        'debiet',
-        'maat',
-        'lengte',
-        'breedte',
-        'hoogte'
-      ])
-
-      const tables = Array.from(document.querySelectorAll('table'))
-        .map((table) => {
-          const rows = Array.from(table.querySelectorAll('tr'))
-            .map((row) => {
-              const cells = Array.from(row.querySelectorAll('th, td')).map((cell) => clean(cell.textContent))
-              if (cells.length !== 2 || !cells[0] || !cells[1]) return null
-              return { label: cells[0], value: cells[1] }
-            })
-            .filter((row): row is { label: string; value: string } => Boolean(row))
-
-          const score = rows.reduce((total, row) => {
-            const key = row.label.toLowerCase()
-            return total + (knownLabels.has(key) ? 2 : 0)
-          }, 0)
-
-          return { rows, score }
-        })
-        .filter((table) => table.rows.length > 0)
-        .sort((left, right) => right.score - left.score)
-
-      const technicalRows = tables[0]?.score ? tables[0].rows : []
-
-      return {
-        name: clean(name) || clean(fallbackName) || undefined,
-        description: clean(name) || clean(fallbackName) || undefined,
-        image: image || undefined,
-        technicalRows
-      }
-    }, material.name)
-    .then((result) => {
-      const technicalData = mergeTechnicalData(result.technicalRows)
-
-      if (!result.name && !result.description && !result.image && !technicalData) {
-        return undefined
-      }
-
-      return {
-        name: result.name,
-        description: result.description,
-        image: result.image,
-        technicalData
-      }
-    })
-}
-
-const enrichDescoMetadata = async (
-  targets: Array<{ metadataIndex: number; material: MaterialLine }>,
-  metadataItems: DescoMaterialMetadata[]
-): Promise<DescoMaterialMetadata[]> => {
-  if (targets.length === 0) return metadataItems
-
-  const nextMetadata = [...metadataItems]
-  const browser = await createDescoBrowser()
-
-  try {
-    await runWithConcurrency(targets, descoEnrichConcurrency, async ({ metadataIndex, material }) => {
-      const page = await browser.newPage()
-
-      try {
-        await page.setUserAgent(descoBrowserUserAgent)
-        const detailUrl = await findDescoDetailUrl(page, material)
-        if (!detailUrl) return
-
-        const detailMetadata = await scrapeDescoDetailMetadata(page, detailUrl, material)
-        if (!detailMetadata) return
-
-        nextMetadata[metadataIndex] = {
-          ...nextMetadata[metadataIndex],
-          articleNumber: nextMetadata[metadataIndex].articleNumber || material.articleNumber,
-          productNumber: nextMetadata[metadataIndex].productNumber || material.productNumber,
-          name: detailMetadata.name || nextMetadata[metadataIndex].name || material.name,
-          description: detailMetadata.description || nextMetadata[metadataIndex].description,
-          image: detailMetadata.image || nextMetadata[metadataIndex].image,
-          technicalData: detailMetadata.technicalData || nextMetadata[metadataIndex].technicalData
-        }
-      } catch {
-        return
-      } finally {
-        await page.close().catch(() => undefined)
-      }
-    })
-  } finally {
-    await browser.close()
-  }
-
-  return nextMetadata
-}
+const normalizeKey = (value: string | undefined): string => value?.trim().toLowerCase() || ''
 
 const buildMetadataKeys = (
   item: Pick<MaterialLine, 'name' | 'articleNumber' | 'productNumber'> | DescoMaterialMetadata
@@ -302,6 +86,47 @@ const buildMetadataKeys = (
   return [normalizeKey(item.articleNumber), normalizeKey(item.productNumber), normalizeKey(item.name)].filter(
     (key): key is string => key.length > 0
   )
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+const enrichViaGoogle = async (material: MaterialLine): Promise<Partial<DescoMaterialMetadata>> => {
+  try {
+    await sleep(500)
+
+    const searchQuery = encodeURIComponent(
+      `${material.name}${material.articleNumber ? ` ${material.articleNumber}` : ''}`
+    )
+    const url = `https://www.google.com/search?q=${searchQuery}`
+
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    })
+
+    if (!response.ok) return {}
+
+    const html = await response.text()
+    const descriptionMatch = html.match(
+      /<span[^>]*class="VwiC3b"[^>]*>([^<]+)<\/span>|<span[^>]*style="[^"]*color:[^"]*"[^>]*>([^<]{20,})<\/span>/i
+    )
+    const description = descriptionMatch ? (descriptionMatch[1] || descriptionMatch[2])?.trim() : undefined
+
+    const imageMatch = html.match(
+      /<img[^>]*src="(https?:\/\/[^"]+?\.(?:jpg|jpeg|png|webp))"[^>]*alt="[^"]*\b(product|item|image)\b/i
+    )
+    const image = imageMatch ? imageMatch[1] : undefined
+
+    return {
+      description: hasValidDescription(description) ? description : undefined,
+      image: hasValidImage(image) ? image : undefined,
+      technicalData: undefined
+    }
+  } catch {
+    return {}
+  }
 }
 
 const readDescoMetadataCatalog = async (): Promise<DescoMetadataCatalog> => {
@@ -362,70 +187,22 @@ const applyDescoMetadata = (items: MaterialLine[], metadataItems: DescoMaterialM
 
     if (!metadata) return item
 
+    const metadataDescription = hasValidDescription(metadata.description)
+      ? normalizeString(metadata.description)
+      : undefined
+    const metadataImage = hasValidImage(metadata.image) ? normalizeString(metadata.image) : undefined
+    const metadataTechnicalData = hasTechnicalData(metadata.technicalData) ? metadata.technicalData : undefined
+
     return {
       ...item,
-      description: item.description || metadata.description,
-      image: item.image || metadata.image,
-      technicalData: item.technicalData || metadata.technicalData
+      description: item.description || metadataDescription,
+      image: item.image || metadataImage,
+      technicalData: item.technicalData || metadataTechnicalData,
+      manufacturerData: item.manufacturerData || metadata.manufacturerData,
+      dataSources: item.dataSources?.length ? item.dataSources : metadata.dataSources,
+      imageCandidates: item.imageCandidates?.length ? item.imageCandidates : metadata.imageCandidates
     }
   })
-}
-
-const readServerConfig = async (): Promise<JsonObject> => {
-  try {
-    const raw = await readFile('./server.config.json', 'utf8')
-    return JSON.parse(raw) as JsonObject
-  } catch {
-    return {}
-  }
-}
-
-const readDescoConfig = async (): Promise<DescoConfig> => {
-  const config = await readServerConfig()
-  const maybeDesco = config.desco
-
-  if (!maybeDesco || typeof maybeDesco !== 'object') {
-    return {}
-  }
-
-  const descoConfig = maybeDesco as JsonObject
-
-  return {
-    getAllProductsUrl: normalizeString(descoConfig.getAllProductsUrl),
-    authorization: normalizeString(descoConfig.authorization),
-    cookie: normalizeString(descoConfig.cookie),
-    referer: normalizeString(descoConfig.referer),
-    userAgent: normalizeString(descoConfig.userAgent)
-  }
-}
-
-const getConfiguredDescoUrl = async (): Promise<string> => {
-  const config = await readDescoConfig()
-  return (
-    config.getAllProductsUrl ||
-    normalizeString(process.env.KEEPIT_DESCO_GET_ALL_PRODUCTS_URL) ||
-    'https://www.desco.be/DesktopModules/Desco/RazorHost/DownloadHandlers/Excel.ashx?language=nl-BE'
-  )
-}
-
-const getConfiguredAuthorization = async (): Promise<string> => {
-  const config = await readDescoConfig()
-  return config.authorization || normalizeString(process.env.KEEPIT_DESCO_AUTHORIZATION)
-}
-
-const getConfiguredCookie = async (): Promise<string> => {
-  const config = await readDescoConfig()
-  return config.cookie || normalizeString(process.env.KEEPIT_DESCO_COOKIE)
-}
-
-const getConfiguredReferer = async (): Promise<string> => {
-  const config = await readDescoConfig()
-  return config.referer || normalizeString(process.env.KEEPIT_DESCO_REFERER)
-}
-
-const getConfiguredUserAgent = async (): Promise<string> => {
-  const config = await readDescoConfig()
-  return config.userAgent || normalizeString(process.env.KEEPIT_DESCO_USER_AGENT)
 }
 
 const decodeXmlEntities = (value: string): string => {
@@ -811,7 +588,10 @@ const dedupeMaterials = (items: MaterialLine[]): MaterialLine[] => {
       packagingQuantity: existing.packagingQuantity ?? item.packagingQuantity,
       description: existing.description || item.description,
       image: existing.image || item.image,
-      technicalData: existing.technicalData || item.technicalData
+      technicalData: existing.technicalData || item.technicalData,
+      manufacturerData: existing.manufacturerData || item.manufacturerData,
+      dataSources: existing.dataSources?.length ? existing.dataSources : item.dataSources,
+      imageCandidates: existing.imageCandidates?.length ? existing.imageCandidates : item.imageCandidates
     })
   }
 
@@ -905,74 +685,37 @@ export const readDescoCatalog = async (): Promise<DescoCatalog> => {
 }
 
 /**
- * Ensures that the metadata cache contains an entry for every article in the catalog.
- * If an article is missing, a stub entry is added (to be enriched later).
- * Existing metadata is preserved.
+ * Seeds metadata cache from catalog: one-to-one copy of all materials with description/image.
+ * This is the SOURCE OF TRUTH—no external scraping, just use what Desco gives us.
  */
 export const seedDescoMetadata = async (materials?: MaterialLine[]): Promise<void> => {
   const metadataCatalog = await readDescoMetadataCatalog()
-  const existingKeys = new Set(metadataCatalog.items.flatMap((item) => buildMetadataKeys(item)))
 
   if (!materials) {
     await writeDescoMetadataCatalog(metadataCatalog.items)
     return
   }
 
-  const newMetadata: DescoMaterialMetadata[] = [...metadataCatalog.items]
-
-  for (const mat of materials) {
-    const keys = buildMetadataKeys(mat)
-    if (keys.some((key) => existingKeys.has(key))) continue
-
-    newMetadata.push({
-      articleNumber: mat.articleNumber,
-      productNumber: mat.productNumber,
-      name: mat.name
-    })
-    keys.forEach((key) => existingKeys.add(key))
-  }
+  const newMetadata = mergeDescoMetadataItems(materials, metadataCatalog.items)
 
   await writeDescoMetadataCatalog(newMetadata)
 }
 
 export const syncDescoCatalog = async (): Promise<DescoCatalog> => {
-  // Download latest materials first
-  const url = await getConfiguredDescoUrl()
-  const authorization = await getConfiguredAuthorization()
-  const cookie = await getConfiguredCookie()
-  const referer = await getConfiguredReferer()
-  const userAgent = await getConfiguredUserAgent()
+  let binary: Buffer
 
-  const headers: Record<string, string> = {
-    Accept:
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/plain;q=0.9, */*;q=0.8'
-  }
-
-  if (authorization) headers.Authorization = authorization
-  if (cookie) headers.Cookie = cookie
-  if (referer) headers.Referer = referer
-  if (userAgent) headers['User-Agent'] = userAgent
-
-  const response = await fetch(url, {
-    method: 'GET',
-    headers
-  })
-
-  if (!response.ok) {
+  try {
+    binary = await readFile(descoArticlesPath)
+  } catch {
     const fallbackCatalog = await readDescoCatalog()
     if (fallbackCatalog.items.length > 0) {
       return fallbackCatalog
     }
-    const text = await response.text().catch(() => '')
-    throw new Error(`Desco Excel download failed (${response.status}). ${text.slice(0, 200)}`)
+    throw new Error(`Desco Excel file not found at ${descoArticlesPath}.`)
   }
 
-  const contentType =
-    response.headers.get('content-type') || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-  const arrayBuffer = await response.arrayBuffer()
-  const binary = Buffer.from(arrayBuffer)
-  const utf8Text = Buffer.from(arrayBuffer).toString('utf8')
-  const raw = utf8Text.includes('\uFFFD') ? Buffer.from(arrayBuffer).toString('latin1') : utf8Text
+  const raw = binary.toString('latin1')
+  const contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   const items = parseDescoMaterials(raw, contentType, binary)
 
   if (items.length === 0) {
@@ -980,7 +723,7 @@ export const syncDescoCatalog = async (): Promise<DescoCatalog> => {
     if (fallbackCatalog.items.length > 0) {
       return fallbackCatalog
     }
-    throw new Error('Desco Excel returned no material entries. Check file format or website availability.')
+    throw new Error(`Desco Excel at ${descoArticlesPath} returned no material entries.`)
   }
 
   // Ensure metadata cache is up-to-date for all articles
@@ -994,4 +737,20 @@ export const syncDescoCatalogWithTracking = async (): Promise<DescoCatalog> => {
   const catalog = await syncDescoCatalog()
   await recordSync('desco')
   return catalog
+}
+
+export const enrichDescoCatalog = async (): Promise<DescoCatalog> => {
+  const catalog = await readDescoCatalog()
+  if (catalog.items.length === 0) {
+    throw new Error('Desco catalog is empty. Run sync first before enrichment.')
+  }
+
+  // Seed metadata from catalog: 1:1 copy of all materials with their existing description/image
+  // (no external scraping—use what Desco gives us)
+  await seedDescoMetadata(catalog.items)
+  const metadataCatalog = await readDescoMetadataCatalog()
+
+  // Apply all metadata to catalog
+  const enrichedItems = applyDescoMetadata(catalog.items, metadataCatalog.items)
+  return writeDescoCatalog(enrichedItems)
 }
