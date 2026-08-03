@@ -3,6 +3,8 @@
         "module": "nodenext",
         "target": "ES2022",
         "moduleResolution": "nodenext",
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
         "declaration": false,
         "outDir": "www",
         "types": [
@@ -13,4 +15,8 @@
     "include": [
         "src/**/*"
     ],
+    "exclude": [
+        "src/**/*.test.ts",
+        "src/tests/**/*"
+    ]
 }

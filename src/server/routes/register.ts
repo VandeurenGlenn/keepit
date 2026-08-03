@@ -1,9 +1,11 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 import { invites, invitesStore, users, usersStore } from '../database/database.js'
+import type { User } from '../../types/index.js'
 
 const router = new Router({ prefix: '/api/register' })
 
 router.post('/', async (ctx) => {
+  const body = (ctx.request.body || {}) as Partial<User> & { inviteId?: string }
   if (users[ctx.state.userid]) {
     ctx.status = 400
     ctx.body = { error: 'User already registered' }
@@ -18,7 +20,7 @@ router.post('/', async (ctx) => {
     return
   }
 
-  const inviteId = String(ctx.request.body?.inviteId || '').trim()
+  const inviteId = String(body.inviteId || '').trim()
   const invite = inviteId ? invites[inviteId] : undefined
 
   if (hasExistingUsers && !invite) {
@@ -38,12 +40,12 @@ router.post('/', async (ctx) => {
   const now = new Date().toISOString()
 
   users[ctx.state.userid] = {
-    name: ctx.request.body.name || ctx.state.googleProfile.name,
+    name: body.name || ctx.state.googleProfile.name,
     email: invitedEmail || googleEmail,
     googleEmail,
-    picture: ctx.request.body.picture || ctx.state.googleProfile.picture,
-    place: ctx.request.body.place || '',
-    phone: ctx.request.body.phone || ctx.state.googleProfile.phone || '',
+    picture: body.picture || ctx.state.googleProfile.picture,
+    place: body.place,
+    phone: body.phone || ctx.state.googleProfile.phone || '',
     createdAt: now,
     updatedAt: now,
     roles: invite?.roles?.length ? [...invite.roles] : undefined,

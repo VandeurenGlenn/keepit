@@ -1,4 +1,4 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 import multer from '@koa/multer'
 import { mkdir, unlink } from 'fs/promises'
 import { createReadStream } from 'fs'

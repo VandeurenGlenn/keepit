@@ -7,6 +7,8 @@ export class UsersView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor user: User
   @property({ type: Object, provides: true }) accessor error: { label: string; href: string; message: string }
 
+  invitedUsersLoaded = false
+
   static styles = [
     css`
       :host {
@@ -123,9 +125,13 @@ export class UsersView extends LiteElement {
       .avatar {
         width: 52px;
         height: 52px;
+        display: grid;
+        place-items: center;
         border-radius: 50%;
         object-fit: cover;
         background: color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent 82%);
+        color: var(--md-sys-color-primary);
+        font-weight: 700;
       }
 
       .user-meta {
@@ -164,7 +170,7 @@ export class UsersView extends LiteElement {
         border-radius: 10px;
         padding: 0 13px;
         font: inherit;
-        font-size: .76rem;
+        font-size: 0.76rem;
         font-weight: 700;
         cursor: pointer;
       }
@@ -263,6 +269,30 @@ export class UsersView extends LiteElement {
     return Boolean(this.user?.roles?.includes('admin') || this.user?.roles?.includes('roles'))
   }
 
+  beforeRender() {
+    if (this.invitedUsersLoaded || !this.canManageRoles()) return
+    this.invitedUsersLoaded = true
+    void this.loadUsersIncludingInvited()
+  }
+
+  async loadUsersIncludingInvited() {
+    const response = await fetch('/api/users?includeInvited=1', {
+      method: 'GET',
+      headers: {
+        Authorization: localStorage.getItem('token') || ''
+      }
+    })
+
+    if (!response.ok) {
+      this.invitedUsersLoaded = false
+      return
+    }
+
+    const teamEntries = (await response.json()) as Users
+    this.users = teamEntries
+    this.requestRender()
+  }
+
   currentUserId() {
     return (this.user as User & { id?: string })?.id || ''
   }
@@ -347,11 +377,20 @@ export class UsersView extends LiteElement {
     })
     if (!response.ok) {
       const { error, message } = await response.json()
-      this.error = { label: 'Terug naar team', href: '#!/users', message: message || error || 'Gebruiker toevoegen mislukt' }
+      this.error = {
+        label: 'Terug naar team',
+        href: '#!/users',
+        message: message || error || 'Gebruiker toevoegen mislukt'
+      }
       this.requestRender()
       return
     }
-    const newUser = await response.json()
+    await response.json()
+    if (this.canManageRoles()) {
+      this.invitedUsersLoaded = true
+      await this.loadUsersIncludingInvited()
+      return
+    }
     this.requestRender()
   }
 
@@ -371,7 +410,11 @@ export class UsersView extends LiteElement {
     })
     if (!response.ok) {
       const { error, message } = await response.json()
-      this.error = { label: 'Terug naar team', href: '#!/users', message: message || error || 'Gebruiker verwijderen mislukt' }
+      this.error = {
+        label: 'Terug naar team',
+        href: '#!/users',
+        message: message || error || 'Gebruiker verwijderen mislukt'
+      }
       this.requestRender()
       return
     }
@@ -394,6 +437,10 @@ export class UsersView extends LiteElement {
     const isAdmin = roles.includes('admin')
     const canManageRoles = roles.includes('roles')
     const allowRoleChanges = this.canManageRoles()
+    const displayName = user.name?.trim() || user.email?.trim() || user.googleEmail?.trim() || 'Onbekende gebruiker'
+    const workAddress = user.email?.trim() || ''
+    const formattedAddress = user.place?.formattedAddress?.trim() || ''
+    const avatarInitial = displayName.charAt(0).toUpperCase()
 
     return html`
       <article class="user-card">
@@ -402,20 +449,29 @@ export class UsersView extends LiteElement {
             ? html`<img
                 class="avatar"
                 src=${user.picture}
-                alt=${user.name} />`
-            : html`<div class="avatar"></div>`}
+                alt=${displayName} />`
+            : html`<div
+                class="avatar"
+                aria-hidden="true">
+                ${avatarInitial}
+              </div>`}
 
           <div class="user-meta">
-            <strong>${user.name}</strong>
-            <span class="muted">Werkadres: ${user.email}</span>
-            ${user.googleEmail && user.googleEmail !== user.email
+            <strong>${displayName}</strong>
+            ${workAddress ? html`<span class="muted">Werkadres: ${workAddress}</span>` : ''}
+            ${user.googleEmail && user.googleEmail !== workAddress
               ? html`<span class="muted">Google-login: ${user.googleEmail}</span>`
               : ''}
-            <span class="muted">${user.place?.formattedAddress || 'Geen adres ingesteld'}</span>
+            ${formattedAddress
+              ? html`<span class="muted">${formattedAddress}</span>`
+              : !workAddress
+                ? html`<span class="muted">Geen adres ingesteld</span>`
+                : ''}
           </div>
         </div>
 
         <div class="role-list">${this.renderRoleBadges(roles)}</div>
+        ${user.invited ? html`<span class="muted">Uitgenodigd - wacht op registratie</span>` : ''}
 
         <div class="user-actions">
           <button

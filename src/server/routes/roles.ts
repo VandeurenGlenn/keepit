@@ -1,4 +1,4 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 import { grantRole, revokeRole, hasRole } from '../helpers/roles.js'
 import { users } from '../database/database.js'
 

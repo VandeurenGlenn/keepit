@@ -1,4 +1,4 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 import { users } from './../database/database.js'
 import { generateTicket } from '../helpers/auth.js'
 

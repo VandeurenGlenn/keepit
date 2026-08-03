@@ -122,7 +122,7 @@ export interface User extends BaseInput {
   email: string
   googleEmail?: string
   picture: string
-  place: Place
+  place?: Place
   phone: string
   roles?: string[]
   currentJob?: jobId

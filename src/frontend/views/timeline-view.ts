@@ -11,6 +11,7 @@ import {
 } from '../../types/index.js'
 
 type TimelineEntry = Prestation & { id: string }
+const STANDARD_WORKDAY_LIMIT_MS = 12 * 60 * 60 * 1000
 
 export class TimelineView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor jobs
@@ -180,6 +181,20 @@ export class TimelineView extends LiteElement {
         font-weight: 750;
       }
 
+      .hours-warning {
+        display: inline-flex;
+        width: fit-content;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 9px;
+        border: 1px solid color-mix(in srgb, #f0a13a 46%, var(--app-border));
+        border-radius: 10px;
+        background: color-mix(in srgb, #f0a13a 11%, transparent);
+        color: color-mix(in srgb, #f0a13a 82%, white);
+        font-size: 0.78rem;
+        font-weight: 750;
+      }
+
       .warning-icon {
         display: inline-grid;
         width: 18px;
@@ -266,12 +281,27 @@ export class TimelineView extends LiteElement {
     return new Intl.DateTimeFormat('nl-BE', { hour: '2-digit', minute: '2-digit' }).format(timestamp)
   }
 
+  getDuration(entry: TimelineEntry) {
+    return entry.duration ?? (entry.checkout ? entry.checkout - entry.checkin : Date.now() - entry.checkin)
+  }
+
   formatDuration(entry: TimelineEntry) {
-    const duration = entry.duration ?? (entry.checkout ? entry.checkout - entry.checkin : Date.now() - entry.checkin)
+    const duration = this.getDuration(entry)
     const minutes = Math.max(0, Math.round(duration / 60_000))
     const hours = Math.floor(minutes / 60)
     const rest = minutes % 60
     return hours ? `${hours}u ${rest.toString().padStart(2, '0')}` : `${rest} min`
+  }
+
+  renderHoursWarning(entry: TimelineEntry) {
+    const duration = this.getDuration(entry)
+    if (!Number.isFinite(duration) || duration <= STANDARD_WORKDAY_LIMIT_MS) return ''
+    return html`<span class="hours-warning" role="status">
+      <custom-icon
+        class="warning-icon"
+        icon="warning"></custom-icon
+      >Ongebruikelijk lange registratie: meer dan 12 uur. Controleer de tijden.
+    </span>`
   }
 
   formatDistance(distance?: number) {
@@ -368,6 +398,7 @@ export class TimelineView extends LiteElement {
             : ''}
           ${this.renderOffSiteWarning('Check-in', entry.checkinLocationVerification)}
           ${this.renderOffSiteWarning('Check-out', entry.checkoutLocationVerification)}
+          ${this.renderHoursWarning(entry)}
         </div>
         <span class="duration">${this.formatDuration(entry)}</span>
       </article>

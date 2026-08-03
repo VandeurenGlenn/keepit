@@ -3,3 +3,4 @@ www
 .database
 /server
 server.config.json
+/catalog-snapshots/

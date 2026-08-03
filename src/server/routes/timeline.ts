@@ -1,4 +1,4 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 import {
   hours,
   jobs,
@@ -90,7 +90,8 @@ router.post('/position', async (ctx) => {
     return
   }
 
-  const location = parseLocation(ctx.request.body?.location)
+  const body = (ctx.request.body || {}) as Record<string, unknown>
+  const location = parseLocation(body.location)
   if (!location) {
     ctx.status = 400
     ctx.body = { error: 'Invalid location' }

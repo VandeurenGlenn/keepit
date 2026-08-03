@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert'
 // Node's built-in TypeScript test runner executes the source file directly.
-// @ts-ignore -- Node's test runner executes TypeScript directly.
+// @ts-ignore -- Node requires the source extension here; tests are excluded from the production build.
 import {
   distanceInMeters,
   findNearestPlaceCacheEntry,

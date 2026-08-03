@@ -82,6 +82,12 @@ Officiële fabrikantpagina's kunnen productgegevens aanvullen. De verrijker werk
 - één artikel controleren: `npm run enrich:manufacturers -- --brands=bosch --sku=7735502304 --max=1`
 - exacte matches toepassen: `npm run enrich:manufacturers -- --brands=bosch --max=10 --apply`
 - ontbrekende beelden source-linked publiceren: `npm run enrich:manufacturers -- --brands=bosch --max=10 --apply --publish-images`
+- Alelek-beelden via exacte merk + fabrikantcode uit Open Icecat herstellen:
+  `npm run enrich:manufacturers -- --catalog=alelek --brands=icecat --max=25 --apply --publish-images --repair-images`
+- Alelek-beelden rechtstreeks bij ondersteunde fabrikanten herstellen:
+  `npm run enrich:manufacturers -- --catalog=alelek --brands=fischer,gree,panasonic,etherma --max=50 --apply --publish-images --repair-images`
+- Gekende Soler & Palau-beelden rechtstreeks uit de officiële productcatalogus herstellen:
+  `npm run enrich:manufacturers -- --catalog=alelek --brands=solerpalau --max=25 --apply --publish-images --repair-images`
 
 Open Icecat gebruikt een gratis account en zoekt exact op merk + MPN. Vul dit bij voorkeur in `server.config.json` in:
 
@@ -106,7 +112,7 @@ npm run enrich:manufacturers -- --brands=icecat --max=25 --apply --publish-image
 
 Icecat kan HTTP 403 teruggeven voor een product van een merk dat niet in het accountabonnement zit. Zo'n product wordt als `restricted` overgeslagen. Drie opeenvolgende 403-antwoorden openen alsnog de circuit breaker; HTTP 429 stopt altijd onmiddellijk.
 
-Standaard worden fabrikantafbeeldingen alleen als kandidaat met rechtenstatus opgeslagen. Met `--publish-images` worden ze uitsluitend voor exact geverifieerde SKU's als source-linked shopbeeld gebruikt en blijft de officiële bron zichtbaar. Rechtstreekse fabrikantpagina's kunnen nog toestemming vereisen; Open Icecat-beelden worden alleen overgenomen wanneer de API het exacte merk en MPN bevestigt. Bosch, Open Icecat en de eerste exact gemapte Geberit- en Viega-productpagina's zijn operationeel. Beide adapters controleren het volledige artikelnummer. Een Geberit-reserveonderdelen-overzichtstekening wordt als kandidaat en bron opgeslagen, maar niet als exact shopbeeld gepubliceerd. Verdere productfamilies en adapters voor Vaillant en Grundfos worden pas geactiveerd nadat hun officiële, robots-conforme productindex betrouwbaar is geïmplementeerd.
+Standaard worden fabrikantafbeeldingen alleen als kandidaat met rechtenstatus opgeslagen. Met `--publish-images` worden ze uitsluitend voor exact geverifieerde SKU's als source-linked shopbeeld gebruikt en blijft de officiële bron zichtbaar. Rechtstreekse fabrikantpagina's kunnen nog toestemming vereisen; Open Icecat-beelden worden alleen overgenomen wanneer de API het exacte merk en MPN bevestigt. Bosch, Open Icecat, Geberit, Viega, Soler & Palau, Fischer, Gree, Panasonic en Etherma hebben conservatieve adapters. Elke adapter controleert het volledige fabrikantnummer; een 404, generiek beeld of afwijkende code wordt niet gepubliceerd. Een Geberit-reserveonderdelen-overzichtstekening wordt als kandidaat en bron opgeslagen, maar niet als exact shopbeeld gepubliceerd. Verdere productfamilies en adapters voor Vaillant en Grundfos worden pas geactiveerd nadat hun officiële, robots-conforme productindex betrouwbaar is geïmplementeerd.
 
 Het herstel maakt eerst een backup onder `.database/backups/`.
 
@@ -167,7 +173,7 @@ Force sync (bypass 7-dagen check):
 
 Indien je geen URLs aangeeft, worden de standaard categorieën gescraped.
 
-**Opmerking:** De scraper gebruikt één Puppeteer-tab en doorloopt standaard alle zestien webshopcategorieën via `/nl/zoekresultaten?category=...`. Per categorie scrollt hij in hervatbare batches richting footer, opent hij elk gevonden product afzonderlijk en keert hij terug naar de resultatenlijst. De voortgang en bereikte scrolldiepte staan in `.database/alelek-scraper-state.json`, zodat een volgende run dieper gaat zonder dezelfde producten opnieuw te bezoeken. Er is standaard geen daglimiet; `KEEPIT_ALELEK_SCRAPER_DAILY_LIMIT` kan optioneel een grens instellen. Per run worden maximaal 75 nieuwe producten verwerkt, standaard met 5,5–10 seconden tussen producten en langere rustpauzes. `KEEPIT_ALELEK_SCRAPER_MIN_PRODUCT_DELAY_MS` en `KEEPIT_ALELEK_SCRAPER_MAX_PRODUCT_DELAY_MS` kunnen dit bijstellen, met een harde veilige ondergrens. Bij HTTP 403, 429, 503, captcha of een access-denied-pagina stopt hij onmiddellijk.
+**Opmerking:** De scraper gebruikt één Puppeteer-tab en doorloopt standaard alle zestien webshopcategorieën via `/nl/zoekresultaten?category=...`. Per categorie scrollt hij in hervatbare batches richting footer, opent hij elk gevonden product afzonderlijk en keert hij terug naar de resultatenlijst. Afbeeldingen, video en webfonts worden tijdens het scrapen niet geladen; productbeelden worden afzonderlijk door de lokale image-cache verwerkt. De voortgang en bereikte scrolldiepte staan in `.database/alelek-scraper-state.json`, zodat een volgende run dieper gaat zonder dezelfde producten opnieuw te bezoeken. Er is standaard geen daglimiet; `KEEPIT_ALELEK_SCRAPER_DAILY_LIMIT` kan optioneel een grens instellen. Per run worden maximaal 75 nieuwe producten verwerkt, standaard met 3–6 seconden tussen producten en langere rustpauzes. `KEEPIT_ALELEK_SCRAPER_MIN_PRODUCT_DELAY_MS` en `KEEPIT_ALELEK_SCRAPER_MAX_PRODUCT_DELAY_MS` kunnen dit bijstellen, met een harde veilige ondergrens. Bij HTTP 403, 429, 503, captcha of een access-denied-pagina stopt hij onmiddellijk.
 
 Voor een kleine proefrun of een lagere daglimiet:
 
@@ -260,5 +266,6 @@ Dit maakt een zip in `catalog-snapshots/` met:
 - `.database/desco-materials.metadata.json`
 - `.database/alelek-materials.json`
 - `.database/alelek-materials.metadata.json` (indien aanwezig)
+- `.database/product-images` (lokale kaart- en detail-WebP's)
 - `www/cache/desco` (indien aanwezig)
 - `www/cache/alelek` (indien aanwezig)

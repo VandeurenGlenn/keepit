@@ -1,4 +1,4 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 import { shopOrders, shopOrdersStore } from '../database/database.js'
 import { readDescoCatalog } from '../helpers/desco.js'
 import { readAlelekCatalog } from '../helpers/alelek.js'
@@ -7,6 +7,7 @@ import { getAuthToken } from './../middleware/auth.js'
 import { getFavorites, getHistory } from '../helpers/material-preferences.js'
 import { importCartText, type CartImportSource } from '../helpers/cart-import.js'
 import { getCatalogImageUrls, getProductImage, type ProductImageVariant } from '../helpers/product-images.js'
+import { getShopProductBrands, searchShopProducts } from '../helpers/shop-search.js'
 
 const router = new Router({ prefix: '/api/shop' })
 const publicImageRouter = new Router({ prefix: '/api/shop' })
@@ -105,47 +106,11 @@ router.get('/products', async (ctx) => {
       })
     })
 
-    // Smart search: split by spaces, match all terms, sort by relevance
-    const search = (ctx.query.search as string)?.toLowerCase() || ''
-    const terms = search.split(/\s+/).filter(Boolean)
+    const search = typeof ctx.query.search === 'string' ? ctx.query.search : ''
+    const hasSearch = Boolean(search.trim())
+    let filtered = searchShopProducts(products, search)
 
-    let filtered =
-      terms.length === 0
-        ? products
-        : products
-            .map((p) => {
-              const nameLower = p.name.toLowerCase()
-              const articleLower = (p.articleNumber || '').toLowerCase()
-              const productLower = (p.productNumber || '').toLowerCase()
-              const fullText = `${nameLower} ${articleLower} ${productLower}`
-
-              // All terms must be present
-              const matches = terms.every((t) => fullText.includes(t))
-              if (!matches) return null
-
-              // Score by match quality and position
-              let score = 0
-              terms.forEach((t) => {
-                // Name match gets highest score
-                const nameIdx = nameLower.indexOf(t)
-                if (nameIdx >= 0) score += 1000 - nameIdx
-
-                // Article number exact match or start gets high score
-                if (articleLower === t || articleLower.startsWith(t)) score += 500
-                else if (articleLower.includes(t)) score += 200
-
-                // Product number match gets medium score
-                if (productLower === t || productLower.startsWith(t)) score += 300
-                else if (productLower.includes(t)) score += 100
-              })
-
-              return { product: p, score }
-            })
-            .filter((item): item is { product: ShopProduct; score: number } => item !== null)
-            .sort((a, b) => b.score - a.score)
-            .map((item) => item.product)
-
-    if (String(ctx.query.popular).toLowerCase() === 'true' && terms.length === 0) {
+    if (String(ctx.query.popular).toLowerCase() === 'true' && !hasSearch) {
       const [history, favorites] = await Promise.all([getHistory(), getFavorites()])
       const ranks = new Map<string, number>()
       favorites.forEach((material, index) => ranks.set(material.name.toLowerCase(), 10_000 - index))
@@ -240,6 +205,7 @@ router.get('/autocomplete', async (ctx) => {
       addSuggestion(item.name)
       if (item.articleNumber) addSuggestion(item.articleNumber)
       if (item.productNumber) addSuggestion(item.productNumber)
+      getShopProductBrands(item).forEach(addSuggestion)
     })
 
     // Process Alelek items
@@ -247,6 +213,7 @@ router.get('/autocomplete', async (ctx) => {
       addSuggestion(item.name)
       if (item.articleNumber) addSuggestion(item.articleNumber)
       if (item.productNumber) addSuggestion(item.productNumber)
+      getShopProductBrands(item).forEach(addSuggestion)
     })
 
     // Sort by relevance: match position, then frequency

@@ -348,102 +348,6 @@ main::before {
   opacity: 0.9;
 }
 
-.notification-toast {
-  position: fixed;
-  right: 22px;
-  bottom: 22px;
-  z-index: 1200;
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 34px;
-  gap: 12px;
-  width: min(430px, calc(100vw - 28px));
-  padding: 15px;
-  box-sizing: border-box;
-  border: 1px solid color-mix(in srgb, var(--app-accent) 30%, var(--app-border) 70%);
-  border-radius: 17px;
-  background: color-mix(in srgb, var(--app-panel-strong) 96%, var(--app-accent) 4%);
-  color: var(--md-sys-color-on-surface);
-  box-shadow: var(--app-shadow-strong);
-}
-
-.notification-icon {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  color: var(--app-accent);
-  background: var(--app-accent-soft);
-  --custom-icon-color: currentColor;
-  --custom-icon-size: 22px;
-}
-
-.notification-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.notification-copy strong {
-  font-size: 0.88rem;
-}
-
-.notification-copy > span {
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: 0.76rem;
-  line-height: 1.4;
-  white-space: pre-line;
-}
-
-.notification-actions {
-  display: flex;
-  gap: 7px;
-  margin-top: 7px;
-  flex-wrap: wrap;
-}
-
-.notification-actions button,
-.notification-close {
-  border: 0;
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  cursor: pointer;
-}
-
-.notification-actions button {
-  min-height: 31px;
-  padding: 0 10px;
-  border-radius: 9px;
-  background: var(--app-accent);
-  color: var(--md-sys-color-on-primary);
-  font-size: 0.7rem;
-  font-weight: 750;
-}
-
-.notification-actions button.quiet {
-  border: 1px solid var(--app-border);
-  background: var(--app-panel);
-  color: var(--md-sys-color-on-surface);
-}
-
-.notification-close {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  --custom-icon-size: 18px;
-}
-
-@media (max-width: 720px) {
-  .notification-toast {
-    right: 14px;
-    bottom: 14px;
-  }
-}
-
 .logo-area {
   position: relative;
   padding: 22px 20px 14px;
@@ -501,10 +405,6 @@ flex-container {
 
 :host([selected='shop']) flex-container {
   --flex-display-max-width: 1800px;
-}
-
-:host([selected='planning']) flex-container {
-  --flex-display-max-width: 1500px;
 }
 
 flex-container.wide-workspace {

@@ -61,6 +61,8 @@ type ScraperState = {
 
 const STATE_PATH = resolve('.database', 'alelek-scraper-state.json')
 const DEFAULT_MAX_PRODUCTS_PER_RUN = 75
+const NAVIGATION_RETRY_LIMIT = 3
+const NAVIGATION_RETRY_BASE_DELAY_MS = 1200
 
 export const ALELEK_CATEGORIES = [
   'Installatie',
@@ -167,6 +169,20 @@ const checkVisibleBlockPage = async (page: Page, state: ScraperState): Promise<v
   if (reason) await stopForBlock(state, reason)
 }
 
+const isTransientNavigationError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false
+  const message = error.message.toLowerCase()
+  return (
+    message.includes('err_network_changed') ||
+    message.includes('err_internet_disconnected') ||
+    message.includes('err_connection_reset') ||
+    message.includes('err_connection_closed') ||
+    message.includes('err_connection_aborted') ||
+    message.includes('err_timed_out') ||
+    message.includes('navigation timeout of')
+  )
+}
+
 const navigate = async (
   page: Page,
   url: string,
@@ -178,9 +194,18 @@ const navigate = async (
     throw new Error(`Alelek circuit breaker staat open sinds ${state.blockedAt}: ${state.blockedReason || 'blokkade'}.`)
   }
   if (dailyLimitReached(state, dailyLimit)) throw new Error(`Alelek daglimiet (${dailyLimit} navigaties) is bereikt.`)
-  const response = await page.goto(url, { waitUntil: 'networkidle2', timeout })
-  await checkResponse(response, state, dailyLimit)
-  await checkVisibleBlockPage(page, state)
+  for (let attempt = 1; attempt <= NAVIGATION_RETRY_LIMIT; attempt += 1) {
+    try {
+      const response = await page.goto(url, { waitUntil: 'networkidle2', timeout })
+      await checkResponse(response, state, dailyLimit)
+      await checkVisibleBlockPage(page, state)
+      return
+    } catch (error) {
+      if (!isTransientNavigationError(error) || attempt === NAVIGATION_RETRY_LIMIT) throw error
+      const retryDelay = NAVIGATION_RETRY_BASE_DELAY_MS * attempt + randomBetween(250, 700)
+      await sleep(retryDelay)
+    }
+  }
 }
 
 const authenticate = async (
@@ -236,15 +261,14 @@ const authenticate = async (
   }
   if (!submit) throw new Error('Alelek aanmeldknop niet gevonden.')
 
-  await Promise.all([
-    submit.click(),
-    page.waitForNavigation({ waitUntil: 'networkidle2', timeout }).catch(() => null)
-  ])
+  await Promise.all([submit.click(), page.waitForNavigation({ waitUntil: 'networkidle2', timeout }).catch(() => null)])
   for (let attempt = 0; attempt < 12 && page.url().includes('/login'); attempt += 1) {
     await sleep(500)
   }
   if (page.url().includes('/login')) {
-    throw new Error('Alelek-aanmelding mislukt; controleer de ingestelde accountgegevens of gebruik een bestaande sessie.')
+    throw new Error(
+      'Alelek-aanmelding mislukt; controleer de ingestelde accountgegevens of gebruik een bestaande sessie.'
+    )
   }
 }
 
@@ -252,10 +276,12 @@ const acceptCookies = async (page: Page): Promise<void> => {
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const clicked = await page.evaluate(() => {
       const direct = document.querySelector('#cookiescript_accept, [data-cookiescript="accept"]')
-      const labelElement = Array.from(document.querySelectorAll('button, [role="button"], span, div')).find((element) => {
-        const label = (element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()
-        return label === 'alles accepteren'
-      })
+      const labelElement = Array.from(document.querySelectorAll('button, [role="button"], span, div')).find(
+        (element) => {
+          const label = (element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()
+          return label === 'alles accepteren'
+        }
+      )
       const target = (direct || labelElement?.closest('button, [role="button"]') || labelElement) as HTMLElement | null
       target?.click()
       return Boolean(target)
@@ -315,6 +341,18 @@ const parsePrice = (priceText?: string): number | undefined => {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
+const normalizeProductImage = (value: string, productUrl: string): string | undefined => {
+  const candidate = value.trim()
+  if (!candidate || candidate === '0' || /^(?:null|undefined)$/i.test(candidate)) return undefined
+
+  try {
+    const imageUrl = new URL(candidate, productUrl)
+    return /^https?:$/i.test(imageUrl.protocol) ? imageUrl.href : undefined
+  } catch {
+    return undefined
+  }
+}
+
 const readProduct = async (page: Page, url: string, category: string): Promise<ScrapedProduct | null> => {
   const raw = await page.evaluate(() => {
     const text = (selector: string) => document.querySelector(selector)?.textContent?.trim() || ''
@@ -323,7 +361,8 @@ const readProduct = async (page: Page, url: string, category: string): Promise<S
     const paragraphs = Array.from(document.querySelectorAll('main p'))
       .map((paragraph) => paragraph.textContent?.trim() || '')
       .filter(Boolean)
-    const paragraph = (label: string) => paragraphs.find((value) => value.toLowerCase().startsWith(label.toLowerCase())) || ''
+    const paragraph = (label: string) =>
+      paragraphs.find((value) => value.toLowerCase().startsWith(label.toLowerCase())) || ''
     const skuMatch = paragraph('Artikelcode:').match(/Artikelcode\s*:\s*([A-Z0-9._,/-]+)/i)
     const supplierSkuMatch = paragraph('Artikelcode leverancier:').match(/:\s*(.+)$/)
     const priceMatch = paragraph('Netto:').match(/Netto\s*:\s*€?\s*([\d.,]+)\s*\/\s*(.+)$/i)
@@ -331,8 +370,10 @@ const readProduct = async (page: Page, url: string, category: string): Promise<S
     const packagingMatch = paragraph('Standaardverpakking:').match(/Standaardverpakking\s*:\s*(\d+)\s*(.*)$/i)
     return {
       name: text('h1') || meta('og:title'),
-      description: text('[class*="description"], [data-testid*="description"]') ||
-        document.querySelector('meta[name="description"]')?.getAttribute('content') || '',
+      description:
+        text('[class*="description"], [data-testid*="description"]') ||
+        document.querySelector('meta[name="description"]')?.getAttribute('content') ||
+        '',
       price: priceMatch?.[1] || text('[class*="price"], [data-testid*="price"]'),
       unit: priceMatch?.[2]?.trim() || '',
       sku: skuMatch?.[1] || '',
@@ -341,8 +382,7 @@ const readProduct = async (page: Page, url: string, category: string): Promise<S
       packagingQuantity: packagingMatch ? Number(packagingMatch[1]) : undefined,
       packagingUnit: packagingMatch?.[2]?.trim() || '',
       brand: paragraphs[0] === '|' ? paragraphs[1] || '' : paragraphs[0] || '',
-      image: meta('og:image') ||
-        (document.querySelector('main img[src]') as HTMLImageElement | null)?.src || ''
+      image: meta('og:image') || (document.querySelector('main img[src]') as HTMLImageElement | null)?.src || ''
     }
   })
   if (!raw.name) return null
@@ -354,7 +394,7 @@ const readProduct = async (page: Page, url: string, category: string): Promise<S
     price: parsePrice(raw.price),
     unit: raw.unit || undefined,
     packagingQuantity: raw.packagingQuantity,
-    image: raw.image || undefined,
+    image: normalizeProductImage(raw.image, url),
     description: raw.description || undefined,
     technicalData: {
       Categorie: category,
@@ -377,8 +417,8 @@ export async function scrapeAlekCategories(
     timeout: options.timeout ?? 45000,
     dailyLimit: options.dailyLimit && options.dailyLimit > 0 ? Math.max(10, Math.floor(options.dailyLimit)) : undefined,
     maxProductsPerRun: Math.max(1, options.maxProductsPerRun ?? DEFAULT_MAX_PRODUCTS_PER_RUN),
-    minProductDelayMs: Math.max(4000, options.minProductDelayMs ?? 5500),
-    maxProductDelayMs: Math.max(6000, options.maxProductDelayMs ?? 10000),
+    minProductDelayMs: Math.max(2500, options.minProductDelayMs ?? 3000),
+    maxProductDelayMs: Math.max(4500, options.maxProductDelayMs ?? 6000),
     minScrollDelayMs: Math.max(1200, options.minScrollDelayMs ?? 1800),
     maxScrollDelayMs: Math.max(2200, options.maxScrollDelayMs ?? 4500),
     scrollStepsPerRun: Math.max(3, options.scrollStepsPerRun ?? 12)
@@ -397,8 +437,8 @@ export async function scrapeAlekCategories(
 
   const urls = categoryUrls.length
     ? categoryUrls
-    : ALELEK_CATEGORIES.map((category) =>
-        `https://webshop.groepalelek.be/nl/zoekresultaten?${new URLSearchParams({ category })}`
+    : ALELEK_CATEGORIES.map(
+        (category) => `https://webshop.groepalelek.be/nl/zoekresultaten?${new URLSearchParams({ category })}`
       )
 
   let browser: Browser | null = null
@@ -416,8 +456,20 @@ export async function scrapeAlekCategories(
       await authenticate(page, options.username, options.password, state, settings.dailyLimit, settings.timeout)
     }
 
+    // Product metadata comes from the DOM and Open Graph tags. Avoid downloading
+    // heavyweight visual assets during navigation; images are fetched separately
+    // by the product-image cache after the catalog sync.
+    await page.setRequestInterception(true)
+    page.on('request', (request) => {
+      if (['image', 'media', 'font'].includes(request.resourceType())) {
+        void request.abort()
+      } else {
+        void request.continue()
+      }
+    })
+
     let visitedThisRun = 0
-    let nextRestAfter = randomBetween(12, 18)
+    let nextRestAfter = randomBetween(18, 26)
     for (const [categoryIndex, categoryUrl] of urls.entries()) {
       if (dailyLimitReached(state, settings.dailyLimit && settings.dailyLimit - 3)) return Object.values(state.products)
       const category = categoryFromUrl(categoryUrl)
@@ -435,7 +487,9 @@ export async function scrapeAlekCategories(
       await writeState(state)
       const productUrls = await collectProductUrls(page)
       if (productUrls.length === 0) {
-        throw new Error(`Geen productlinks gevonden voor categorie ${category}; categorie niet als voltooid gemarkeerd.`)
+        throw new Error(
+          `Geen productlinks gevonden voor categorie ${category}; categorie niet als voltooid gemarkeerd.`
+        )
       }
       options.onProgress?.({
         stage: 'discovered',
@@ -475,10 +529,10 @@ export async function scrapeAlekCategories(
         await checkVisibleBlockPage(page, state)
 
         if (visitedThisRun >= nextRestAfter && visitedThisRun < settings.maxProductsPerRun) {
-          const restDuration = randomBetween(25000, 50000)
+          const restDuration = randomBetween(15000, 30000)
           options.onProgress?.({ stage: 'rest', seconds: Math.ceil(restDuration / 1000), completed: visitedThisRun })
           await sleep(restDuration)
-          nextRestAfter += randomBetween(12, 18)
+          nextRestAfter += randomBetween(18, 26)
         }
       }
 

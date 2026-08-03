@@ -55,6 +55,7 @@ const formatPrestationRange = (checkinValue?: number, checkoutValue?: number): s
 }
 
 type HoursByUser = Record<string, Prestation[]>
+const STANDARD_WORKDAY_LIMIT_MS = 12 * 60 * 60 * 1000
 
 type MaterialDraft = {
   name: string
@@ -1683,6 +1684,13 @@ export class JobView extends LiteElement {
     return ''
   }
 
+  getLongDurationWarning(prestation: Prestation): string {
+    if (!this.user?.roles?.includes('admin')) return ''
+    const duration = getPrestationDuration(prestation)
+    if (!Number.isFinite(duration) || duration <= STANDARD_WORKDAY_LIMIT_MS) return ''
+    return 'Ongebruikelijk lange registratie: meer dan 12 uur. Controleer de tijden.'
+  }
+
   @property({ type: Object, consumes: true }) accessor job: Job | undefined = undefined
 
   @property({ type: String }) accessor newNoteText = ''
@@ -1998,6 +2006,7 @@ export class JobView extends LiteElement {
                         ${prestations.map(
                           (prestation) => {
                             const futureTimeWarning = this.getFutureTimeWarning(prestation)
+                            const longDurationWarning = this.getLongDurationWarning(prestation)
                             return html`<div class="hour-entry">
                               <span
                                 >${formatPrestationRange(
@@ -2009,6 +2018,11 @@ export class JobView extends LiteElement {
                               ${futureTimeWarning
                                 ? html`<div class="hour-future-warning" role="status">
                                     ⚠ ${futureTimeWarning}
+                                  </div>`
+                                : null}
+                              ${longDurationWarning
+                                ? html`<div class="hour-future-warning" role="status">
+                                    ⚠ ${longDurationWarning}
                                   </div>`
                                 : null}
                             </div>`

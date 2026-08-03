@@ -1,4 +1,4 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 import { opendir, mkdir } from 'fs/promises'
 import { invoices, invoicesStore, hours, hoursStore, companies } from '../database/database.js'
 import multer from '@koa/multer'

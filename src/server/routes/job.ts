@@ -1,4 +1,4 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 
 import { jobs } from './../database/database.js'
 import { jobsStore } from './../database/database.js'
@@ -26,7 +26,7 @@ router.patch('/:uuid', async (ctx) => {
     ctx.body = { error: 'UUID is required' }
     return
   }
-  const payload = ctx.request.body || {}
+  const payload = (ctx.request.body || {}) as Record<string, unknown>
   if (!jobs[uuid]) {
     ctx.status = 404
     ctx.body = { error: 'Job not found' }

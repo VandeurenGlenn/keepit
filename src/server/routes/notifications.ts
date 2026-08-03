@@ -1,4 +1,4 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 import { notifications, notificationsStore } from '../database/database.js'
 
 const router = new Router({ prefix: '/api/notifications' })

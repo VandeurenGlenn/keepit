@@ -1,4 +1,4 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 import { jobs, planning, planningStore, users } from '../database/database.js'
 import type { PlanningEntry } from '../../types/index.js'
 import {

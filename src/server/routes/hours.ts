@@ -1,4 +1,4 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 import { jobs, jobsStore, hours, hoursStore, users, usersStore } from './../database/database.js'
 import { Prestation, WorkLocation } from '../../types/index.js'
 import { verifyJobLocation } from '../helpers/geo.js'

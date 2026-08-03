@@ -12,6 +12,7 @@ const candidates = [
   '.database/desco-materials.metadata.json',
   '.database/alelek-materials.json',
   '.database/alelek-materials.metadata.json',
+  '.database/product-images',
   'www/cache/desco',
   'www/cache/alelek'
 ]

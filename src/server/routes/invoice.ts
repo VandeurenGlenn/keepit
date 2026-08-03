@@ -1,4 +1,4 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 
 import { invoices, invoicesStore } from '../database/database.js'
 import { MaterialLine } from '../../types/index.js'

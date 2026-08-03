@@ -6,9 +6,6 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const DATABASE_DIR = resolve('.database')
-const CATALOG_PATH = resolve(DATABASE_DIR, 'desco-materials.json')
-const METADATA_PATH = resolve(DATABASE_DIR, 'desco-materials.metadata.json')
-const STATE_PATH = resolve(DATABASE_DIR, 'manufacturer-enrichment-state.json')
 const CACHE_DIR = resolve(DATABASE_DIR, 'manufacturer-cache')
 const DEFAULT_DELAY_MS = 5000
 const DEFAULT_DAILY_LIMIT = 100
@@ -46,10 +43,59 @@ const knownBrands = [
   ['ACV', /\bacv\b/i]
 ]
 
-export const detectManufacturer = (item) =>
-  knownBrands.find(([, expression]) => expression.test(`${item.name || ''} ${item.description || ''}`))?.[0]
+export const detectManufacturer = (item) => {
+  const catalogBrand = String(item.technicalData?.Merk || item.manufacturerData?.Merk || '').trim()
+  return catalogBrand ||
+    knownBrands.find(([, expression]) => expression.test(`${item.name || ''} ${item.description || ''}`))?.[0]
+}
+
+const productSkuFor = (item) =>
+  String(item.technicalData?.['Artikelcode leverancier'] || item.manufacturerData?.MPN || item.productNumber || '').trim()
+
+const hasUsableImageValue = (item) => /^https?:\/\/\S+$/i.test(String(item.image || '').trim())
 
 const firstMatch = (html, expression) => decodeHtml(html.match(expression)?.[1] || '')
+
+const metaContent = (html, attribute, value) => {
+  for (const tag of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const attributes = Object.fromEntries(
+      [...tag[0].matchAll(/([:\w-]+)\s*=\s*["']([^"']*)["']/g)].map((match) => [match[1].toLowerCase(), decodeHtml(match[2])])
+    )
+    if (String(attributes[attribute] || '').toLowerCase() === value.toLowerCase()) return attributes.content || ''
+  }
+  return ''
+}
+
+const officialPageResult = (html, expectedSku, {
+  brand,
+  pageUrl,
+  evidenceSku = expectedSku,
+  imageUrl,
+  title,
+  familyImage = false
+}) => {
+  const normalizedEvidence = normalizeSku(evidenceSku)
+  const normalizedPage = normalizeSku(decodeHtml(html))
+  if (!normalizedEvidence || !normalizedPage.includes(normalizedEvidence)) return null
+
+  const imageCandidate = imageUrl || metaContent(html, 'property', 'og:image') || metaContent(html, 'name', 'twitter:image')
+  if (!imageCandidate) return null
+  const resolvedImage = new URL(imageCandidate, pageUrl).href
+  if (!/^https?:\/\//i.test(resolvedImage)) return null
+  return {
+    title: title || metaContent(html, 'property', 'og:title') || firstMatch(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i),
+    technicalData: {
+      Merk: brand,
+      MPN: String(evidenceSku),
+      Beeldtype: familyImage ? 'Officieel productfamiliebeeld' : 'Officieel productbeeld'
+    },
+    imageUrl: resolvedImage,
+    publishableImage: true,
+    rightsStatus: 'permission-required'
+  }
+}
+
+const stripSupplierPrefix = (sku, prefix) => String(sku).replace(new RegExp(`^${prefix}`, 'i'), '')
 
 export const parseBoschProductPage = (html, expectedSku, pageUrl) => {
   const normalizedSku = normalizeSku(expectedSku)
@@ -213,6 +259,131 @@ const knownViegaPages = new Map([
   ['476946', `${VIEGA_BASE}/Profipress-XL-Bocht-45-2426-1XL.html`]
 ])
 
+const knownSolerPalauProducts = new Map([
+  ['5226832600', {
+    pageUrl: 'https://www.solerpalau.com/en-en/2373-tls-501-tls-503-t',
+    pageEvidence: /\bTLS-501\s*\/\s*TLS-503\s*T\b/i,
+    title: 'TLS-501',
+    imageUrl: 'https://www.solerpalau.com/media/catalog/product/cache/207e23213cf636ccdef205098cf3c8a3/T/L/TLS-501_product1_2.jpg'
+  }],
+  ['5131031600', {
+    pageUrl: 'https://www.solerpalau.com/en-en/695-ec-n',
+    pageEvidence: /\bEC-N(?:\s+Series)?\b/i,
+    title: 'EC-9N',
+    imageUrl: 'https://www.solerpalau.com/media/catalog/product/cache/2765542505660baab28ecd555e27366e/C/A/CAL_INDS_ECN_produc1.jpg'
+  }],
+  ['5131033200', {
+    pageUrl: 'https://www.solerpalau.com/en-en/695-ec-n',
+    pageEvidence: /\bEC-N(?:\s+Series)?\b/i,
+    title: 'EC-15N',
+    imageUrl: 'https://www.solerpalau.com/media/catalog/product/cache/2765542505660baab28ecd555e27366e/C/A/CAL_INDS_ECN_produc1.jpg'
+  }]
+])
+
+export const parseSolerPalauProductPage = (html, expectedSku) => {
+  const product = knownSolerPalauProducts.get(normalizeSku(expectedSku))
+  if (!product || !product.pageEvidence.test(decodeHtml(html))) return null
+  return {
+    title: product.title,
+    technicalData: {
+      Merk: 'Soler & Palau',
+      MPN: String(expectedSku),
+      Beeldtype: product.title.startsWith('EC-') ? 'Officieel productfamiliebeeld' : 'Officieel productbeeld'
+    },
+    imageUrl: product.imageUrl,
+    publishableImage: true,
+    rightsStatus: 'permission-required'
+  }
+}
+
+const knownFischerPages = new Map([
+  ['50354', 'https://www.fischer.be/nl-be/products/constructie-kozijnpluggen/nagelplug-n/nagelplug-n-s/50354-n-6-x-40-10-s-50'],
+  ['78660', 'https://www.fischer.be/nl-be/products/algemene-bevestigingen/metalen-plug/messingplug-ms/78660-ms-6-x-22'],
+  ['78981', 'https://www.fischer.be/nl-be/products/algemene-bevestigingen/metalen-plug/messingplug-ms'],
+  ['50491', 'https://www.fischer.be/nl-be/products/algemene-bevestigingen/nylon-pluggen/gasbetonplug-gb/50491-gb-8'],
+  ['537259', 'https://www.fischer.be/nl-be/products/hollewand-bevestigingen/tuimelplug/hollewandplug-fischer-duotec/537259-duotec-10-met-schroef'],
+  ['542111', 'https://www.fischer.be/nl-be/products/algemene-bevestigingen/nylon-pluggen/metrische-slagplug-rodforce-fgd'],
+  ['538246', 'https://www.fischer.be/nl-be/products/algemene-bevestigingen/nylon-pluggen/duopower'],
+  ['542796', 'https://www.fischer.be/nl-be/products/hollewand-bevestigingen/tuimelplug/hollewandplug-fischer-duotec']
+])
+
+export const parseFischerProductPage = (html, expectedSku, pageUrl) => {
+  const manufacturerSku = stripSupplierPrefix(expectedSku, 'FIS')
+  return officialPageResult(html, expectedSku, {
+    brand: 'Fischer',
+    pageUrl,
+    evidenceSku: manufacturerSku,
+    familyImage: !new URL(pageUrl).pathname.toLowerCase().includes(`/${manufacturerSku.toLowerCase()}-`)
+  })
+}
+
+const knownGreePages = new Map([
+  ['GWH09AUCXBK6DNA1AI', 'https://greeproducts.com/pt-pt/produtos/fm-clivia-9/'],
+  ['GWH12AUCXDK6DNA1CI', 'https://greeproducts.com/pt-pt/produtos/fm-clivia-12/'],
+  ['GWH18AUDXEK6DNA1AI', 'https://greeproducts.com/pt-pt/produtos/fm-clivia-18/'],
+  ['GWH24AUDXFK6DNA1AI', 'https://greeproducts.com/pt-pt/produtos/fm-clivia-24/']
+])
+
+export const parseGreeProductPage = (html, expectedSku, pageUrl) => {
+  const manufacturerSku = stripSupplierPrefix(expectedSku, 'GRE')
+  const officialImages = [...html.matchAll(/<img[^>]+src=["'](https?:\/\/d7rh5s3nxmpy4\.cloudfront\.net\/CMP1049\/[^"']+)["']/gi)]
+    .map((match) => decodeHtml(match[1]).replace(/^http:/i, 'https:'))
+  const galleryImage = officialImages.find((url) => /\/16\/|white\.png/i.test(url)) || officialImages[0]
+  return officialPageResult(html, expectedSku, {
+    brand: 'Gree',
+    pageUrl,
+    evidenceSku: manufacturerSku,
+    imageUrl: galleryImage
+  })
+}
+
+const panasonicSkuFor = (sku) => stripSupplierPrefix(sku, 'PAN')
+
+const panasonicProductImage = (html, manufacturerSku) => {
+  const candidates = [...html.matchAll(/https?:\\?\/\\?\/[^"'\s<>]+?\.(?:jpe?g|png|webp)(?:\?[^"'\s<>]*)?/gi)]
+    .map((match) => match[0].replaceAll('\\/', '/').replaceAll('\\u0026', '&'))
+  const normalizedSku = normalizeSku(manufacturerSku)
+  return candidates.find((url) => normalizeSku(url).includes(normalizedSku) && !/logo|icon/i.test(url)) ||
+    candidates.find((url) => /product|model|aircon|aquarea/i.test(url) && !/logo|icon|theme\/aircon/i.test(url))
+}
+
+export const parsePanasonicProductPage = (html, expectedSku, pageUrl) => {
+  const manufacturerSku = panasonicSkuFor(expectedSku)
+  return officialPageResult(html, expectedSku, {
+    brand: 'Panasonic',
+    pageUrl,
+    evidenceSku: manufacturerSku,
+    imageUrl: panasonicProductImage(html, manufacturerSku)
+  })
+}
+
+const knownEthermaPages = new Map([
+  ['ET14A', 'https://www.etherma.com/nl/verwarming/regeltechniek/regeling-voor-huistechniek/draadloze-thermostaten/et-14a'],
+  ['ET111A', 'https://www.etherma.com/nl/verwarming/regeltechniek/regeling-voor-huistechniek/draadloze-thermostaten/et-111a'],
+  ['BHKTH', 'https://www.etherma.com/en/heating/direct-heating/bathroom-and-living-room/etherma-bhk'],
+  ['BHK63119', 'https://www.etherma.com/en/heating/direct-heating/bathroom-and-living-room/etherma-bhk'],
+  ['ICE01', 'https://www.etherma.com/nl/verwarming/heat-tracing/gebruiksklare-verwarmingskabels/etherma-icestop'],
+  ['ICE02', 'https://www.etherma.com/nl/verwarming/heat-tracing/gebruiksklare-verwarmingskabels/etherma-icestop'],
+  ['ICE04', 'https://www.etherma.com/nl/verwarming/heat-tracing/gebruiksklare-verwarmingskabels/etherma-icestop'],
+  ['ICE06', 'https://www.etherma.com/nl/verwarming/heat-tracing/gebruiksklare-verwarmingskabels/etherma-icestop'],
+  ['ICE08', 'https://www.etherma.com/nl/verwarming/heat-tracing/gebruiksklare-verwarmingskabels/etherma-icestop'],
+  ['ICE10', 'https://www.etherma.com/nl/verwarming/heat-tracing/gebruiksklare-verwarmingskabels/etherma-icestop'],
+  ['ICE20', 'https://www.etherma.com/nl/verwarming/heat-tracing/gebruiksklare-verwarmingskabels/etherma-icestop']
+])
+
+export const parseEthermaProductPage = (html, expectedSku, pageUrl) => {
+  const manufacturerSku = stripSupplierPrefix(expectedSku, 'ETH')
+  const productImage = html.match(/<div[^>]+class=["'][^"']*FullWidthImage[^"']*["'][\s\S]{0,800}?<img[^>]+src=["']([^"']+)["']/i)?.[1] ||
+    html.match(/<img[^>]+src=["']([^"']*\/FullWidthImage_Component\/[^"']+)["']/i)?.[1]
+  return officialPageResult(html, expectedSku, {
+    brand: 'Etherma',
+    pageUrl,
+    evidenceSku: manufacturerSku,
+    imageUrl: productImage,
+    familyImage: /^ICE\d+$/i.test(manufacturerSku) || /^BHK/i.test(manufacturerSku)
+  })
+}
+
 const adapters = {
   bosch: {
     label: 'Bosch Home Comfort',
@@ -225,7 +396,7 @@ const adapters = {
   icecat: {
     label: 'Open Icecat',
     domain: 'live.icecat.biz',
-    matches: (item) => Boolean(detectManufacturer(item) && item.productNumber),
+    matches: (item) => Boolean(detectManufacturer(item) && productSkuFor(item)),
     url: (sku, item, options) => {
       const params = new URLSearchParams({
         shopname: options.icecatUsername,
@@ -239,7 +410,7 @@ const adapters = {
     },
     parse: (raw, sku, _requestUrl, item) => parseIcecatProduct(raw, sku, detectManufacturer(item)),
     publicUrl: (item, result) => {
-      const query = encodeURIComponent(`${detectManufacturer(item)} ${item.productNumber}`)
+      const query = encodeURIComponent(`${detectManufacturer(item)} ${productSkuFor(item)}`)
       return result.icecatId
         ? `https://icecat.biz/nl/search?keyword=${query}&icecat_id=${result.icecatId}`
         : `https://icecat.biz/nl/search?keyword=${query}`
@@ -264,6 +435,48 @@ const adapters = {
     url: (sku) => knownViegaPages.get(normalizeSku(sku)),
     parse: parseViegaProductPage,
     publicUrl: (_item, _result, requestUrl) => requestUrl
+  },
+  solerpalau: {
+    label: 'Soler & Palau productcatalogus',
+    domain: 'www.solerpalau.com',
+    matches: (item) =>
+      /\bsoler\s*(?:&|and)\s*palau\b/i.test(detectManufacturer(item) || '') &&
+      knownSolerPalauProducts.has(normalizeSku(productSkuFor(item))),
+    url: (sku) => knownSolerPalauProducts.get(normalizeSku(sku))?.pageUrl,
+    parse: parseSolerPalauProductPage,
+    publicUrl: (_item, _result, requestUrl) => requestUrl
+  },
+  fischer: {
+    label: 'Fischer productcatalogus',
+    domain: 'www.fischer.be',
+    matches: (item) => /\bfischer\b/i.test(detectManufacturer(item) || '') && knownFischerPages.has(normalizeSku(stripSupplierPrefix(productSkuFor(item), 'FIS'))),
+    url: (sku) => knownFischerPages.get(normalizeSku(stripSupplierPrefix(sku, 'FIS'))),
+    parse: parseFischerProductPage,
+    publicUrl: (_item, _result, requestUrl) => requestUrl
+  },
+  gree: {
+    label: 'Gree productcatalogus',
+    domain: 'greeproducts.com',
+    matches: (item) => /\bgree\b/i.test(detectManufacturer(item) || '') && knownGreePages.has(normalizeSku(stripSupplierPrefix(productSkuFor(item), 'GRE')).toUpperCase()),
+    url: (sku) => knownGreePages.get(normalizeSku(stripSupplierPrefix(sku, 'GRE')).toUpperCase()),
+    parse: parseGreeProductPage,
+    publicUrl: (_item, _result, requestUrl) => requestUrl
+  },
+  panasonic: {
+    label: 'Panasonic productcatalogus',
+    domain: 'www.aircon.panasonic.eu',
+    matches: (item) => /\bpanasonic\b/i.test(detectManufacturer(item) || '') && Boolean(productSkuFor(item)),
+    url: (sku) => `https://www.aircon.panasonic.eu/BE_fr/model/${encodeURIComponent(panasonicSkuFor(sku).toLowerCase())}/`,
+    parse: parsePanasonicProductPage,
+    publicUrl: (_item, _result, requestUrl) => requestUrl
+  },
+  etherma: {
+    label: 'Etherma productcatalogus',
+    domain: 'www.etherma.com',
+    matches: (item) => /\betherma\b/i.test(detectManufacturer(item) || '') && knownEthermaPages.has(normalizeSku(stripSupplierPrefix(productSkuFor(item), 'ETH')).toUpperCase()),
+    url: (sku) => knownEthermaPages.get(normalizeSku(stripSupplierPrefix(sku, 'ETH')).toUpperCase()),
+    parse: parseEthermaProductPage,
+    publicUrl: (_item, _result, requestUrl) => requestUrl
   }
 }
 
@@ -277,6 +490,7 @@ const parseArgs = (argv) => {
     return Number.isFinite(parsed) && parsed >= minimum ? Math.floor(parsed) : fallback
   }
   return {
+    catalog: (valueAfter('--catalog') || 'desco').trim().toLowerCase(),
     brands: (valueAfter('--brands') || 'bosch').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean),
     sku: normalizeSku(valueAfter('--sku') || ''),
     max: number('--max', 10, 1),
@@ -284,6 +498,7 @@ const parseArgs = (argv) => {
     dailyLimit: number('--daily-limit', DEFAULT_DAILY_LIMIT, 1),
     apply: argv.includes('--apply'),
     publishImages: argv.includes('--publish-images'),
+    repairImages: argv.includes('--repair-images'),
     reprocess: argv.includes('--reprocess'),
     resetIcecatCircuit: argv.includes('--reset-icecat-circuit'),
     refresh: argv.includes('--refresh'),
@@ -310,7 +525,7 @@ const today = () => new Date().toISOString().slice(0, 10)
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
 const cachePathFor = (brand, url) => resolve(CACHE_DIR, brand, `${createHash('sha256').update(url).digest('hex')}.html`)
 
-const fetchControlled = async ({ brand, url, options, state }) => {
+const fetchControlled = async ({ brand, url, options, state, statePath }) => {
   const adapter = adapters[brand]
   const domainState = state.domains[adapter.domain] || { date: today(), requests: 0 }
   if (domainState.date !== today()) Object.assign(domainState, { date: today(), requests: 0, blockedAt: undefined })
@@ -333,7 +548,7 @@ const fetchControlled = async ({ brand, url, options, state }) => {
 
   domainState.lastRequestAt = Date.now()
   domainState.requests += 1
-  await writeJsonAtomic(STATE_PATH, state)
+  await writeJsonAtomic(statePath, state)
 
   const response = await fetch(url, {
     headers: {
@@ -346,7 +561,7 @@ const fetchControlled = async ({ brand, url, options, state }) => {
   if (response.status === 403 && brand === 'icecat') {
     domainState.consecutiveRestricted = Number(domainState.consecutiveRestricted || 0) + 1
     if (domainState.consecutiveRestricted < 3) {
-      await writeJsonAtomic(STATE_PATH, state)
+      await writeJsonAtomic(statePath, state)
       return { html: '', status: 403, cached: false, restricted: true }
     }
   } else if (response.ok || response.status === 404) {
@@ -357,7 +572,7 @@ const fetchControlled = async ({ brand, url, options, state }) => {
     domainState.blockedAt = new Date().toISOString()
     domainState.blockedStatus = response.status
     domainState.retryAfter = response.headers.get('retry-after') || undefined
-    await writeJsonAtomic(STATE_PATH, state)
+    await writeJsonAtomic(statePath, state)
     throw new Error(`${adapter.domain} antwoordde ${response.status}; circuit breaker geopend`)
   }
   if (!response.ok) return { html: '', status: response.status, cached: false }
@@ -370,9 +585,9 @@ const fetchControlled = async ({ brand, url, options, state }) => {
 
 const uniqueBy = (items, keyFor) => [...new Map(items.map((item) => [keyFor(item), item])).values()]
 
-const mergeEnrichment = (item, result, brand, pageUrl, fetchedAt, publishImages = false) => {
+const mergeEnrichment = (item, result, brand, pageUrl, fetchedAt, publishImages = false, repairImages = false) => {
   const adapter = adapters[brand]
-  const source = { provider: adapter.label, pageUrl, productNumber: item.productNumber, fetchedAt }
+  const source = { provider: adapter.label, pageUrl, productNumber: productSkuFor(item), fetchedAt }
   const manufacturerData = { ...result.technicalData }
   if (result.title) manufacturerData.Productnaam = result.title
   const imageCandidate = result.imageUrl
@@ -387,7 +602,10 @@ const mergeEnrichment = (item, result, brand, pageUrl, fetchedAt, publishImages 
 
   return {
     ...item,
-    image: item.image || (publishImages && result.publishableImage !== false ? result.imageUrl : undefined),
+    image:
+      publishImages && result.publishableImage !== false && (repairImages || !hasUsableImageValue(item))
+        ? result.imageUrl || item.image
+        : item.image,
     description: item.description || result.description || undefined,
     manufacturerData,
     dataSources: uniqueBy([...(item.dataSources || []), source], (entry) => `${entry.provider}|${entry.pageUrl}`),
@@ -399,13 +617,17 @@ const mergeEnrichment = (item, result, brand, pageUrl, fetchedAt, publishImages 
 }
 
 const usage = () => {
-  console.log('Gebruik: npm run enrich:manufacturers -- [--brands=bosch,icecat,geberit,viega] [--sku=7735502304] [--max=10] [--delay-ms=5000] [--daily-limit=100] [--apply] [--publish-images] [--reprocess] [--refresh] [--reset-icecat-circuit]')
+  console.log('Gebruik: npm run enrich:manufacturers -- [--catalog=desco|alelek] [--brands=bosch,icecat,geberit,viega,solerpalau,fischer,gree,panasonic,etherma] [--sku=MPN] [--max=10] [--delay-ms=5000] [--daily-limit=100] [--apply] [--publish-images] [--repair-images] [--reprocess] [--refresh] [--reset-icecat-circuit]')
   console.log('Zonder --apply wordt niets aan catalogus of metadata gewijzigd.')
 }
 
 export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) => {
   if (argv.includes('--help') || argv.includes('-h')) return usage()
   const options = parseArgs(argv)
+  if (!['desco', 'alelek'].includes(options.catalog)) throw new Error('--catalog moet desco of alelek zijn')
+  const catalogPath = resolve(DATABASE_DIR, `${options.catalog}-materials.json`)
+  const metadataPath = resolve(DATABASE_DIR, `${options.catalog}-materials.metadata.json`)
+  const statePath = resolve(DATABASE_DIR, `manufacturer-enrichment-state-${options.catalog}.json`)
   const serverConfig = await readJson(resolve('server.config.json'), {})
   options.icecatUsername ||= String(serverConfig.icecat?.username || '').trim()
   options.icecatAppKey ||= String(serverConfig.icecat?.appKey || '').trim()
@@ -418,38 +640,52 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
   }
 
   await mkdir(DATABASE_DIR, { recursive: true })
-  const catalog = await readJson(CATALOG_PATH, { items: [] })
-  const metadata = await readJson(METADATA_PATH, { source: 'desco-metadata', items: [] })
-  const state = await readJson(STATE_PATH, { version: 1, domains: {}, products: {} })
+  const catalog = await readJson(catalogPath, { items: [] })
+  const metadata = await readJson(metadataPath, { source: `${options.catalog}-metadata`, items: [] })
+  const state = await readJson(statePath, { version: 1, domains: {}, products: {} })
   if (options.resetIcecatCircuit && state.domains?.['live.icecat.biz']?.blockedStatus === 403) {
     delete state.domains['live.icecat.biz'].blockedAt
     delete state.domains['live.icecat.biz'].blockedStatus
     delete state.domains['live.icecat.biz'].retryAfter
     state.domains['live.icecat.biz'].consecutiveRestricted = 0
-    await writeJsonAtomic(STATE_PATH, state)
+    await writeJsonAtomic(statePath, state)
   }
-  if (!Array.isArray(catalog.items) || catalog.items.length === 0) throw new Error('Desco-catalogus is leeg; voer eerst sync desco uit.')
+  if (!Array.isArray(catalog.items) || catalog.items.length === 0) {
+    throw new Error(`${options.catalog}-catalogus is leeg; voer eerst sync ${options.catalog} uit.`)
+  }
 
   const itemKey = (item) => String(item.articleNumber || item.productNumber || item.name || '')
   const metadataByArticle = new Map((metadata.items || []).map((item) => [itemKey(item), item]))
   let attempted = 0
   let matched = 0
   let cacheHits = 0
+  let sanitized = 0
+
+  if (options.apply && options.repairImages) {
+    for (const item of catalog.items) {
+      if (item.image && !hasUsableImageValue(item)) {
+        delete item.image
+        sanitized += 1
+      }
+    }
+  }
 
   for (const brand of options.brands) {
     const adapter = adapters[brand]
     const candidates = catalog.items.filter(
-      (item) => adapter.matches(item) && (!options.sku || normalizeSku(item.productNumber) === options.sku)
+      (item) =>
+        adapter.matches(item) &&
+        (!options.sku || normalizeSku(productSkuFor(item)) === options.sku)
     )
     for (const catalogItem of candidates) {
       if (attempted >= options.max) break
-      const sku = String(catalogItem.productNumber || '').trim()
-      const stateKey = `${brand}:${normalizeSku(sku)}`
-      if (!options.refresh && !options.reprocess && state.products[stateKey]?.status) continue
+      const sku = productSkuFor(catalogItem)
+      const stateKey = `${options.catalog}:${brand}:${normalizeSku(sku)}`
+      if (!options.refresh && !options.reprocess && !options.repairImages && state.products[stateKey]?.status) continue
 
       attempted += 1
       const requestUrl = adapter.url(sku, catalogItem, options)
-      const response = await fetchControlled({ brand, url: requestUrl, options, state })
+      const response = await fetchControlled({ brand, url: requestUrl, options, state, statePath })
       if (response.cached) cacheHits += 1
       const result = response.html ? adapter.parse(response.html, sku, requestUrl, catalogItem) : null
       const fetchedAt = new Date().toISOString()
@@ -478,7 +714,8 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
           brand,
           pageUrl,
           fetchedAt,
-          options.publishImages
+          options.publishImages,
+          options.repairImages
         )
         const existingMetadata = metadataByArticle.get(itemKey(catalogItem)) || catalogItem
         const enrichedMetadata = mergeEnrichment(
@@ -487,7 +724,8 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
           brand,
           pageUrl,
           fetchedAt,
-          options.publishImages
+          options.publishImages,
+          options.repairImages
         )
         metadataByArticle.set(itemKey(catalogItem), enrichedMetadata)
         console.log(`✓ ${adapter.label} ${sku}: exacte match${response.cached ? ' (cache)' : ''}`)
@@ -498,28 +736,28 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
             : `- ${adapter.label} ${sku}: geen exacte match (${response.status || 200})`
         )
       }
-      await writeJsonAtomic(STATE_PATH, state)
+      await writeJsonAtomic(statePath, state)
     }
   }
 
-  if (options.apply && matched > 0) {
+  if (options.apply && (matched > 0 || sanitized > 0)) {
     const timestamp = new Date().toISOString()
     const backupDirectory = resolve(DATABASE_DIR, 'backups', `manufacturer-enrichment-${timestamp.replaceAll(':', '-')}`)
     await mkdir(backupDirectory, { recursive: true })
-    await copyFile(CATALOG_PATH, resolve(backupDirectory, 'desco-materials.json'))
+    await copyFile(catalogPath, resolve(backupDirectory, `${options.catalog}-materials.json`))
     try {
-      await copyFile(METADATA_PATH, resolve(backupDirectory, 'desco-materials.metadata.json'))
+      await copyFile(metadataPath, resolve(backupDirectory, `${options.catalog}-materials.metadata.json`))
     } catch {
       // Metadata may not exist on a fresh installation.
     }
     catalog.updatedAt = timestamp
     metadata.updatedAt = timestamp
     metadata.items = catalog.items.map((item) => metadataByArticle.get(itemKey(item)) || item)
-    await writeJsonAtomic(CATALOG_PATH, catalog)
-    await writeJsonAtomic(METADATA_PATH, metadata)
+    await writeJsonAtomic(catalogPath, catalog)
+    await writeJsonAtomic(metadataPath, metadata)
   }
 
-  console.log(`Klaar: ${attempted} gecontroleerd, ${matched} exacte matches, ${cacheHits} uit cache, modus=${options.apply ? 'toegepast' : 'dry-run'}.`)
+  console.log(`Klaar: ${attempted} gecontroleerd, ${matched} exacte matches, ${sanitized} ongeldige beeldwaarden verwijderd, ${cacheHits} uit cache, modus=${options.apply ? 'toegepast' : 'dry-run'}.`)
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {

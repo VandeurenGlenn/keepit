@@ -1,4 +1,4 @@
-import Router from '@koa/router'
+import { Router } from '@koa/router'
 
 import {
   invites,
@@ -15,6 +15,7 @@ const router = new Router({
 })
 
 router.post('/', async (ctx) => {
+  const body = (ctx.request.body || {}) as Record<string, unknown>
   const actor = users[ctx.state.userid]
   if (!actor?.roles?.some((role) => role === 'admin' || role === 'roles')) {
     ctx.status = 403
@@ -22,7 +23,7 @@ router.post('/', async (ctx) => {
     return
   }
 
-  const email = String(ctx.request.body?.email || '').trim().toLowerCase()
+  const email = String(body.email || '').trim().toLowerCase()
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     ctx.status = 400
     ctx.body = { error: 'Valid email is required', message: 'Geef een geldig e-mailadres op' }
@@ -73,7 +74,8 @@ router.patch('/me/preferences', async (ctx) => {
     return
   }
 
-  const value = ctx.request.body?.continuousTimelineLocation
+  const body = (ctx.request.body || {}) as Record<string, unknown>
+  const value = body.continuousTimelineLocation
   if (typeof value !== 'boolean') {
     ctx.status = 400
     ctx.body = { error: 'continuousTimelineLocation must be a boolean' }
@@ -113,7 +115,44 @@ router.get('/:uuid', async (ctx) => {
 })
 
 router.get('/', async (ctx) => {
-  ctx.body = users
+  const includeInvited = ['1', 'true', 'yes'].includes(String(ctx.query.includeInvited || '').toLowerCase())
+
+  if (!includeInvited) {
+    ctx.body = users
+    ctx.status = 200
+    ctx.set('Content-Type', 'application/json')
+    return
+  }
+
+  const actor = users[ctx.state.userid]
+  if (!actor?.roles?.some((role) => role === 'admin' || role === 'roles')) {
+    ctx.status = 403
+    ctx.body = { error: 'Forbidden', message: 'Je hebt geen rechten om uitnodigingen te bekijken' }
+    return
+  }
+
+  const invitedUsers = Object.fromEntries(
+    Object.entries(invites).map(([uuid, invite]) => {
+      const createdAt = new Date(invite.createdAt || Date.now()).toISOString()
+      return [
+        uuid,
+        {
+          ...invite,
+          name: 'Uitgenodigde gebruiker',
+          picture: '',
+          phone: '',
+          createdAt,
+          updatedAt: createdAt,
+          invited: true
+        }
+      ]
+    })
+  )
+
+  ctx.body = {
+    ...users,
+    ...invitedUsers
+  }
   ctx.status = 200
   ctx.set('Content-Type', 'application/json')
 })

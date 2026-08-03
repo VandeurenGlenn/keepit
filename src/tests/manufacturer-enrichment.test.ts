@@ -4,8 +4,13 @@ import {
   detectManufacturer,
   normalizeSku,
   parseBoschProductPage,
+  parseEthermaProductPage,
+  parseFischerProductPage,
   parseGeberitProductPage,
+  parseGreeProductPage,
   parseIcecatProduct,
+  parsePanasonicProductPage,
+  parseSolerPalauProductPage,
   parseViegaProductPage
 } from '../../scripts/manufacturer-enrichment.mjs'
 
@@ -70,7 +75,54 @@ test('Icecat parser vereist exact merk en MPN', () => {
 
 test('fabrikant wordt conservatief uit de productnaam bepaald', () => {
   assert.equal(detectManufacturer({ name: 'ROZET CHROOM GEBERIT', description: '' }), 'Geberit')
+  assert.equal(detectManufacturer({ name: 'EC-9N', technicalData: { Merk: 'SOLER&PALAU' } }), 'SOLER&PALAU')
   assert.equal(detectManufacturer({ name: 'Merkloze koppeling', description: '' }), undefined)
+})
+
+test('Soler & Palau adapter koppelt alleen gekende fabrikantcodes aan officiële beelden', () => {
+  const result = parseSolerPalauProductPage('<h1>TLS-501 / TLS-503 T</h1>', '5226832600')
+  assert.ok(result)
+  assert.equal(result.title, 'TLS-501')
+  assert.match(result.imageUrl, /^https:\/\/www\.solerpalau\.com\//)
+  assert.equal(result.rightsStatus, 'permission-required')
+  assert.equal(parseSolerPalauProductPage('<h1>Ander product</h1>', '5226832600'), null)
+  assert.equal(parseSolerPalauProductPage('<h1>TLS-501 / TLS-503 T</h1>', 'onbekend'), null)
+})
+
+test('Fischer adapter verwijdert leveranciersprefix en vereist exact fabrikantnummer', () => {
+  const pageUrl = 'https://www.fischer.be/nl-be/products/plug/50354-n-6-x-40'
+  const html = `
+    <meta property="og:image" content="https://media.fischer.group/product-50354.jpg">
+    <meta property="og:title" content="Nagelplug N 6 x 40">
+    <h1>Nagelplug</h1><p>Artikelnr. 50354</p>
+  `
+  const result = parseFischerProductPage(html, 'FIS50354', pageUrl)
+  assert.ok(result)
+  assert.equal(result.technicalData.MPN, '50354')
+  assert.equal(result.imageUrl, 'https://media.fischer.group/product-50354.jpg')
+  assert.equal(parseFischerProductPage(html, 'FIS50491', pageUrl), null)
+})
+
+test('Gree, Panasonic en Etherma adapters publiceren alleen pagina’s met exacte MPN', () => {
+  const gree = parseGreeProductPage(`
+    <meta property="og:image" content="https://greeproducts.com/clivia-9.webp">
+    <h1>Clivia</h1><p>GWH09AUCXB-K6DNA1A/I</p>
+  `, 'GREGWH09AUCXBK6DNA1AI', 'https://greeproducts.com/pt-pt/produtos/fm-clivia-9/')
+  assert.ok(gree)
+
+  const panasonic = parsePanasonicProductPage(`
+    <h1>PAW-BTANK50L-2</h1>
+    <img src="https://cdn.aircon.panasonic.eu/products/paw-btank50l-2.jpg">
+  `, 'PANPAWBTANK50L2', 'https://www.aircon.panasonic.eu/BE_fr/model/paw-btank50l-2/')
+  assert.ok(panasonic)
+  assert.match(panasonic.imageUrl, /paw-btank50l-2\.jpg$/)
+
+  const etherma = parseEthermaProductPage(`
+    <meta property="og:image" content="https://www.etherma.com/media/et-14a.jpg">
+    <h1>ET-14A</h1>
+  `, 'ETHET14A', 'https://www.etherma.com/nl/product/et-14a')
+  assert.ok(etherma)
+  assert.equal(parseEthermaProductPage('<h1>ET-111A</h1>', 'ETHET14A', 'https://www.etherma.com/nl/product/et-14a'), null)
 })
 
 test('Geberit parser vereist het exacte artikelnummer en gebruikt het officiële familiebeeld', () => {
