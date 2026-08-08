@@ -43,7 +43,7 @@ export class AppShell extends LiteElement {
   @property({ type: Array, provides: true }) accessor users
 
   @property({ type: Object, consumes: true }) accessor error = null
-  @property({ type: Boolean, attribute: 'is-menu-open', reflect: true }) accessor isMenuOpen: any
+  @property({ type: Boolean, attribute: 'is-menu-open', reflect: true }) accessor isMenuOpen = false
   @property({ type: Boolean, attribute: 'auth-resolving' }) accessor authResolving = false
   @property({ type: Object }) accessor appNotification: AppNotification | undefined
 
@@ -191,7 +191,11 @@ export class AppShell extends LiteElement {
     if (path === 'quote') {
       if (!this.jobs) promises.push(this._load('jobs'))
       if (params.selected) {
-        promises.push(api.getQuote(params.selected).then((quote) => { this.quote = quote }))
+        promises.push(
+          api.getQuote(params.selected).then((quote) => {
+            this.quote = quote
+          })
+        )
       } else {
         this.quote = undefined
       }
@@ -458,7 +462,9 @@ export class AppShell extends LiteElement {
     if (globalThis.client) return
 
     const websocketProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const client = new WebSocket(`${websocketProtocol}//${location.host}/ws`, [`ticket__${localStorage.getItem('ticket')}`])
+    const client = new WebSocket(`${websocketProtocol}//${location.host}/ws`, [
+      `ticket__${localStorage.getItem('ticket')}`
+    ])
     console.log(client)
     globalThis.client = client
     client.addEventListener('open', () => {
@@ -695,12 +701,16 @@ export class AppShell extends LiteElement {
     }
 
     if (path === 'quote') {
-      return html` <quote-view .quote=${this.quote} .jobs=${this.jobs}></quote-view>`
+      return html` <quote-view
+        .quote=${this.quote}
+        .jobs=${this.jobs}></quote-view>`
     }
 
     if (path === 'quotes') {
       if (!this.quotes) return html` <loading-view type="loading"></loading-view> `
-      return html` <quotes-view .quotes=${this.quotes} .jobs=${this.jobs}></quotes-view>`
+      return html` <quotes-view
+        .quotes=${this.quotes}
+        .jobs=${this.jobs}></quotes-view>`
     }
 
     if (path === 'register') {
@@ -791,13 +801,18 @@ export class AppShell extends LiteElement {
     this.isMenuOpen = !this.isMenuOpen
   }
 
+  _closeMenu() {
+    this.isMenuOpen = false
+  }
+
   render() {
     return html`
       <!-- @build-info -->
       ${icons}
-
       ${this.userSignedIn && this.appNotification
-        ? html`<section class="notification-toast" aria-live="polite">
+        ? html`<section
+            class="notification-toast"
+            aria-live="polite">
             <span class="notification-icon"><custom-icon icon="calendar_month"></custom-icon></span>
             <div class="notification-copy">
               <strong>${this.appNotification.title}</strong>
@@ -807,13 +822,22 @@ export class AppShell extends LiteElement {
                   @click=${() => {
                     location.hash = this.appNotification.url
                     this.appNotification = undefined
-                  }}>Bekijk planning</button>
+                  }}>
+                  Bekijk planning
+                </button>
                 ${'Notification' in window && Notification.permission === 'default'
-                  ? html`<button class="quiet" @click=${() => this.enableAppNotifications()}>Meldingen aanzetten</button>`
+                  ? html`<button
+                      class="quiet"
+                      @click=${() => this.enableAppNotifications()}>
+                      Meldingen aanzetten
+                    </button>`
                   : ''}
               </div>
             </div>
-            <button class="notification-close" aria-label="Melding sluiten" @click=${() => (this.appNotification = undefined)}>
+            <button
+              class="notification-close"
+              aria-label="Melding sluiten"
+              @click=${() => (this.appNotification = undefined)}>
               <custom-icon icon="close"></custom-icon>
             </button>
           </section>`
@@ -825,11 +849,17 @@ export class AppShell extends LiteElement {
 
       ${this.userSignedIn
         ? html`<custom-icon-button
-            icon="menu"
+            class="menu-toggle"
+            icon=${this.isMenuOpen ? 'close' : 'menu'}
+            aria-label=${this.isMenuOpen ? 'Menu sluiten' : 'Menu openen'}
             @click=${() => this._toggleMenu()}></custom-icon-button>`
         : ''}
       ${this.userSignedIn
-        ? html`<aside>
+        ? html`<button
+              class="drawer-backdrop"
+              aria-label="Menu sluiten"
+              @click=${() => this._closeMenu()}></button>
+            <aside>
             <div class="logo-area">
               <img
                 class="logo"
@@ -837,7 +867,9 @@ export class AppShell extends LiteElement {
                 src="https://dimac.be/assets/dimac.svg"
                 alt="Dimac" />
             </div>
-            <div class="nav-container">
+            <div
+              class="nav-container"
+              @click=${() => this._closeMenu()}>
               <a
                 href="#!/home"
                 class="nav-item"

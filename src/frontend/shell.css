@@ -411,13 +411,17 @@ flex-container.wide-workspace {
   --flex-display-max-width: none;
 }
 
-custom-icon-button[icon='menu'] {
+.menu-toggle {
   position: absolute;
   top: 12px;
   left: 12px;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s ease-in-out;
+}
+
+.drawer-backdrop {
+  display: none;
 }
 
 .nav-item {
@@ -494,7 +498,7 @@ custom-icon-button[icon='menu'] {
   background: color-mix(in srgb, var(--app-border) 70%, transparent 30%);
 }
 
-:host([is-narrow]) custom-icon-button[icon='menu'] {
+:host([is-narrow]) .menu-toggle {
   opacity: 1;
   pointer-events: auto;
 }
@@ -528,7 +532,7 @@ custom-icon-button[icon='menu'] {
     width 0.3s ease-in;
 }
 
-custom-icon-button[icon='menu'] {
+.menu-toggle {
   z-index: 1100;
 }
 
@@ -577,6 +581,11 @@ custom-icon-button[icon='menu'] {
   transform: none;
 }
 
+.nav-item:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: -2px;
+}
+
 .nav-item:hover:not(.active)::before {
   transform: translateY(-50%) scaleY(0);
   opacity: 0;
@@ -616,10 +625,39 @@ custom-icon-button[icon='menu'] {
     height: 68px;
   }
 
-  aside {
-    width: 100%;
-    max-width: none;
-    border-radius: 0 0 24px 24px;
+  :host([is-narrow]) aside {
+    width: min(86vw, 320px);
+    max-width: 320px;
+    border-radius: 0 18px 18px 0;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-110%);
+    box-shadow: var(--app-shadow-strong);
+  }
+
+  :host([is-narrow][is-menu-open]) aside {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0);
+  }
+
+  :host([is-menu-open]) .drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    padding: 0;
+    border: 0;
+    background: color-mix(in srgb, black 54%, transparent 46%);
+    backdrop-filter: blur(2px);
+  }
+
+  :host([is-menu-open]) .menu-toggle {
+    left: min(calc(86vw - 48px), 272px);
+    opacity: 1;
+    pointer-events: auto;
+    position: fixed;
+    color: var(--md-sys-color-on-surface);
   }
 
   main {
@@ -627,18 +665,19 @@ custom-icon-button[icon='menu'] {
   }
 
   .logo-area {
-    padding: 20px 18px 16px;
+    padding: 18px 18px 14px;
   }
 
   .nav-container {
-    padding: 10px;
+    padding: 10px 12px;
+    gap: 3px;
   }
 
   .nav-item {
-    grid-template-columns: 30px minmax(0, 1fr);
+    grid-template-columns: 28px minmax(0, 1fr);
     font-size: 0.85rem;
-    padding: 10px 10px;
-    min-height: 48px;
+    padding: 9px 10px;
+    min-height: 44px;
   }
 
   .signed-out-shell {

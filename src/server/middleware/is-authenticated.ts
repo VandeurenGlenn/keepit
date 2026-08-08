@@ -1,6 +1,9 @@
 import { verifyToken } from '../helpers/auth.js'
-import { bannedUsers, users, usersStore } from '../database/database.js'
-export const isAuthenticated = async (ctx, next) => {
+import type { Context, Next } from 'koa'
+import type { IncomingMessage } from 'http'
+import { bannedUsers } from '../database/database.js'
+import { reconcileOwnerRoles } from '../helpers/owner.js'
+export const isAuthenticated = async (ctx: Context, next: Next) => {
   // Product images are requested by native <img> elements, which cannot attach
   // the token stored in localStorage. The image route itself only accepts exact
   // source URLs already present in our trusted product catalogs.
@@ -33,10 +36,13 @@ export const isAuthenticated = async (ctx, next) => {
   ctx.state.userid = verified.userid
   ctx.state.googleProfile = verified.payload
 
+  // Enforce deterministic owner assignment server-side when configured.
+  await reconcileOwnerRoles()
+
   await next()
 }
 
-export const isWebSocketAuthenticated = async (request) => {
+export const isWebSocketAuthenticated = async (request: IncomingMessage) => {
   const token = request.headers['Authorization'] || request.headers['authorization']
 
   if (!token) {

@@ -1,4 +1,7 @@
 {
+  "owner": {
+    "email": ""
+  },
   "session": {
     "secret": "replace-with-a-long-random-session-secret"
   },

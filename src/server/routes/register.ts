@@ -1,6 +1,7 @@
 import { Router } from '@koa/router'
 import { invites, invitesStore, users, usersStore } from '../database/database.js'
 import type { User } from '../../types/index.js'
+import { getConfiguredOwnerEmail } from '../helpers/owner.js'
 
 const router = new Router({ prefix: '/api/register' })
 
@@ -36,7 +37,9 @@ router.post('/', async (ctx) => {
     return
   }
 
-  const googleEmail = String(ctx.state.googleProfile.email || '').trim().toLowerCase()
+  const googleEmail = String(ctx.state.googleProfile.email || '')
+    .trim()
+    .toLowerCase()
   const now = new Date().toISOString()
 
   users[ctx.state.userid] = {
@@ -52,7 +55,19 @@ router.post('/', async (ctx) => {
     invited: Boolean(invite)
   }
 
-  if (!hasExistingUsers) users[ctx.state.userid].roles = ['owner', 'admin']
+  const configuredOwnerEmail = getConfiguredOwnerEmail()
+  const isConfiguredOwner = Boolean(
+    configuredOwnerEmail && [googleEmail, invitedEmail].some((value) => value === configuredOwnerEmail)
+  )
+
+  if (isConfiguredOwner) {
+    users[ctx.state.userid].roles = Array.from(new Set([...(users[ctx.state.userid].roles || []), 'owner', 'admin']))
+  } else if (!hasExistingUsers && !configuredOwnerEmail) {
+    users[ctx.state.userid].roles = ['owner', 'admin']
+  } else if (!users[ctx.state.userid].roles?.length) {
+    users[ctx.state.userid].roles = ['user']
+  }
+
   if (invite) delete invites[inviteId]
 
   await Promise.all([usersStore.put(users), invite ? invitesStore.put(invites) : Promise.resolve()])
