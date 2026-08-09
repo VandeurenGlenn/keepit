@@ -29,10 +29,9 @@ import planning from './routes/planning.js'
 import notifications from './routes/notifications.js'
 import quotes from './routes/quotes.js'
 import { handleWebSocketConnection } from './helpers/websocket.js'
-// catalog sync
-import { syncDescoCatalogWithTracking } from './helpers/desco.js'
-import { syncAlelekCatalogViaScraperWithTracking } from './helpers/alelek.js'
-import { shouldSyncDesco, shouldSyncAlelek } from './helpers/sync-tracker.js'
+import { readDescoCatalog } from './helpers/desco.js'
+import { readAlelekCatalog } from './helpers/alelek.js'
+import { warmShopSearchIndex } from './helpers/shop-search-index.js'
 
 const api = new Koa()
 
@@ -96,35 +95,6 @@ wss.on('error', (error: NodeJS.ErrnoException) => {
   console.error('WebSocket server error:', error.message)
 })
 
-// Populate catalogs on startup
-const initializeCatalogs = async () => {
-  console.log('Initializing product catalogs...')
-
-  try {
-    if (await shouldSyncDesco()) {
-      console.log('Syncing Desco catalog...')
-      const descoCatalog = await syncDescoCatalogWithTracking()
-      console.log(`✓ Desco catalog synced: ${descoCatalog.count} items`)
-    } else {
-      console.log('✓ Desco catalog up-to-date (synced within 7 days)')
-    }
-  } catch (error) {
-    console.warn('⚠ Desco sync failed:', error instanceof Error ? error.message : String(error))
-  }
-
-  try {
-    if (await shouldSyncAlelek()) {
-      console.log('Syncing Alelek catalog via scraper...')
-      const alelekCatalog = await syncAlelekCatalogViaScraperWithTracking()
-      console.log(`✓ Alelek catalog synced: ${alelekCatalog.count} items`)
-    } else {
-      console.log('✓ Alelek catalog up-to-date (synced within 7 days)')
-    }
-  } catch (error) {
-    console.warn('⚠ Alelek sync failed:', error instanceof Error ? error.message : String(error))
-  }
-}
-
 const DEFAULT_PORT = 5678
 const MAX_PORT_ATTEMPTS = 10
 
@@ -163,13 +133,22 @@ const startServer = async (): Promise<void> => {
   const preferredPort = resolveStartPort()
   const port = await findAvailablePort(preferredPort, MAX_PORT_ATTEMPTS)
 
+  const [descoCatalog, alelekCatalog] = await Promise.all([readDescoCatalog(), readAlelekCatalog()])
+  try {
+    await warmShopSearchIndex([
+      { source: 'desco', updatedAt: descoCatalog.updatedAt, items: descoCatalog.items },
+      { source: 'alelek', updatedAt: alelekCatalog.updatedAt, items: alelekCatalog.items }
+    ])
+  } catch (error) {
+    console.error('Shop search index warmup failed:', error instanceof Error ? error.message : String(error))
+  }
+
   if (port !== preferredPort) {
     console.warn(`Port ${preferredPort} is in use, starting on ${port} instead.`)
   }
 
-  server.listen(port, async () => {
+  server.listen(port, () => {
     console.log(`Server (HTTP + WS) is running on http://localhost:${port}`)
-    await initializeCatalogs()
   })
 }
 

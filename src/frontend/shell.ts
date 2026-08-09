@@ -21,7 +21,7 @@ import styles from './shell.css' with { type: 'css' }
 globalThis.exports = {}
 
 export class AppShell extends LiteElement {
-  @property({ type: Boolean, provides: true, attribute: 'is-narrow' }) accessor isNarrow
+  @property({ type: Boolean, provides: true, attribute: 'is-narrow', reflect: true }) accessor isNarrow
 
   @property({ type: Boolean, attribute: 'is-medium-narrow' }) accessor isMediumNarrow
 

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'fs/promises'
 import { resolve } from 'path'
 import { MaterialLine } from '../../types/index.js'
 import { recordSync } from './sync-tracker.js'
@@ -23,6 +23,7 @@ type DescoMetadataCatalog = {
 const descoCatalogPath = resolve('.database', 'desco-materials.json')
 const descoMetadataPath = resolve('.database', 'desco-materials.metadata.json')
 const descoArticlesPath = resolve('.database', 'desco', 'articles.xlsx')
+let descoCatalogCache: { modifiedAt: number; catalog: DescoCatalog } | undefined
 
 const normalizeString = (value: unknown): string => {
   if (typeof value !== 'string') return ''
@@ -656,6 +657,9 @@ const writeDescoCatalog = async (items: MaterialLine[]): Promise<DescoCatalog> =
 
 export const readDescoCatalog = async (): Promise<DescoCatalog> => {
   try {
+    const modifiedAt = (await stat(descoCatalogPath)).mtimeMs
+    if (descoCatalogCache?.modifiedAt === modifiedAt) return descoCatalogCache.catalog
+
     const raw = await readFile(descoCatalogPath, 'utf8')
     const parsed = JSON.parse(raw) as Partial<DescoCatalog>
 
@@ -668,12 +672,14 @@ export const readDescoCatalog = async (): Promise<DescoCatalog> => {
       }
     }
 
-    return {
+    const catalog: DescoCatalog = {
       source: 'desco',
       updatedAt: normalizeString(parsed.updatedAt),
       count: Number(parsed.count) || parsed.items.length,
       items: dedupeMaterials(parsed.items)
     }
+    descoCatalogCache = { modifiedAt, catalog }
+    return catalog
   } catch {
     return {
       source: 'desco',

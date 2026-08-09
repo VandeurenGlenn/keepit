@@ -1,13 +1,3 @@
-/**
- * Low-impact Groep Alelek webshop crawler.
- *
- * The public search result pages lazy-load while scrolling. This crawler uses
- * one browser tab, scrolls until the footer is visible, visits each product and
- * returns to the list. Progress is checkpointed after every product so a later
- * run can resume without opening the same detail page again.
- */
-
-import puppeteer, { Browser, HTTPResponse, Page } from 'puppeteer'
 import { mkdir, readFile, rename, writeFile } from 'fs/promises'
 import { resolve } from 'path'
 
@@ -41,72 +31,121 @@ export interface AlelekScraperOptions {
 }
 
 export type AlelekScraperProgress =
+  | { stage: 'status'; message: string }
   | { stage: 'category'; category: string; index: number; total: number }
-  | { stage: 'discovered'; category: string; found: number; pending: number; footerReached: boolean }
-  | { stage: 'product'; category: string; name: string; completed: number; maximum: number; cached: number }
-  | { stage: 'rest'; seconds: number; completed: number }
-  | { stage: 'complete'; cached: number; completedCategories: number; totalCategories: number }
+  | { stage: 'category-complete'; category: string; index: number; total: number; pages: number; products: number }
+  | {
+      stage: 'pause'
+      category: string
+      remainingSeconds: number
+      page: number
+      totalPages: number
+      processed: number
+      expected: number
+    }
+  | {
+      stage: 'page'
+      category: string
+      page: number
+      totalPages: number
+      received: number
+      processed: number
+      cached: number
+      expected: number
+    }
+  | { stage: 'complete'; cached: number; completedCategories: number; totalCategories: number; partial: boolean }
 
 type ScraperState = {
-  version: 1
+  version: 2
   date: string
   requests: number
   blockedAt?: string
   blockedStatus?: number
   blockedReason?: string
   completedCategories: string[]
-  categoryScrollTargets: Record<string, number>
+  categoryPages: Record<string, number>
+  categoryTotals: Record<string, number>
   products: Record<string, ScrapedProduct>
 }
 
-const STATE_PATH = resolve('.database', 'alelek-scraper-state.json')
-const DEFAULT_MAX_PRODUCTS_PER_RUN = 75
-const NAVIGATION_RETRY_LIMIT = 3
-const NAVIGATION_RETRY_BASE_DELAY_MS = 1200
+type ApiCategory = {
+  id: string
+  name: string
+}
 
-export const ALELEK_CATEGORIES = [
-  'Installatie',
-  'Multimedia',
-  'Industrie',
-  'Verwarming en airco',
-  'KNX',
-  'Verlichting',
-  'Domotica',
-  'Toegang en beveiliging',
-  'Huishoud',
-  'Hernieuwbare energie',
-  'Gereedschap',
-  'Kabel',
-  'Audio en video',
-  'Batterij en toebehoren',
-  'Ventilatie en centraal stofzuigersysteem',
-  'Sanitair'
-] as const
+type ApiArticle = {
+  external_id?: string
+  supplier_item_id?: string
+  name: string
+  slug: string
+  image_url?: string
+  price?: number
+  ean_code?: string
+  stock_unit?: string
+  default_packaging?: number
+  brand?: { name?: string }
+  category?: { name?: string }
+}
+
+type ApiSearchPage = {
+  data: ApiArticle[]
+  pagination: {
+    total: number
+    current_page: number
+    total_pages: number
+  }
+}
+
+const API_ROOT = 'https://webshop.groepalelek.be/api'
+const SHOP_ROOT = 'https://webshop.groepalelek.be/nl/product'
+const STATE_PATH = resolve('.database', 'alelek-scraper-state.json')
+const PAGE_SIZE = 250
+const DEFAULT_MAX_PRODUCTS_PER_RUN = 25000
+const REQUEST_RETRY_LIMIT = 3
 
 const today = (): string => new Date().toISOString().slice(0, 10)
 const sleep = (duration: number): Promise<void> => new Promise((resolvePromise) => setTimeout(resolvePromise, duration))
 const randomBetween = (minimum: number, maximum: number): number =>
   Math.floor(minimum + Math.random() * (Math.max(minimum, maximum) - minimum + 1))
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === 'object' && !Array.isArray(value))
+
 const readState = async (): Promise<ScraperState> => {
   try {
-    const parsed = JSON.parse(await readFile(STATE_PATH, 'utf8')) as Partial<ScraperState>
+    const parsed = JSON.parse(await readFile(STATE_PATH, 'utf8')) as Record<string, unknown>
+    const currentVersion = parsed.version === 2
     return {
-      version: 1,
-      date: parsed.date || today(),
+      version: 2,
+      date: typeof parsed.date === 'string' ? parsed.date : today(),
       requests: Number(parsed.requests) || 0,
-      blockedAt: parsed.blockedAt,
-      blockedStatus: parsed.blockedStatus,
-      blockedReason: parsed.blockedReason,
-      completedCategories: Array.isArray(parsed.completedCategories) ? parsed.completedCategories : [],
-      categoryScrollTargets:
-        parsed.categoryScrollTargets && typeof parsed.categoryScrollTargets === 'object'
-          ? parsed.categoryScrollTargets
+      blockedAt: typeof parsed.blockedAt === 'string' ? parsed.blockedAt : undefined,
+      blockedStatus: typeof parsed.blockedStatus === 'number' ? parsed.blockedStatus : undefined,
+      blockedReason: typeof parsed.blockedReason === 'string' ? parsed.blockedReason : undefined,
+      completedCategories:
+        currentVersion && Array.isArray(parsed.completedCategories)
+          ? parsed.completedCategories.filter((value): value is string => typeof value === 'string')
+          : [],
+      categoryPages:
+        currentVersion && isRecord(parsed.categoryPages)
+          ? Object.fromEntries(Object.entries(parsed.categoryPages).map(([key, value]) => [key, Number(value) || 1]))
           : {},
-      products: parsed.products && typeof parsed.products === 'object' ? parsed.products : {}
+      categoryTotals:
+        currentVersion && isRecord(parsed.categoryTotals)
+          ? Object.fromEntries(Object.entries(parsed.categoryTotals).map(([key, value]) => [key, Number(value) || 0]))
+          : {},
+      products: isRecord(parsed.products) ? (parsed.products as Record<string, ScrapedProduct>) : {}
     }
   } catch {
-    return { version: 1, date: today(), requests: 0, completedCategories: [], categoryScrollTargets: {}, products: {} }
+    return {
+      version: 2,
+      date: today(),
+      requests: 0,
+      completedCategories: [],
+      categoryPages: {},
+      categoryTotals: {},
+      products: {}
+    }
   }
 }
 
@@ -129,430 +168,270 @@ const resetDailyCounter = (state: ScraperState): void => {
 const dailyLimitReached = (state: ScraperState, dailyLimit?: number): boolean =>
   Boolean(dailyLimit && dailyLimit > 0 && state.requests >= dailyLimit)
 
-const stopForBlock = async (state: ScraperState, reason: string, status?: number): Promise<never> => {
-  state.blockedAt = new Date().toISOString()
-  state.blockedReason = reason
-  if (status) state.blockedStatus = status
-  await writeState(state)
-  throw new Error(`Alelek-blokkade gedetecteerd (${reason}); scraper onmiddellijk gestopt en checkpoint bewaard.`)
-}
-
-const checkResponse = async (
-  response: HTTPResponse | null,
-  state: ScraperState,
-  dailyLimit?: number
-): Promise<void> => {
-  state.requests += 1
-  const status = response?.status() || 0
-  if (status === 403 || status === 429 || status === 503) await stopForBlock(state, `HTTP ${status}`, status)
-  if (dailyLimitReached(state, dailyLimit)) {
-    await writeState(state)
-    throw new Error(`Alelek daglimiet (${dailyLimit} navigaties) bereikt; voer morgen opnieuw uit om te hervatten.`)
-  }
-}
-
-const checkVisibleBlockPage = async (page: Page, state: ScraperState): Promise<void> => {
-  const reason = await page.evaluate(() => {
-    const title = document.title.toLowerCase()
-    const body = (document.body?.innerText || '').slice(0, 5000).toLowerCase()
-    const hasVisibleChallenge = Boolean(
-      document.querySelector(
-        'iframe[src*="captcha" i], iframe[src*="challenge" i], input[name*="captcha" i], [class*="captcha" i]'
-      )
-    )
-    if (hasVisibleChallenge) return 'captcha of browser challenge'
-    if (/access denied|toegang geweigerd|too many requests|temporarily blocked/.test(`${title}\n${body}`)) {
-      return 'access-denied pagina'
-    }
-    return ''
-  })
-  if (reason) await stopForBlock(state, reason)
-}
-
-const isTransientNavigationError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  const message = error.message.toLowerCase()
-  return (
-    message.includes('err_network_changed') ||
-    message.includes('err_internet_disconnected') ||
-    message.includes('err_connection_reset') ||
-    message.includes('err_connection_closed') ||
-    message.includes('err_connection_aborted') ||
-    message.includes('err_timed_out') ||
-    message.includes('navigation timeout of')
-  )
-}
-
-const navigate = async (
-  page: Page,
+const fetchJson = async (
   url: string,
+  label: string,
   state: ScraperState,
-  dailyLimit: number | undefined,
-  timeout: number
-): Promise<void> => {
+  timeout: number,
+  dailyLimit?: number,
+  onProgress?: (progress: AlelekScraperProgress) => void
+): Promise<unknown> => {
   if (state.blockedAt) {
     throw new Error(`Alelek circuit breaker staat open sinds ${state.blockedAt}: ${state.blockedReason || 'blokkade'}.`)
   }
-  if (dailyLimitReached(state, dailyLimit)) throw new Error(`Alelek daglimiet (${dailyLimit} navigaties) is bereikt.`)
-  for (let attempt = 1; attempt <= NAVIGATION_RETRY_LIMIT; attempt += 1) {
+  if (dailyLimitReached(state, dailyLimit)) throw new Error(`Alelek daglimiet (${dailyLimit} requests) is bereikt.`)
+
+  for (let attempt = 1; attempt <= REQUEST_RETRY_LIMIT; attempt += 1) {
     try {
-      const response = await page.goto(url, { waitUntil: 'networkidle2', timeout })
-      await checkResponse(response, state, dailyLimit)
-      await checkVisibleBlockPage(page, state)
-      return
+      onProgress?.({ stage: 'status', message: `${label}: request ${attempt}/${REQUEST_RETRY_LIMIT} versturen…` })
+      const response = await fetch(url, { signal: AbortSignal.timeout(timeout) })
+      state.requests += 1
+      if ([403, 429, 503].includes(response.status)) {
+        state.blockedAt = new Date().toISOString()
+        state.blockedStatus = response.status
+        state.blockedReason = `HTTP ${response.status}`
+        await writeState(state)
+        throw new Error(`Alelek-blokkade gedetecteerd (HTTP ${response.status}); checkpoint bewaard.`)
+      }
+      if (!response.ok) throw new Error(`Alelek API gaf HTTP ${response.status} voor ${url}.`)
+      return response.json() as Promise<unknown>
     } catch (error) {
-      if (!isTransientNavigationError(error) || attempt === NAVIGATION_RETRY_LIMIT) throw error
-      const retryDelay = NAVIGATION_RETRY_BASE_DELAY_MS * attempt + randomBetween(250, 700)
+      if (state.blockedAt || attempt === REQUEST_RETRY_LIMIT) throw error
+      const retryDelay = 1000 * attempt + randomBetween(250, 700)
+      const reason = error instanceof Error ? error.message : String(error)
+      onProgress?.({
+        stage: 'status',
+        message: `${label}: mislukt (${reason}); opnieuw proberen over ${(retryDelay / 1000).toFixed(1)}s…`
+      })
       await sleep(retryDelay)
     }
   }
+
+  throw new Error(`Alelek API request mislukt voor ${url}.`)
 }
 
-const authenticate = async (
-  page: Page,
-  username: string,
-  password: string,
-  state: ScraperState,
-  dailyLimit: number | undefined,
-  timeout: number
-): Promise<void> => {
-  await navigate(page, 'https://webshop.groepalelek.be/nl/login', state, dailyLimit, timeout)
-  await acceptCookies(page)
-
-  const emailSelector = 'input[placeholder="Jouw e-mailadres"], input[type="email"]'
-  const passwordSelector = 'input[placeholder="********"], input[type="password"]'
-  const visibleHandle = async (selector: string) => {
-    const candidates = await page.$$(selector)
-    for (const candidate of candidates) {
-      const visible = await candidate.evaluate((element) => {
-        const rectangle = element.getBoundingClientRect()
-        const style = window.getComputedStyle(element)
-        return rectangle.width > 0 && rectangle.height > 0 && style.visibility !== 'hidden' && style.display !== 'none'
-      })
-      if (visible) return candidate
-    }
-    return null
-  }
-  const emailInput = await visibleHandle(emailSelector)
-  const passwordInput = await visibleHandle(passwordSelector)
-  if (!emailInput || !passwordInput) {
-    throw new Error('Alelek loginformulier niet gevonden; scraper gestopt zonder productverzoeken.')
-  }
-
-  await emailInput.click()
-  await emailInput.type(username, { delay: randomBetween(55, 110) })
-  await passwordInput.click()
-  await passwordInput.type(password, { delay: randomBetween(55, 110) })
-  const buttons = await page.$$('button')
-  let submit = await page.$('button[data-keepit-login-button]')
-  for (const button of buttons) {
-    const label = await button.evaluate((element) =>
-      (element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()
-    )
-    const visible = await button.evaluate((element) => {
-      const rectangle = element.getBoundingClientRect()
-      const style = window.getComputedStyle(element)
-      return rectangle.width > 0 && rectangle.height > 0 && style.visibility !== 'hidden' && style.display !== 'none'
-    })
-    if (label === 'aanmelden' && visible) {
-      submit = button
-      break
-    }
-  }
-  if (!submit) throw new Error('Alelek aanmeldknop niet gevonden.')
-
-  await Promise.all([submit.click(), page.waitForNavigation({ waitUntil: 'networkidle2', timeout }).catch(() => null)])
-  for (let attempt = 0; attempt < 12 && page.url().includes('/login'); attempt += 1) {
-    await sleep(500)
-  }
-  if (page.url().includes('/login')) {
-    throw new Error(
-      'Alelek-aanmelding mislukt; controleer de ingestelde accountgegevens of gebruik een bestaande sessie.'
-    )
-  }
+const parseCategories = (payload: unknown): ApiCategory[] => {
+  if (!Array.isArray(payload)) throw new Error('Alelek categorie-API gaf een ongeldig antwoord.')
+  return payload.flatMap((value) => {
+    if (!isRecord(value) || typeof value.id !== 'string' || typeof value.name !== 'string') return []
+    return [{ id: value.id, name: value.name }]
+  })
 }
 
-const acceptCookies = async (page: Page): Promise<void> => {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const clicked = await page.evaluate(() => {
-      const direct = document.querySelector('#cookiescript_accept, [data-cookiescript="accept"]')
-      const labelElement = Array.from(document.querySelectorAll('button, [role="button"], span, div')).find(
-        (element) => {
-          const label = (element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()
-          return label === 'alles accepteren'
-        }
-      )
-      const target = (direct || labelElement?.closest('button, [role="button"]') || labelElement) as HTMLElement | null
-      target?.click()
-      return Boolean(target)
-    })
-    if (clicked) {
-      await sleep(randomBetween(700, 1400))
-      return
-    }
-    await sleep(650)
+const parseSearchPage = (payload: unknown): ApiSearchPage => {
+  if (!isRecord(payload) || !Array.isArray(payload.data) || !isRecord(payload.pagination)) {
+    throw new Error('Alelek artikel-API gaf een ongeldig antwoord.')
   }
-}
 
-const scrollUntilFooter = async (
-  page: Page,
-  options: Required<Pick<AlelekScraperOptions, 'minScrollDelayMs' | 'maxScrollDelayMs'>>,
-  targetSteps: number
-): Promise<boolean> => {
-  let stableRounds = 0
-  let previousCount = -1
-
-  for (let step = 0; step < targetSteps; step += 1) {
-    const status = await page.evaluate(() => {
-      const links = Array.from(document.querySelectorAll('a[href]')).filter((link) =>
-        /\/nl\/product\//i.test((link as HTMLAnchorElement).pathname)
-      )
-      const footer = document.querySelector('footer')
-      const footerVisible = Boolean(footer && footer.getBoundingClientRect().top <= window.innerHeight)
-      return { count: new Set(links.map((link) => (link as HTMLAnchorElement).href)).size, footerVisible }
-    })
-
-    stableRounds = status.count === previousCount ? stableRounds + 1 : 0
-    previousCount = status.count
-    if (status.footerVisible && stableRounds >= 2) return true
-
-    await page.evaluate(() => window.scrollBy({ top: Math.floor(360 + Math.random() * 360), behavior: 'smooth' }))
-    await sleep(randomBetween(options.minScrollDelayMs, options.maxScrollDelayMs))
+  const data = payload.data.flatMap((value): ApiArticle[] => {
+    if (!isRecord(value) || typeof value.name !== 'string' || typeof value.slug !== 'string') return []
+    return [value as ApiArticle]
+  })
+  const total = Number(payload.pagination.total)
+  const currentPage = Number(payload.pagination.current_page)
+  const totalPages = Number(payload.pagination.total_pages)
+  if (![total, currentPage, totalPages].every(Number.isFinite)) {
+    throw new Error('Alelek artikel-API gaf ongeldige paginatie terug.')
   }
-  return false
+
+  return { data, pagination: { total, current_page: currentPage, total_pages: totalPages } }
 }
 
-const collectProductUrls = async (page: Page): Promise<string[]> =>
-  page.evaluate(() =>
-    Array.from(
-      new Set(
-        Array.from(document.querySelectorAll('a[href]'))
-          .map((link) => (link as HTMLAnchorElement).href)
-          .filter((href) => /\/nl\/product\//i.test(new URL(href).pathname))
-      )
-    )
-  )
-
-const parsePrice = (priceText?: string): number | undefined => {
-  if (!priceText) return undefined
-  const match = priceText.match(/(?:€\s*)?([\d.]+(?:,\d{2})?)/)
-  if (!match) return undefined
-  const parsed = Number(match[1].replaceAll('.', '').replace(',', '.'))
-  return Number.isFinite(parsed) ? parsed : undefined
-}
-
-const normalizeProductImage = (value: string, productUrl: string): string | undefined => {
-  const candidate = value.trim()
-  if (!candidate || candidate === '0' || /^(?:null|undefined)$/i.test(candidate)) return undefined
-
-  try {
-    const imageUrl = new URL(candidate, productUrl)
-    return /^https?:$/i.test(imageUrl.protocol) ? imageUrl.href : undefined
-  } catch {
-    return undefined
-  }
-}
-
-const readProduct = async (page: Page, url: string, category: string): Promise<ScrapedProduct | null> => {
-  const raw = await page.evaluate(() => {
-    const text = (selector: string) => document.querySelector(selector)?.textContent?.trim() || ''
-    const meta = (property: string) =>
-      document.querySelector(`meta[property="${property}"]`)?.getAttribute('content') || ''
-    const paragraphs = Array.from(document.querySelectorAll('main p'))
-      .map((paragraph) => paragraph.textContent?.trim() || '')
-      .filter(Boolean)
-    const paragraph = (label: string) =>
-      paragraphs.find((value) => value.toLowerCase().startsWith(label.toLowerCase())) || ''
-    const skuMatch = paragraph('Artikelcode:').match(/Artikelcode\s*:\s*([A-Z0-9._,/-]+)/i)
-    const supplierSkuMatch = paragraph('Artikelcode leverancier:').match(/:\s*(.+)$/)
-    const priceMatch = paragraph('Netto:').match(/Netto\s*:\s*€?\s*([\d.,]+)\s*\/\s*(.+)$/i)
-    const eanMatch = paragraph('EAN:').match(/EAN\s*:\s*(\d{8,14})/i)
-    const packagingMatch = paragraph('Standaardverpakking:').match(/Standaardverpakking\s*:\s*(\d+)\s*(.*)$/i)
-    return {
-      name: text('h1') || meta('og:title'),
-      description:
-        text('[class*="description"], [data-testid*="description"]') ||
-        document.querySelector('meta[name="description"]')?.getAttribute('content') ||
-        '',
-      price: priceMatch?.[1] || text('[class*="price"], [data-testid*="price"]'),
-      unit: priceMatch?.[2]?.trim() || '',
-      sku: skuMatch?.[1] || '',
-      supplierSku: supplierSkuMatch?.[1]?.trim() || '',
-      ean: eanMatch?.[1] || '',
-      packagingQuantity: packagingMatch ? Number(packagingMatch[1]) : undefined,
-      packagingUnit: packagingMatch?.[2]?.trim() || '',
-      brand: paragraphs[0] === '|' ? paragraphs[1] || '' : paragraphs[0] || '',
-      image: meta('og:image') || (document.querySelector('main img[src]') as HTMLImageElement | null)?.src || ''
+const requestedCategoryNames = (categoryUrls: string[], categories: ApiCategory[]): string[] => {
+  if (categoryUrls.length === 0) return categories.map(({ name }) => name)
+  return categoryUrls.map((categoryUrl) => {
+    try {
+      return new URL(categoryUrl).searchParams.get('category') || categoryUrl
+    } catch {
+      return categoryUrl
     }
   })
-  if (!raw.name) return null
-  return {
-    name: raw.name,
-    url,
-    category,
-    sku: raw.sku || undefined,
-    price: parsePrice(raw.price),
-    unit: raw.unit || undefined,
-    packagingQuantity: raw.packagingQuantity,
-    image: normalizeProductImage(raw.image, url),
-    description: raw.description || undefined,
-    technicalData: {
-      Categorie: category,
-      ...(raw.brand ? { Merk: raw.brand } : {}),
-      ...(raw.supplierSku ? { 'Artikelcode leverancier': raw.supplierSku } : {}),
-      ...(raw.ean ? { EAN: raw.ean } : {}),
-      ...(raw.packagingUnit ? { Verpakkingseenheid: raw.packagingUnit } : {})
-    }
-  }
 }
 
-const categoryFromUrl = (url: string): string => new URL(url).searchParams.get('category') || url
+const articleToProduct = (article: ApiArticle, topCategory: string): ScrapedProduct => ({
+  name: article.name,
+  sku: article.external_id,
+  price: typeof article.price === 'number' ? article.price : undefined,
+  unit: article.stock_unit,
+  packagingQuantity: article.default_packaging,
+  url: `${SHOP_ROOT}/${article.slug}`,
+  image: article.image_url,
+  category: topCategory,
+  technicalData: {
+    Hoofdcategorie: topCategory,
+    ...(article.category?.name ? { Categorie: article.category.name } : {}),
+    ...(article.brand?.name ? { Merk: article.brand.name } : {}),
+    ...(article.supplier_item_id ? { 'Artikelcode leverancier': article.supplier_item_id } : {}),
+    ...(article.ean_code ? { EAN: article.ean_code } : {})
+  }
+})
 
 export async function scrapeAlekCategories(
   categoryUrls: string[] = [],
   options: AlelekScraperOptions = {}
 ): Promise<ScrapedProduct[]> {
   const settings = {
-    headless: options.headless ?? true,
     timeout: options.timeout ?? 45000,
     dailyLimit: options.dailyLimit && options.dailyLimit > 0 ? Math.max(10, Math.floor(options.dailyLimit)) : undefined,
-    maxProductsPerRun: Math.max(1, options.maxProductsPerRun ?? DEFAULT_MAX_PRODUCTS_PER_RUN),
-    minProductDelayMs: Math.max(2500, options.minProductDelayMs ?? 3000),
-    maxProductDelayMs: Math.max(4500, options.maxProductDelayMs ?? 6000),
-    minScrollDelayMs: Math.max(1200, options.minScrollDelayMs ?? 1800),
-    maxScrollDelayMs: Math.max(2200, options.maxScrollDelayMs ?? 4500),
-    scrollStepsPerRun: Math.max(3, options.scrollStepsPerRun ?? 12)
+    productsPerBatch: Math.max(PAGE_SIZE, options.maxProductsPerRun ?? DEFAULT_MAX_PRODUCTS_PER_RUN),
+    minRequestDelayMs: Math.max(500, options.minScrollDelayMs ?? 1200),
+    maxRequestDelayMs: Math.max(1000, options.maxScrollDelayMs ?? 2200)
   }
-  if (settings.maxProductDelayMs < settings.minProductDelayMs) settings.maxProductDelayMs = settings.minProductDelayMs
-  if (settings.maxScrollDelayMs < settings.minScrollDelayMs) settings.maxScrollDelayMs = settings.minScrollDelayMs
+  if (settings.maxRequestDelayMs < settings.minRequestDelayMs) settings.maxRequestDelayMs = settings.minRequestDelayMs
 
   const state = await readState()
   resetDailyCounter(state)
   if (options.refresh) {
     state.completedCategories = []
-    state.categoryScrollTargets = {}
+    state.categoryPages = {}
+    state.categoryTotals = {}
     state.products = {}
   }
-  await writeState(state)
 
-  const urls = categoryUrls.length
-    ? categoryUrls
-    : ALELEK_CATEGORIES.map(
-        (category) => `https://webshop.groepalelek.be/nl/zoekresultaten?${new URLSearchParams({ category })}`
-      )
+  const categories = parseCategories(
+    await fetchJson(
+      `${API_ROOT}/categories`,
+      'Categorie-overzicht',
+      state,
+      settings.timeout,
+      settings.dailyLimit,
+      options.onProgress
+    )
+  )
+  options.onProgress?.({ stage: 'status', message: `${categories.length} hoofdcategorieën ontvangen.` })
+  const names = requestedCategoryNames(categoryUrls, categories)
+  const selectedCategories = names.map((name) => {
+    const category = categories.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase())
+    if (!category) throw new Error(`Onbekende Alelek-categorie: ${name}.`)
+    return category
+  })
 
-  let browser: Browser | null = null
-  try {
-    browser = await puppeteer.launch({
-      headless: settings.headless,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      timeout: settings.timeout
+  let fetchedSinceRest = 0
+  for (const [categoryIndex, category] of selectedCategories.entries()) {
+    if (state.completedCategories.includes(category.name)) continue
+    options.onProgress?.({
+      stage: 'category',
+      category: category.name,
+      index: categoryIndex + 1,
+      total: selectedCategories.length
     })
-    const page = await browser.newPage()
-    page.setDefaultTimeout(settings.timeout)
-    page.setDefaultNavigationTimeout(settings.timeout)
 
-    if (options.username && options.password) {
-      await authenticate(page, options.username, options.password, state, settings.dailyLimit, settings.timeout)
-    }
-
-    // Product metadata comes from the DOM and Open Graph tags. Avoid downloading
-    // heavyweight visual assets during navigation; images are fetched separately
-    // by the product-image cache after the catalog sync.
-    await page.setRequestInterception(true)
-    page.on('request', (request) => {
-      if (['image', 'media', 'font'].includes(request.resourceType())) {
-        void request.abort()
-      } else {
-        void request.continue()
+    let page = state.categoryPages[category.name] || 1
+    while (!dailyLimitReached(state, settings.dailyLimit)) {
+      if (fetchedSinceRest > 0) {
+        const requestDelay = randomBetween(settings.minRequestDelayMs, settings.maxRequestDelayMs)
+        options.onProgress?.({
+          stage: 'status',
+          message: `${category.name}: ${(requestDelay / 1000).toFixed(1)}s wachten voor pagina ${page}…`
+        })
+        await sleep(requestDelay)
       }
-    })
-
-    let visitedThisRun = 0
-    let nextRestAfter = randomBetween(18, 26)
-    for (const [categoryIndex, categoryUrl] of urls.entries()) {
-      if (dailyLimitReached(state, settings.dailyLimit && settings.dailyLimit - 3)) return Object.values(state.products)
-      const category = categoryFromUrl(categoryUrl)
-      if (!options.refresh && state.completedCategories.includes(category)) continue
-
-      options.onProgress?.({ stage: 'category', category, index: categoryIndex + 1, total: urls.length })
-      await navigate(page, categoryUrl, state, settings.dailyLimit, settings.timeout)
-      await acceptCookies(page)
-      if (page.url().includes('/login')) throw new Error('Alelek vereist aanmelding voor productresultaten.')
-      await page.waitForSelector('a[href*="/nl/product/"]', { timeout: settings.timeout })
-      const previousTarget = Number(state.categoryScrollTargets[category] || 0)
-      const targetSteps = Math.min(240, previousTarget + settings.scrollStepsPerRun)
-      const footerReached = await scrollUntilFooter(page, settings, targetSteps)
-      state.categoryScrollTargets[category] = targetSteps
-      await writeState(state)
-      const productUrls = await collectProductUrls(page)
-      if (productUrls.length === 0) {
-        throw new Error(
-          `Geen productlinks gevonden voor categorie ${category}; categorie niet als voltooid gemarkeerd.`
+      const query = new URLSearchParams({
+        page: String(page),
+        page_size: String(PAGE_SIZE),
+        already_bought: '0',
+        category_id: category.id
+      })
+      const result = parseSearchPage(
+        await fetchJson(
+          `${API_ROOT}/articles/search?${query}`,
+          `${category.name} pagina ${page}`,
+          state,
+          settings.timeout,
+          settings.dailyLimit,
+          options.onProgress
         )
+      )
+      state.categoryTotals[category.name] = result.pagination.total
+
+      for (const article of result.data) {
+        const product = articleToProduct(article, category.name)
+        if (product.url) state.products[product.url] = product
+      }
+
+      fetchedSinceRest += result.data.length
+      page += 1
+      state.categoryPages[category.name] = page
+      const categoryComplete =
+        result.data.length === 0 || result.pagination.current_page >= result.pagination.total_pages
+      if (categoryComplete && !state.completedCategories.includes(category.name)) {
+        state.completedCategories.push(category.name)
       }
       options.onProgress?.({
-        stage: 'discovered',
-        category,
-        found: productUrls.length,
-        pending: productUrls.filter((productUrl) => options.refresh || !state.products[productUrl]).length,
-        footerReached
+        stage: 'status',
+        message: `${category.name} pagina ${result.pagination.current_page}: ${result.data.length} ontvangen; checkpoint opslaan…`
+      })
+      await writeState(state)
+      options.onProgress?.({
+        stage: 'page',
+        category: category.name,
+        page: result.pagination.current_page,
+        totalPages: result.pagination.total_pages,
+        received: result.data.length,
+        processed: Math.min(
+          (result.pagination.current_page - 1) * PAGE_SIZE + result.data.length,
+          result.pagination.total
+        ),
+        cached: Object.keys(state.products).length,
+        expected: result.pagination.total
       })
 
-      for (const productUrl of productUrls) {
-        if (!options.refresh && state.products[productUrl]) continue
-        if (
-          visitedThisRun >= settings.maxProductsPerRun ||
-          dailyLimitReached(state, settings.dailyLimit && settings.dailyLimit - 2)
-        ) {
-          await writeState(state)
-          return Object.values(state.products)
-        }
-
-        await sleep(randomBetween(settings.minProductDelayMs, settings.maxProductDelayMs))
-        await navigate(page, productUrl, state, settings.dailyLimit, settings.timeout)
-        const product = await readProduct(page, productUrl, category)
-        if (product) state.products[productUrl] = product
-        visitedThisRun += 1
-        await writeState(state)
+      if (categoryComplete || result.data.length === 0) {
         options.onProgress?.({
-          stage: 'product',
-          category,
-          name: product?.name || productUrl,
-          completed: visitedThisRun,
-          maximum: settings.maxProductsPerRun,
-          cached: Object.keys(state.products).length
+          stage: 'category-complete',
+          category: category.name,
+          index: categoryIndex + 1,
+          total: selectedCategories.length,
+          pages: result.pagination.total_pages,
+          products: result.pagination.total
         })
-
-        const response = await page.goBack({ waitUntil: 'networkidle2', timeout: settings.timeout })
-        await checkResponse(response, state, settings.dailyLimit)
-        await checkVisibleBlockPage(page, state)
-
-        if (visitedThisRun >= nextRestAfter && visitedThisRun < settings.maxProductsPerRun) {
-          const restDuration = randomBetween(15000, 30000)
-          options.onProgress?.({ stage: 'rest', seconds: Math.ceil(restDuration / 1000), completed: visitedThisRun })
-          await sleep(restDuration)
-          nextRestAfter += randomBetween(18, 26)
-        }
+        break
       }
 
-      if (footerReached && !state.completedCategories.includes(category)) state.completedCategories.push(category)
-      await writeState(state)
+      if (fetchedSinceRest >= settings.productsPerBatch) {
+        const restDuration = randomBetween(20000, 180000)
+        const processed = Math.min(
+          (result.pagination.current_page - 1) * PAGE_SIZE + result.data.length,
+          result.pagination.total
+        )
+        const pauseEndsAt = Date.now() + restDuration
+        let remainingSeconds = Math.ceil(restDuration / 1000)
+        while (remainingSeconds > 0) {
+          options.onProgress?.({
+            stage: 'pause',
+            category: category.name,
+            remainingSeconds,
+            page: result.pagination.current_page,
+            totalPages: result.pagination.total_pages,
+            processed,
+            expected: result.pagination.total
+          })
+          await sleep(Math.min(1000, Math.max(1, pauseEndsAt - Date.now())))
+          remainingSeconds = Math.ceil(Math.max(0, pauseEndsAt - Date.now()) / 1000)
+        }
+        options.onProgress?.({
+          stage: 'pause',
+          category: category.name,
+          remainingSeconds: 0,
+          page: result.pagination.current_page,
+          totalPages: result.pagination.total_pages,
+          processed,
+          expected: result.pagination.total
+        })
+        fetchedSinceRest = 0
+      }
     }
 
-    options.onProgress?.({
-      stage: 'complete',
-      cached: Object.keys(state.products).length,
-      completedCategories: state.completedCategories.length,
-      totalCategories: urls.length
-    })
-    return Object.values(state.products)
-  } finally {
-    await browser?.close()
+    if (dailyLimitReached(state, settings.dailyLimit)) break
   }
-}
 
-export async function scrapeAlekProductDetails(productUrl: string): Promise<ScrapedProduct | null> {
-  const products = await scrapeAlekCategories([productUrl], { maxProductsPerRun: 1 })
-  return products.find((product) => product.url === productUrl) || null
+  const completedCategories = selectedCategories.filter(({ name }) => state.completedCategories.includes(name)).length
+  options.onProgress?.({
+    stage: 'complete',
+    cached: Object.keys(state.products).length,
+    completedCategories,
+    totalCategories: selectedCategories.length,
+    partial: completedCategories < selectedCategories.length
+  })
+  return Object.values(state.products)
 }

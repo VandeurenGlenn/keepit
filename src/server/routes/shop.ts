@@ -2,12 +2,13 @@ import { Router } from '@koa/router'
 import { shopOrders, shopOrdersStore } from '../database/database.js'
 import { readDescoCatalog } from '../helpers/desco.js'
 import { readAlelekCatalog } from '../helpers/alelek.js'
-import { ShopProduct, ShopOrder } from '../../types/index.js'
+import { MaterialLine, ShopProduct, ShopOrder } from '../../types/index.js'
 import { getAuthToken } from './../middleware/auth.js'
 import { getFavorites, getHistory } from '../helpers/material-preferences.js'
 import { importCartText, type CartImportSource } from '../helpers/cart-import.js'
 import { getCatalogImageUrls, getProductImage, type ProductImageVariant } from '../helpers/product-images.js'
-import { getShopProductBrands, searchShopProducts } from '../helpers/shop-search.js'
+import { getShopProductBrands } from '../helpers/shop-search.js'
+import { searchShopIndex } from '../helpers/shop-search-index.js'
 
 const router = new Router({ prefix: '/api/shop' })
 const publicImageRouter = new Router({ prefix: '/api/shop' })
@@ -15,6 +16,36 @@ const publicImageRouter = new Router({ prefix: '/api/shop' })
 const generateProductId = (name: string, source: string): string => {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
   return `${source}-${slug}`
+}
+
+const toShopProduct = (item: MaterialLine, source: 'desco' | 'alelek'): ShopProduct => ({
+  id: generateProductId(item.name, source),
+  name: item.name,
+  price: item.unitPrice || 0,
+  quantity: item.quantity,
+  unit: item.unit,
+  source,
+  articleNumber: item.articleNumber,
+  productNumber: item.productNumber,
+  packagingQuantity: item.packagingQuantity,
+  description: item.description,
+  image: item.image,
+  technicalData: item.technicalData,
+  manufacturerData: item.manufacturerData,
+  dataSources: item.dataSources,
+  imageCandidates: item.imageCandidates
+})
+
+const getProductCategory = (product: ShopProduct): string => {
+  const text = `${product.name} ${product.description || ''}`.toLowerCase()
+  if (/douche|bad\b|toilet|\bwc\b|spoel/.test(text)) return 'Sanitair'
+  if (/kraan|mengkraan|tapkraan/.test(text)) return 'Kranen'
+  if (/ketel|brander|boiler|radiator|verwarm|thermostaat/.test(text)) return 'Verwarming'
+  if (/pomp|circulat/.test(text)) return 'Pompen'
+  if (/buis|bocht|mof\b|koppeling|fitting|leiding/.test(text)) return 'Leidingen & fittingen'
+  if (/tang|zaag|boor|sleutel|gereedschap/.test(text)) return 'Gereedschap'
+  if (/ventiel|klep|afsluiter/.test(text)) return 'Kleppen & ventielen'
+  return 'Installatiemateriaal'
 }
 
 const parseNonNegativeInteger = (value: unknown): number | undefined => {
@@ -61,56 +92,73 @@ publicImageRouter.get('/image', async (ctx) => {
 router.get('/products', async (ctx) => {
   try {
     const [descoCatalog, alekCatalog] = await Promise.all([readDescoCatalog(), readAlelekCatalog()])
-
-    const products: ShopProduct[] = []
-
-    // Add Desco products
-    descoCatalog.items.forEach((item) => {
-      products.push({
-        id: generateProductId(item.name, 'desco'),
-        name: item.name,
-        price: item.unitPrice || 0,
-        quantity: item.quantity,
-        unit: item.unit,
-        source: 'desco',
-        articleNumber: item.articleNumber,
-        productNumber: item.productNumber,
-        packagingQuantity: item.packagingQuantity,
-        description: item.description,
-        image: item.image,
-        technicalData: item.technicalData,
-        manufacturerData: item.manufacturerData,
-        dataSources: item.dataSources,
-        imageCandidates: item.imageCandidates
-      })
-    })
-
-    // Add Alelek products
-    alekCatalog.items.forEach((item) => {
-      products.push({
-        id: generateProductId(item.name, 'alelek'),
-        name: item.name,
-        price: item.unitPrice || 0,
-        quantity: item.quantity,
-        unit: item.unit,
-        source: 'alelek',
-        articleNumber: item.articleNumber,
-        productNumber: item.productNumber,
-        packagingQuantity: item.packagingQuantity,
-        description: item.description,
-        image: item.image,
-        technicalData: item.technicalData,
-        manufacturerData: item.manufacturerData,
-        dataSources: item.dataSources,
-        imageCandidates: item.imageCandidates
-      })
-    })
-
     const search = typeof ctx.query.search === 'string' ? ctx.query.search : ''
     const hasSearch = Boolean(search.trim())
-    let filtered = searchShopProducts(products, search)
+    const popular = String(ctx.query.popular).toLowerCase() === 'true'
+    const source = typeof ctx.query.source === 'string' ? ctx.query.source : 'all'
+    const category = typeof ctx.query.category === 'string' ? ctx.query.category : 'all'
+    const price = typeof ctx.query.price === 'string' ? ctx.query.price : 'all'
+    const favoritesOnly = String(ctx.query.favoritesOnly).toLowerCase() === 'true'
+    const hasFilters = source !== 'all' || category !== 'all' || price !== 'all' || favoritesOnly
+    const offset = parseNonNegativeInteger(ctx.query.offset) || 0
+    const limit = parseNonNegativeInteger(ctx.query.limit)
+    const total = descoCatalog.items.length + alekCatalog.items.length
 
-    if (String(ctx.query.popular).toLowerCase() === 'true' && !hasSearch) {
+    if (!hasSearch && !popular && !hasFilters) {
+      const pageEnd = limit === undefined ? total : Math.min(total, offset + limit)
+      const descoPage = descoCatalog.items
+        .slice(offset, Math.min(pageEnd, descoCatalog.items.length))
+        .map((item) => toShopProduct(item, 'desco'))
+      const alelekStart = Math.max(0, offset - descoCatalog.items.length)
+      const alelekEnd = Math.max(0, pageEnd - descoCatalog.items.length)
+      const alelekPage = alekCatalog.items.slice(alelekStart, alelekEnd).map((item) => toShopProduct(item, 'alelek'))
+
+      ctx.body = {
+        total,
+        products: [...descoPage, ...alelekPage]
+      }
+      ctx.status = 200
+      return
+    }
+
+    if (hasSearch) {
+      const favoriteNames = favoritesOnly ? (await getFavorites()).map((material) => material.name) : undefined
+      const indexed = await searchShopIndex(
+        [
+          { source: 'desco', updatedAt: descoCatalog.updatedAt, items: descoCatalog.items },
+          { source: 'alelek', updatedAt: alekCatalog.updatedAt, items: alekCatalog.items }
+        ],
+        search,
+        { source, category, price, favoriteNames },
+        limit,
+        offset
+      )
+      const products = indexed.matches.map((match) => {
+        const items = match.source === 'desco' ? descoCatalog.items : alekCatalog.items
+        return toShopProduct(items[match.itemIndex], match.source)
+      })
+
+      ctx.body = { total: indexed.total, products }
+      ctx.status = 200
+      return
+    }
+
+    let filtered: ShopProduct[] = [
+      ...descoCatalog.items.map((item) => toShopProduct(item, 'desco')),
+      ...alekCatalog.items.map((item) => toShopProduct(item, 'alelek'))
+    ]
+
+    if (source !== 'all') filtered = filtered.filter((product) => product.source === source)
+    if (category !== 'all') filtered = filtered.filter((product) => getProductCategory(product) === category)
+    if (price === 'under-25') filtered = filtered.filter((product) => product.price < 25)
+    if (price === '25-100') filtered = filtered.filter((product) => product.price >= 25 && product.price <= 100)
+    if (price === '100-plus') filtered = filtered.filter((product) => product.price > 100)
+    if (favoritesOnly) {
+      const favoriteNames = new Set((await getFavorites()).map((material) => material.name))
+      filtered = filtered.filter((product) => favoriteNames.has(product.name))
+    }
+
+    if (popular && !hasSearch) {
       const [history, favorites] = await Promise.all([getHistory(), getFavorites()])
       const ranks = new Map<string, number>()
       favorites.forEach((material, index) => ranks.set(material.name.toLowerCase(), 10_000 - index))
@@ -123,8 +171,6 @@ router.get('/products', async (ctx) => {
         .sort((left, right) => (ranks.get(right.name.toLowerCase()) || 0) - (ranks.get(left.name.toLowerCase()) || 0))
     }
 
-    const offset = parseNonNegativeInteger(ctx.query.offset) || 0
-    const limit = parseNonNegativeInteger(ctx.query.limit)
     const pagedProducts = limit === undefined ? filtered.slice(offset) : filtered.slice(offset, offset + limit)
 
     ctx.body = {

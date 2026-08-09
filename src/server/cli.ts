@@ -15,7 +15,12 @@ type CliOptions = {
 const parseOptions = (argv: string[]): CliOptions => {
   const args = argv.slice(2)
   const command = args[0] === 'enrich' ? 'enrich' : 'sync'
-  const targetArg = args.slice(1).find((argument) => ['all', 'desco', 'alelek'].includes(argument)) || 'all'
+  const requestedTarget = args.slice(1).find((argument) => !argument.startsWith('-')) || 'all'
+  const targetArg = requestedTarget === 'allelek' ? 'alelek' : requestedTarget
+
+  if (!['all', 'desco', 'alelek'].includes(targetArg)) {
+    throw new Error(`Unknown sync target: ${requestedTarget}. Use all, desco or alelek.`)
+  }
 
   if (command === 'enrich') {
     const target = targetArg === 'desco' ? 'desco' : 'desco'
@@ -68,6 +73,46 @@ const runDescoSync = async (force: boolean): Promise<void> => {
   }
 }
 
+const createTerminalSpinner = () => {
+  const frames = ['|', '/', '-', '\\']
+  let frame = 0
+  let message = ''
+  let timer: ReturnType<typeof setInterval> | undefined
+  const interactive = Boolean(process.stdout.isTTY)
+
+  const render = (): void => {
+    const width = Math.max(20, (process.stdout.columns || 120) - 1)
+    const line = `${frames[frame++ % frames.length]} ${message}`.slice(0, width)
+    process.stdout.write(`\r\x1b[2K${line}`)
+  }
+
+  return {
+    update(nextMessage: string): void {
+      message = nextMessage
+      if (!interactive) return
+      render()
+      if (!timer) {
+        timer = setInterval(render, 100)
+        timer.unref()
+      }
+    },
+    finish(finalMessage: string): void {
+      if (timer) clearInterval(timer)
+      timer = undefined
+      if (interactive) {
+        process.stdout.write(`\r\x1b[2K${finalMessage}\n`)
+      } else {
+        console.log(finalMessage)
+      }
+    },
+    clear(): void {
+      if (timer) clearInterval(timer)
+      timer = undefined
+      if (interactive) process.stdout.write('\r\x1b[2K')
+    }
+  }
+}
+
 const runAlelekSync = async (force: boolean, scraper: boolean): Promise<void> => {
   if (!force && !(await shouldSyncAlelek())) {
     console.log('Alelek: skipped (synced within 7 days). Use --force to bypass.')
@@ -75,31 +120,45 @@ const runAlelekSync = async (force: boolean, scraper: boolean): Promise<void> =>
   }
 
   try {
+    let partial = false
+    let categoryActive = false
+    const spinner = scraper ? createTerminalSpinner() : undefined
     console.log(`Alelek: ${scraper ? 'scraper starten' : 'catalogusfeed ophalen'}…`)
-    const catalog = scraper
-      ? await syncAlelekCatalogViaScraperWithTracking(undefined, (progress) => {
-          if (progress.stage === 'category') {
-            console.log(`  [${progress.index}/${progress.total}] ${progress.category}: resultaten laden en scrollen…`)
-          } else if (progress.stage === 'discovered') {
-            console.log(
-              `  ${progress.category}: ${progress.found} gevonden · ${progress.pending} nog te bezoeken${
-                progress.footerReached ? ' · footer bereikt' : ''
-              }`
-            )
-          } else if (progress.stage === 'product') {
-            console.log(
-              `  [${progress.completed}/${progress.maximum}] ${progress.name} · ${progress.cached} producten opgeslagen`
-            )
-          } else if (progress.stage === 'rest') {
-            console.log(`  Rustpauze ${progress.seconds}s na ${progress.completed} producten…`)
-          } else {
-            console.log(
-              `  Scraper klaar: ${progress.cached} producten · ${progress.completedCategories}/${progress.totalCategories} categorieën`
-            )
-          }
-        })
-      : await syncAlelekCatalogWithTracking()
-    console.log(`✓ Alelek: ${catalog.count} items (${catalog.updatedAt})`)
+    try {
+      const catalog = scraper
+        ? await syncAlelekCatalogViaScraperWithTracking(undefined, (progress) => {
+            if (progress.stage === 'status') {
+              if (!categoryActive) spinner?.update(progress.message)
+            } else if (progress.stage === 'category') {
+              categoryActive = true
+              spinner?.update(`[${progress.category}]: pagina[-/-] - products [0/-]`)
+            } else if (progress.stage === 'category-complete') {
+              categoryActive = false
+              spinner?.finish(
+                `✓ [${progress.category}]: pagina[${progress.pages}/${progress.pages}] - products [${progress.products}/${progress.products}]`
+              )
+            } else if (progress.stage === 'pause') {
+              const minutes = Math.floor(progress.remainingSeconds / 60)
+              const seconds = String(progress.remainingSeconds % 60).padStart(2, '0')
+              spinner?.update(
+                `[${progress.category}]: pauze[${minutes}:${seconds}] - pagina[${progress.page}/${progress.totalPages}] - products [${progress.processed}/${progress.expected}]`
+              )
+            } else if (progress.stage === 'page') {
+              spinner?.update(
+                `[${progress.category}]: pagina[${progress.page}/${progress.totalPages}] - products [${progress.processed}/${progress.expected}]`
+              )
+            } else {
+              partial = progress.partial
+              spinner?.finish(
+                `${progress.partial ? 'Gedeeltelijke scan' : 'Scan volledig'}: ${progress.cached} producten · ${progress.completedCategories}/${progress.totalCategories} categorieën`
+              )
+            }
+          })
+        : await syncAlelekCatalogWithTracking()
+      console.log(`${partial ? '↻ Alelek gedeeltelijk' : '✓ Alelek'}: ${catalog.count} items (${catalog.updatedAt})`)
+    } finally {
+      spinner?.clear()
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`Alelek sync failed: ${message}`)
@@ -118,8 +177,7 @@ const runDescoEnrich = async (): Promise<void> => {
 
 const runImageCache = async (args: string[]): Promise<void> => {
   const sourceArg = args.find((argument) => !argument.startsWith('-')) || 'all'
-  const source: ProductImageSource =
-    sourceArg === 'desco' || sourceArg === 'alelek' ? sourceArg : 'all'
+  const source: ProductImageSource = sourceArg === 'desco' || sourceArg === 'alelek' ? sourceArg : 'all'
   const concurrencyArgument = args.find((argument) => argument.startsWith('--concurrency='))
   const concurrency = Math.max(1, Math.min(6, Number(concurrencyArgument?.split('=')[1]) || 2))
   let lastPrinted = 0

@@ -22,6 +22,9 @@ export class ShopView extends LiteElement {
   private currentLoadToken = 0
   private autocompleteLoadToken = 0
   private autocompleteTimer: ReturnType<typeof setTimeout> | undefined
+  private totalProducts = 0
+  private loadingMoreToken: number | undefined
+  private readonly productPageSize = 60
 
   static styles = [
     css`
@@ -315,40 +318,6 @@ export class ShopView extends LiteElement {
         border-radius: 12px;
         overflow: hidden;
         background: white;
-      }
-
-      .product-image-placeholder {
-        position: absolute;
-        inset: 4px;
-        display: grid;
-        place-content: center;
-        justify-items: center;
-        gap: 8px;
-        border-radius: 8px;
-        color: #263238;
-        background:
-          radial-gradient(circle at 25% 20%, rgb(255 255 255 / 72%), transparent 38%),
-          linear-gradient(145deg, #e8f0f2, #cfdde1);
-        text-align: center;
-      }
-
-      .product-placeholder-icon {
-        font-size: 42px;
-        line-height: 1;
-        color: #42636c;
-      }
-
-      .product-placeholder-label {
-        max-width: 170px;
-        font-size: 12px;
-        font-weight: 750;
-        letter-spacing: 0.035em;
-        text-transform: uppercase;
-      }
-
-      .product-placeholder-note {
-        font-size: 10px;
-        color: #607d86;
       }
 
       .product-image {
@@ -671,6 +640,10 @@ export class ShopView extends LiteElement {
         box-shadow: 0 28px 80px rgb(0 0 0 / 45%);
       }
 
+      .product-detail.no-media {
+        grid-template-columns: 1fr;
+      }
+
       .product-detail-media {
         position: sticky;
         top: 0;
@@ -832,8 +805,8 @@ export class ShopView extends LiteElement {
           padding: 12px;
         }
         .products-grid {
-          grid-template-columns: 1fr;
-          gap: 10px;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
         }
         .header {
           gap: 8px;
@@ -842,17 +815,39 @@ export class ShopView extends LiteElement {
           padding: 0 13px;
         }
         .filter-bar {
-          flex-wrap: nowrap;
-          overflow-x: auto;
-          padding-bottom: 3px;
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
         }
         .filter-select,
         .filter-toggle,
         .clear-filters {
-          flex: none;
+          width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
         }
         .result-count {
-          margin-left: 4px;
+          grid-column: 1 / -1;
+          margin-left: 0;
+        }
+        .product-card {
+          min-height: 0;
+          gap: 8px;
+          padding: 12px;
+          border-radius: 14px;
+        }
+        .product-image-wrap {
+          height: clamp(136px, 23vw, 160px);
+        }
+        .product-name {
+          height: 2.6em;
+          -webkit-line-clamp: 2;
+        }
+        .product-price {
+          font-size: 1.18rem;
+        }
+        .product-actions {
+          flex-wrap: wrap;
         }
         .product-modal {
           padding: 10px;
@@ -870,6 +865,29 @@ export class ShopView extends LiteElement {
           height: 260px;
         }
       }
+
+      @media (max-width: 460px) {
+        :host {
+          padding: 10px;
+        }
+        .header {
+          flex-wrap: wrap;
+        }
+        .search-bar {
+          flex-basis: 100%;
+          min-width: 0;
+        }
+        .cart-button {
+          width: 100%;
+        }
+        .filter-bar,
+        .products-grid {
+          grid-template-columns: 1fr;
+        }
+        .product-image-wrap {
+          height: 160px;
+        }
+      }
     `
   ]
 
@@ -878,30 +896,27 @@ export class ShopView extends LiteElement {
     await this.loadProducts()
   }
 
-  async loadProducts() {
-    const loadToken = ++this.currentLoadToken
+  async loadProducts(search = this.searchQuery.trim(), loadToken = ++this.currentLoadToken) {
+    if (loadToken !== this.currentLoadToken) return
     this.loading = true
 
     try {
-      const search = this.searchQuery || undefined
       const initialLimit = this.getInitialProductLimit()
-      const firstPage = await api.getShopProducts(search, {
+      const firstPage = await api.getShopProducts(search || undefined, {
         limit: initialLimit,
-        offset: 0
+        offset: 0,
+        ...this.getProductFilters()
       })
 
       if (loadToken !== this.currentLoadToken) return
 
       this.products = firstPage.products || []
+      this.totalProducts = firstPage.total
 
       // Load favorites
       const favorites = await api.getFavorites()
       if (loadToken !== this.currentLoadToken) return
       this.favoriteNames = new Set(favorites.map((m) => m.name))
-
-      if (firstPage.total > this.products.length) {
-        void this.loadRemainingProducts(search, this.products.length, loadToken)
-      }
     } catch (error) {
       if (loadToken !== this.currentLoadToken) return
       console.error('Failed to load products:', error)
@@ -927,8 +942,15 @@ export class ShopView extends LiteElement {
   }
 
   private async loadRemainingProducts(search: string | undefined, offset: number, loadToken: number): Promise<void> {
+    if (this.loading || this.loadingMoreToken === loadToken || offset >= this.totalProducts) return
+
+    this.loadingMoreToken = loadToken
     try {
-      const remaining = await api.getShopProducts(search, { offset })
+      const remaining = await api.getShopProducts(search, {
+        limit: this.productPageSize,
+        offset,
+        ...this.getProductFilters()
+      })
       if (loadToken !== this.currentLoadToken) return
       if (!remaining.products?.length) return
 
@@ -936,14 +958,37 @@ export class ShopView extends LiteElement {
     } catch (error) {
       if (loadToken !== this.currentLoadToken) return
       console.error('Failed to load remaining products:', error)
+    } finally {
+      if (this.loadingMoreToken === loadToken) this.loadingMoreToken = undefined
     }
+  }
+
+  private getProductFilters() {
+    return {
+      source: this.sourceFilter,
+      category: this.categoryFilter,
+      price: this.priceFilter,
+      favoritesOnly: this.favoritesOnly
+    }
+  }
+
+  private handleProductScroll = (event: Event) => {
+    const target = event.currentTarget as HTMLElement
+    const remainingScroll = target.scrollHeight - target.scrollTop - target.clientHeight
+    if (remainingScroll > target.clientHeight) return
+
+    void this.loadRemainingProducts(this.searchQuery || undefined, this.products.length, this.currentLoadToken)
   }
 
   private async refreshFavorites(): Promise<void> {
     try {
       const favorites = await api.getFavorites()
       this.favoriteNames = new Set(favorites.map((m) => m.name))
-      this.requestRender()
+      if (this.favoritesOnly) {
+        await this.loadProducts()
+      } else {
+        this.requestRender()
+      }
     } catch (error) {
       console.error('Failed to refresh favorites:', error)
     }
@@ -952,6 +997,8 @@ export class ShopView extends LiteElement {
   handleSearch = (event: Event) => {
     const input = event.target as HTMLInputElement | null
     this.searchQuery = input?.value || ''
+    const loadToken = ++this.currentLoadToken
+    this.loading = true
 
     if (this.autocompleteTimer) {
       clearTimeout(this.autocompleteTimer)
@@ -960,15 +1007,14 @@ export class ShopView extends LiteElement {
     const query = this.searchQuery.trim()
     if (!query) {
       this.autocompleteSuggestions = []
-      void this.loadProducts()
+      void this.loadProducts('', loadToken)
       return
     }
 
     this.autocompleteTimer = setTimeout(() => {
       void this.loadAutocompleteSuggestions(query)
-    }, 120)
-
-    void this.loadProducts()
+      void this.loadProducts(query, loadToken)
+    }, 200)
   }
 
   private async loadAutocompleteSuggestions(query: string): Promise<void> {
@@ -1031,38 +1077,13 @@ export class ShopView extends LiteElement {
       .filter(([label, value]) => Boolean(label && value))
   }
 
-  getProductVisualCategory(product: ShopProduct): { icon: string; label: string } {
-    const text = `${product.name} ${product.description || ''}`.toLowerCase()
-    if (/douche|bad\b|toilet|\bwc\b|spoel/.test(text)) return { icon: '▤', label: 'Sanitair' }
-    if (/kraan|mengkraan|tapkraan/.test(text)) return { icon: '⌁', label: 'Kranen' }
-    if (/ketel|brander|boiler|radiator|verwarm|thermostaat/.test(text)) return { icon: '♨', label: 'Verwarming' }
-    if (/pomp|circulat/.test(text)) return { icon: '⟳', label: 'Pompen' }
-    if (/buis|bocht|mof\b|koppeling|fitting|leiding/.test(text)) return { icon: '⑂', label: 'Leidingen & fittingen' }
-    if (/tang|zaag|boor|sleutel|gereedschap/.test(text)) return { icon: '⌕', label: 'Gereedschap' }
-    if (/ventiel|klep|afsluiter/.test(text)) return { icon: '◉', label: 'Kleppen & ventielen' }
-    return { icon: '◇', label: 'Installatiemateriaal' }
-  }
-
   getFilteredProducts(): ShopProduct[] {
-    return this.products.filter((product) => {
-      if (this.sourceFilter !== 'all' && product.source !== this.sourceFilter) return false
-      if (this.categoryFilter !== 'all' && this.getProductVisualCategory(product).label !== this.categoryFilter) {
-        return false
-      }
-      if (this.priceFilter === 'under-25' && product.price >= 25) return false
-      if (this.priceFilter === '25-100' && (product.price < 25 || product.price > 100)) return false
-      if (this.priceFilter === '100-plus' && product.price <= 100) return false
-      if (this.favoritesOnly && !this.favoriteNames.has(product.name)) return false
-      return true
-    })
+    return this.products
   }
 
   hasActiveFilters(): boolean {
     return (
-      this.sourceFilter !== 'all' ||
-      this.categoryFilter !== 'all' ||
-      this.priceFilter !== 'all' ||
-      this.favoritesOnly
+      this.sourceFilter !== 'all' || this.categoryFilter !== 'all' || this.priceFilter !== 'all' || this.favoritesOnly
     )
   }
 
@@ -1071,6 +1092,7 @@ export class ShopView extends LiteElement {
     this.categoryFilter = 'all'
     this.priceFilter = 'all'
     this.favoritesOnly = false
+    void this.loadProducts()
   }
 
   addToCart(product: ShopProduct) {
@@ -1193,7 +1215,6 @@ export class ShopView extends LiteElement {
     const technicalData = this.getProductTechnicalData(product)
     const manufacturerData = this.getManufacturerData(product)
     const sources = this.getProductSources(product)
-    const visualCategory = this.getProductVisualCategory(product)
     const draftQuantity = this.getDraftQuantity(product.id)
 
     return html`
@@ -1205,32 +1226,21 @@ export class ShopView extends LiteElement {
         @click=${(event: Event) => {
           if (event.target === event.currentTarget) this.closeProduct()
         }}>
-        <article class="product-detail">
-          <div class="product-detail-media">
-            <div class="product-image-wrap">
-              <div class="product-image-placeholder">
-                <span class="product-placeholder-icon">${visualCategory.icon}</span>
-                <span class="product-placeholder-label">${visualCategory.label}</span>
-                <span class="product-placeholder-note">Illustratie · foto volgt</span>
-              </div>
-              ${product.image
-                ? html`<img
+        <article class=${`product-detail${product.image ? '' : ' no-media'}`}>
+          ${product.image
+            ? html`<div class="product-detail-media">
+                <div class="product-image-wrap">
+                  <img
                     class="product-image"
                     src=${`/api/shop/image?variant=detail&url=${encodeURIComponent(product.image)}`}
                     alt=${product.name}
                     decoding="async"
                     @error=${(event: Event) => {
-                      const image = event.currentTarget as HTMLImageElement
-                      if (image.dataset.originalFallback !== 'true') {
-                        image.dataset.originalFallback = 'true'
-                        image.src = product.image!
-                      } else {
-                        image.hidden = true
-                      }
-                    }} />`
-                : ''}
-            </div>
-          </div>
+                      ;(event.currentTarget as HTMLImageElement).hidden = true
+                    }} />
+                </div>
+              </div>`
+            : ''}
 
           <div class="product-detail-content">
             <div class="product-detail-header">
@@ -1249,37 +1259,47 @@ export class ShopView extends LiteElement {
 
             ${description ? html`<p class="product-detail-description">${description}</p>` : ''}
             ${meta.length
-              ? html`<div class="product-meta">${meta.map((label) => html`<span class="meta-badge">${label}</span>`)}</div>`
+              ? html`<div class="product-meta">
+                  ${meta.map((label) => html`<span class="meta-badge">${label}</span>`)}
+                </div>`
               : ''}
-
             ${technicalData.length
               ? html`<section class="product-detail-section">
                   <h3>Technische informatie</h3>
                   <dl class="product-spec-list">
-                    ${technicalData.map(([label, value]) => html`<dt>${label}</dt><dd>${value}</dd>`)}
+                    ${technicalData.map(
+                      ([label, value]) =>
+                        html`<dt>${label}</dt>
+                          <dd>${value}</dd>`
+                    )}
                   </dl>
                 </section>`
               : ''}
-
             ${manufacturerData.length
               ? html`<section class="product-detail-section">
                   <h3>Fabrikantgegevens</h3>
                   <dl class="product-spec-list">
-                    ${manufacturerData.map(([label, value]) => html`<dt>${label}</dt><dd>${value}</dd>`)}
+                    ${manufacturerData.map(
+                      ([label, value]) =>
+                        html`<dt>${label}</dt>
+                          <dd>${value}</dd>`
+                    )}
                   </dl>
                 </section>`
               : ''}
-
             ${sources.length
               ? html`<section class="product-detail-section">
                   <h3>Bronnen</h3>
                   <div class="product-sources">
                     ${sources.map(
-                      (source) => html`<a
-                        class="product-source-link"
-                        href=${source.pageUrl}
-                        target="_blank"
-                        rel="noopener noreferrer">${source.provider}</a>`
+                      (source) =>
+                        html`<a
+                          class="product-source-link"
+                          href=${source.pageUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          >${source.provider}</a
+                        >`
                     )}
                   </div>
                 </section>`
@@ -1312,7 +1332,9 @@ export class ShopView extends LiteElement {
                 <button
                   class="qty-button"
                   ?disabled=${draftQuantity <= 1}
-                  @click=${() => this.adjustDraftQuantity(product.id, -1)}>−</button>
+                  @click=${() => this.adjustDraftQuantity(product.id, -1)}>
+                  −
+                </button>
                 <input
                   class="qty-input"
                   type="number"
@@ -1324,7 +1346,9 @@ export class ShopView extends LiteElement {
                   }} />
                 <button
                   class="qty-button"
-                  @click=${() => this.adjustDraftQuantity(product.id, 1)}>+</button>
+                  @click=${() => this.adjustDraftQuantity(product.id, 1)}>
+                  +
+                </button>
               </div>
               <button
                 class="cart-button"
@@ -1344,41 +1368,24 @@ export class ShopView extends LiteElement {
       (product: ShopProduct) => product.id,
       (product: ShopProduct) => {
         const draftQuantity = this.getDraftQuantity(product.id)
-        const visualCategory = this.getProductVisualCategory(product)
 
         return html`
           <div
             class="product-card"
             @click=${() => this.openProduct(product)}>
-            <div class="product-image-wrap">
-              <div
-                class="product-image-placeholder"
-                role="img"
-                aria-label=${`${visualCategory.label} illustratie; productfoto nog niet beschikbaar`}>
-                <span class="product-placeholder-icon">${visualCategory.icon}</span>
-                <span class="product-placeholder-label">${visualCategory.label}</span>
-                <span class="product-placeholder-note">Illustratie · foto volgt</span>
-              </div>
-              ${product.image
-                ? html`
-                    <img
-                      class="product-image"
-                      src=${`/api/shop/image?variant=card&url=${encodeURIComponent(product.image)}`}
-                      alt=${product.name}
-                      loading="lazy"
-                      decoding="async"
-                      @error=${(event: Event) => {
-                        const image = event.currentTarget as HTMLImageElement
-                        if (image.dataset.originalFallback !== 'true') {
-                          image.dataset.originalFallback = 'true'
-                          image.src = product.image!
-                        } else {
-                          image.hidden = true
-                        }
-                      }} />
-                  `
-                : ''}
-            </div>
+            ${product.image
+              ? html`<div class="product-image-wrap">
+                  <img
+                    class="product-image"
+                    src=${`/api/shop/image?variant=card&url=${encodeURIComponent(product.image)}`}
+                    alt=${product.name}
+                    loading="lazy"
+                    decoding="async"
+                    @error=${(event: Event) => {
+                      ;(event.currentTarget as HTMLImageElement).hidden = true
+                    }} />
+                </div>`
+              : ''}
             <div class="product-name">${product.name}</div>
             <div class="product-price">€${product.price.toFixed(2)}</div>
             <button
@@ -1511,6 +1518,7 @@ export class ShopView extends LiteElement {
               .value=${this.sourceFilter}
               @change=${(event: Event) => {
                 this.sourceFilter = (event.target as HTMLSelectElement).value
+                void this.loadProducts()
               }}>
               <option value="all">Alle leveranciers</option>
               <option value="desco">Desco</option>
@@ -1522,6 +1530,7 @@ export class ShopView extends LiteElement {
               .value=${this.categoryFilter}
               @change=${(event: Event) => {
                 this.categoryFilter = (event.target as HTMLSelectElement).value
+                void this.loadProducts()
               }}>
               <option value="all">Alle categorieën</option>
               <option value="Sanitair">Sanitair</option>
@@ -1539,6 +1548,7 @@ export class ShopView extends LiteElement {
               .value=${this.priceFilter}
               @change=${(event: Event) => {
                 this.priceFilter = (event.target as HTMLSelectElement).value
+                void this.loadProducts()
               }}>
               <option value="all">Alle prijzen</option>
               <option value="under-25">Tot €25</option>
@@ -1551,6 +1561,7 @@ export class ShopView extends LiteElement {
                 .checked=${this.favoritesOnly}
                 @change=${(event: Event) => {
                   this.favoritesOnly = (event.target as HTMLInputElement).checked
+                  void this.loadProducts()
                 }} />
               Alleen favorieten
             </label>
@@ -1560,11 +1571,13 @@ export class ShopView extends LiteElement {
               @click=${this.clearFilters}>
               Wis filters
             </button>
-            <span class="result-count">${filteredProducts.length} producten</span>
+            <span class="result-count">${this.totalProducts} producten</span>
           </div>
         </div>
 
-        <div class="products-scroll">
+        <div
+          class="products-scroll"
+          @scroll=${this.handleProductScroll}>
           ${this.loading
             ? html`<div class="loading">Producten laden...</div>`
             : filteredProducts.length === 0

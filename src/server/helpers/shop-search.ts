@@ -10,6 +10,11 @@ export type SearchableShopProduct = {
 
 const BRAND_LABEL = /^(merk|brand|fabrikant|manufacturer|producent)$/i
 
+export type ScoredShopProduct<T> = {
+  product: T
+  score: number
+}
+
 export const normalizeShopSearchText = (value: unknown): string =>
   String(value || '')
     .normalize('NFKD')
@@ -17,13 +22,6 @@ export const normalizeShopSearchText = (value: unknown): string =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
-
-const recordSearchText = (record?: Record<string, string>): string =>
-  Object.entries(record || {})
-    .flatMap(([label, value]) => [label, value])
-    .map(normalizeShopSearchText)
-    .filter(Boolean)
-    .join(' ')
 
 export const getShopProductBrands = (product: SearchableShopProduct): string[] => {
   const records = [product.manufacturerData, product.technicalData]
@@ -59,32 +57,43 @@ const scoreTerm = (term: string, product: SearchableShopProduct, brands: string[
   return score
 }
 
-export const searchShopProducts = <T extends SearchableShopProduct>(products: T[], query: string): T[] => {
+const recordContainsTerm = (record: Record<string, string> | undefined, term: string): boolean =>
+  Object.entries(record || {}).some(
+    ([label, value]) => normalizeShopSearchText(label).includes(term) || normalizeShopSearchText(value).includes(term)
+  )
+
+const productContainsTerm = (
+  product: SearchableShopProduct,
+  source: string | undefined,
+  brands: string[],
+  term: string
+): boolean => {
+  const primaryValues = [product.name, product.articleNumber, product.productNumber, source, ...brands]
+  if (primaryValues.some((value) => normalizeShopSearchText(value).includes(term))) return true
+  if (normalizeShopSearchText(product.description).includes(term)) return true
+  return recordContainsTerm(product.manufacturerData, term) || recordContainsTerm(product.technicalData, term)
+}
+
+export const scoreShopProducts = <T extends SearchableShopProduct>(
+  products: T[],
+  query: string,
+  source?: string
+): Array<ScoredShopProduct<T>> => {
   const terms = normalizeShopSearchText(query).split(/\s+/).filter(Boolean)
-  if (terms.length === 0) return products
+  if (terms.length === 0) return products.map((product) => ({ product, score: 0 }))
 
   return products
     .map((product) => {
       const brands = getShopProductBrands(product)
-      const fullText = [
-        product.name,
-        product.articleNumber,
-        product.productNumber,
-        product.description,
-        product.source,
-        ...brands,
-        recordSearchText(product.manufacturerData),
-        recordSearchText(product.technicalData)
-      ]
-        .map(normalizeShopSearchText)
-        .filter(Boolean)
-        .join(' ')
-
-      if (!terms.every((term) => fullText.includes(term))) return null
+      const productSource = product.source || source
+      if (!terms.every((term) => productContainsTerm(product, productSource, brands, term))) return null
       const score = terms.reduce((total, term) => total + scoreTerm(term, product, brands), 0)
       return { product, score }
     })
-    .filter((item): item is { product: T; score: number } => item !== null)
+    .filter((item): item is ScoredShopProduct<T> => item !== null)
+}
+
+export const searchShopProducts = <T extends SearchableShopProduct>(products: T[], query: string): T[] =>
+  scoreShopProducts(products, query)
     .sort((left, right) => right.score - left.score)
     .map(({ product }) => product)
-}

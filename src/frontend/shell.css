@@ -2,6 +2,8 @@
   display: block;
   height: 100%;
   width: 100%;
+  position: relative;
+  overflow: hidden;
   --app-accent: #a85427;
   --app-accent-strong: #8e451f;
   --app-accent-soft: color-mix(in srgb, var(--app-accent) 16%, transparent 84%);
@@ -364,8 +366,12 @@ img {
 }
 
 flex-container {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  height: auto;
   width: 100%;
+  --flex-display-align-items: stretch;
+  --flex-display-justify-content: flex-start;
 }
 flex-wrap-around {
   gap: 12px;
@@ -473,25 +479,45 @@ flex-container.wide-workspace {
 :host([is-narrow]) aside {
   opacity: 0;
   pointer-events: none;
-
-  max-width: 300px;
+  position: fixed;
+  width: min(86vw, 320px);
+  max-width: 320px;
+  z-index: 1000;
+  border-radius: 0 18px 18px 0;
+  box-shadow: var(--app-shadow-strong);
+  background: var(--md-sys-color-surface);
+  border-right: 1px solid var(--app-border);
   transition:
     opacity 0.3s ease-out,
-    transform 0.3s ease-out,
-    width 0.3s ease-out;
+    transform 0.3s ease-out;
   transform: translateX(-110%);
 }
 :host([is-narrow][is-menu-open]) aside {
   opacity: 1;
   transform: translateX(0);
   pointer-events: auto;
-  width: 100%;
-  position: fixed;
-  z-index: 1000;
   transition:
     opacity 0.3s ease-in,
-    transform 0.3s ease-in,
-    width 0.3s ease-in;
+    transform 0.3s ease-in;
+}
+
+:host([is-narrow][is-menu-open]) .drawer-backdrop {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  padding: 0;
+  border: 0;
+  background: color-mix(in srgb, black 62%, transparent 38%);
+  backdrop-filter: blur(3px);
+}
+
+:host([is-narrow][is-menu-open]) .menu-toggle {
+  left: min(calc(86vw - 48px), 272px);
+  opacity: 1;
+  pointer-events: auto;
+  position: fixed;
+  color: var(--md-sys-color-on-surface);
 }
 
 .menu-toggle {
@@ -501,7 +527,7 @@ flex-container.wide-workspace {
 :host([is-narrow]) main {
   left: 0;
   right: 0;
-  top: 72px;
+  top: 0;
   bottom: 0;
 }
 
@@ -585,18 +611,7 @@ flex-container.wide-workspace {
   }
 
   :host([is-narrow]) aside {
-    top: 0;
-    left: 0;
-    bottom: 0;
     width: min(86vw, 320px);
-    max-width: 320px;
-    border-radius: 0 18px 18px 0;
-    opacity: 0;
-    pointer-events: none;
-    transform: translateX(-110%);
-    box-shadow: var(--app-shadow-strong);
-    background: linear-gradient(145deg, var(--app-panel-strong), var(--app-panel));
-    border-right: 1px solid var(--app-border);
   }
 
   :host([is-narrow][is-menu-open]) aside {
@@ -605,26 +620,7 @@ flex-container.wide-workspace {
     transform: translateX(0);
   }
 
-  :host([is-menu-open]) .drawer-backdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 999;
-    padding: 0;
-    border: 0;
-    background: color-mix(in srgb, black 54%, transparent 46%);
-    backdrop-filter: blur(2px);
-  }
-
-  :host([is-menu-open]) .menu-toggle {
-    left: min(calc(86vw - 48px), 272px);
-    opacity: 1;
-    pointer-events: auto;
-    position: fixed;
-    color: var(--md-sys-color-on-surface);
-  }
-
-  main {
+  :host([is-narrow]) main {
     left: 0;
   }
 

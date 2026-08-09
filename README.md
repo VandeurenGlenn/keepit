@@ -173,17 +173,15 @@ Force sync (bypass 7-dagen check):
 
 Indien je geen URLs aangeeft, worden de standaard categorieën gescraped.
 
-**Opmerking:** De scraper gebruikt één Puppeteer-tab en doorloopt standaard alle zestien webshopcategorieën via `/nl/zoekresultaten?category=...`. Per categorie scrollt hij in hervatbare batches richting footer, opent hij elk gevonden product afzonderlijk en keert hij terug naar de resultatenlijst. Afbeeldingen, video en webfonts worden tijdens het scrapen niet geladen; productbeelden worden afzonderlijk door de lokale image-cache verwerkt. De voortgang en bereikte scrolldiepte staan in `.database/alelek-scraper-state.json`, zodat een volgende run dieper gaat zonder dezelfde producten opnieuw te bezoeken. Er is standaard geen daglimiet; `KEEPIT_ALELEK_SCRAPER_DAILY_LIMIT` kan optioneel een grens instellen. Per run worden maximaal 75 nieuwe producten verwerkt, standaard met 3–6 seconden tussen producten en langere rustpauzes. `KEEPIT_ALELEK_SCRAPER_MIN_PRODUCT_DELAY_MS` en `KEEPIT_ALELEK_SCRAPER_MAX_PRODUCT_DELAY_MS` kunnen dit bijstellen, met een harde veilige ondergrens. Bij HTTP 403, 429, 503, captcha of een access-denied-pagina stopt hij onmiddellijk.
+**Opmerking:** De scraper gebruikt de gepagineerde Alelek artikel-API en doorloopt alle zestien hoofdcategorieën sequentieel. Elke API-pagina bevat maximaal 250 producten. De volgende pagina, het verwachte producttotaal en de reeds gevonden producten worden atomisch bewaard in `.database/alelek-scraper-state.json`. Een volgende run hervat daardoor exact bij de volgende pagina. Na elke batch van standaard 25.000 producten pauzeert de runner willekeurig 20 seconden tot 3 minuten en gaat daarna automatisch verder; `KEEPIT_ALELEK_SCRAPER_MAX_PRODUCTS` past de batchgrootte aan. Een gedeeltelijke run wordt niet als voltooide sync geregistreerd en wordt bij de volgende `npm run sync` automatisch hervat. Start na de upgrade één keer met `npm run keepit -- sync alelek --force` om een oude sync-timestamp te negeren. `KEEPIT_ALELEK_SCRAPER_DAILY_LIMIT` kan optioneel het aantal API-requests per dag begrenzen. Bij HTTP 403, 429 of 503 stopt de crawler onmiddellijk en bewaart hij het checkpoint.
 
 Voor een kleine proefrun of een lagere daglimiet:
 
 ```bash
-KEEPIT_ALELEK_SCRAPER_MAX_PRODUCTS=5 \
+KEEPIT_ALELEK_SCRAPER_MAX_PRODUCTS=500 \
 KEEPIT_ALELEK_SCRAPER_DAILY_LIMIT=20 \
 npm run keepit -- sync alelek --force
 ```
-
-Wanneer Alelek een losse headless browsersessie niet aanvaardt, kan dezelfde crawler zichtbaar worden uitgevoerd met `KEEPIT_ALELEK_SCRAPER_HEADLESS=false`. De rate limits en checkpoints blijven daarbij identiek.
 
 Bij bedrijven met naam die `alelek` of `tecmine` bevat, worden die items automatisch meegenomen in `GET /api/invoices/materials`.
 

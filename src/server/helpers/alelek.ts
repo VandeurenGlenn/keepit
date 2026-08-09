@@ -1,8 +1,8 @@
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'fs/promises'
 import { resolve } from 'path'
 import { MaterialLine } from '../../types/index.js'
-import { scrapeAlekCategories, ScrapedProduct, type AlelekScraperProgress } from './alelek-scraper.js'
-import { recordSync } from './sync-tracker.js'
+import { scrapeAlekCategories, type AlelekScraperProgress, type ScrapedProduct } from './alelek-scraper.js'
+import { clearSync, recordSync } from './sync-tracker.js'
 
 type JsonObject = Record<string, unknown>
 
@@ -20,6 +20,7 @@ type AlelekCatalog = {
 }
 
 const alelekCatalogPath = resolve('.database', 'alelek-materials.json')
+let alelekCatalogCache: { modifiedAt: number; catalog: AlelekCatalog } | undefined
 
 const normalizeString = (value: unknown): string => {
   if (typeof value !== 'string') return ''
@@ -415,6 +416,9 @@ const writeAlelekCatalog = async (items: MaterialLine[]): Promise<AlelekCatalog>
 
 export const readAlelekCatalog = async (): Promise<AlelekCatalog> => {
   try {
+    const modifiedAt = (await stat(alelekCatalogPath)).mtimeMs
+    if (alelekCatalogCache?.modifiedAt === modifiedAt) return alelekCatalogCache.catalog
+
     const raw = await readFile(alelekCatalogPath, 'utf8')
     const parsed = JSON.parse(raw) as Partial<AlelekCatalog>
 
@@ -427,12 +431,14 @@ export const readAlelekCatalog = async (): Promise<AlelekCatalog> => {
       }
     }
 
-    return {
+    const catalog: AlelekCatalog = {
       source: 'alelek',
       updatedAt: normalizeString(parsed.updatedAt),
       count: Number(parsed.count) || parsed.items.length,
       items: dedupeMaterials(parsed.items)
     }
+    alelekCatalogCache = { modifiedAt, catalog }
+    return catalog
   } catch {
     return {
       source: 'alelek',
@@ -499,8 +505,16 @@ export const syncAlelekCatalogViaScraperWithTracking = async (
   categoryUrls?: string[],
   onProgress?: (progress: AlelekScraperProgress) => void
 ): Promise<AlelekCatalog> => {
-  const catalog = await syncAlelekCatalogViaScraper(categoryUrls, onProgress)
-  await recordSync('alelek')
+  let complete = false
+  const catalog = await syncAlelekCatalogViaScraper(categoryUrls, (progress) => {
+    if (progress.stage === 'complete') complete = !progress.partial
+    onProgress?.(progress)
+  })
+  if (complete) {
+    await recordSync('alelek')
+  } else {
+    await clearSync('alelek')
+  }
   return catalog
 }
 
@@ -544,7 +558,14 @@ export const syncAlelekCatalogViaScraper = async (
       image: product.image,
       technicalData: product.technicalData,
       dataSources: product.url
-        ? [{ provider: 'Groep Alelek webshop', pageUrl: product.url, productNumber: product.sku, fetchedAt: new Date().toISOString() }]
+        ? [
+            {
+              provider: 'Groep Alelek webshop',
+              pageUrl: product.url,
+              productNumber: product.sku,
+              fetchedAt: new Date().toISOString()
+            }
+          ]
         : undefined
     }))
 

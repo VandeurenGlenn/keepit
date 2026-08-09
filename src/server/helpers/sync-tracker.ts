@@ -36,6 +36,12 @@ export const recordSync = async (source: 'desco' | 'alelek'): Promise<void> => {
   await writeTimestamps(timestamps)
 }
 
+export const clearSync = async (source: 'desco' | 'alelek'): Promise<void> => {
+  const timestamps = await readTimestamps()
+  delete timestamps[source]
+  await writeTimestamps(timestamps)
+}
+
 export const shouldSyncDesco = async (): Promise<boolean> => {
   const timestamps = await readTimestamps()
   return shouldSync('desco', timestamps)

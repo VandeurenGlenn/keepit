@@ -96,9 +96,12 @@ class ApiClient {
     return this.request('GET', '/jobs')
   }
 
-  async createJob(
-    job: { name: string; description?: string; place: any; uuid?: string }
-  ): Promise<{ uuid: string; content: Job }> {
+  async createJob(job: {
+    name: string
+    description?: string
+    place: any
+    uuid?: string
+  }): Promise<{ uuid: string; content: Job }> {
     return this.request('POST', '/jobs', job)
   }
 
@@ -124,7 +127,10 @@ class ApiClient {
     return this.request<PlanningEntry>('POST', '/planning', input)
   }
 
-  async updatePlanning(id: string, updates: Partial<Pick<PlanningEntry, 'jobId' | 'userIds' | 'start' | 'end' | 'notes'>>) {
+  async updatePlanning(
+    id: string,
+    updates: Partial<Pick<PlanningEntry, 'jobId' | 'userIds' | 'start' | 'end' | 'notes'>>
+  ) {
     return this.request<PlanningEntry>('PATCH', `/planning/${id}`, updates)
   }
 
@@ -275,7 +281,15 @@ class ApiClient {
   // Shop API
   async getShopProducts(
     search?: string,
-    options?: { limit?: number; offset?: number; popular?: boolean }
+    options?: {
+      limit?: number
+      offset?: number
+      popular?: boolean
+      source?: string
+      category?: string
+      price?: string
+      favoritesOnly?: boolean
+    }
   ): Promise<{ total: number; products: ShopProduct[] }> {
     const params = new URLSearchParams()
 
@@ -283,6 +297,10 @@ class ApiClient {
     if (options?.limit !== undefined) params.set('limit', String(options.limit))
     if (options?.offset !== undefined) params.set('offset', String(options.offset))
     if (options?.popular) params.set('popular', 'true')
+    if (options?.source && options.source !== 'all') params.set('source', options.source)
+    if (options?.category && options.category !== 'all') params.set('category', options.category)
+    if (options?.price && options.price !== 'all') params.set('price', options.price)
+    if (options?.favoritesOnly) params.set('favoritesOnly', 'true')
 
     const query = params.size > 0 ? `?${params.toString()}` : ''
     return this.request('GET', `/shop/products${query}`)
