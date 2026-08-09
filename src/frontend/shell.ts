@@ -157,15 +157,6 @@ export class AppShell extends LiteElement {
       this.error = null
     }
 
-    const navItems = this.shadowRoot.querySelectorAll('.nav-item')
-    navItems.forEach((item) => {
-      item.classList.remove('active')
-    })
-    const activeItem = this.shadowRoot.querySelector(`.nav-item[href="${hash}"]`)
-    if (activeItem) {
-      activeItem.classList.add('active')
-    }
-
     if (!(await customElements.get(`${path}-view`))) await import(`./${path}-view.js`)
 
     const promises = []
@@ -860,70 +851,70 @@ export class AppShell extends LiteElement {
               aria-label="Menu sluiten"
               @click=${() => this._closeMenu()}></button>
             <aside>
-            <div class="logo-area">
-              <img
-                class="logo"
-                loading="lazy"
-                src="https://dimac.be/assets/dimac.svg"
-                alt="Dimac" />
-            </div>
-            <div
-              class="nav-container"
-              @click=${() => this._closeMenu()}>
-              <a
-                href="#!/home"
-                class="nav-item"
-                ><custom-icon icon="home"></custom-icon>Home</a
-              >
-              <a
-                href="#!/timeline"
-                class="nav-item"
-                ><custom-icon icon="timeline"></custom-icon>Mijn tijdlijn</a
-              >
-              <a
-                href="#!/quotes"
-                class="nav-item"
-                ><custom-icon icon="request_quote"></custom-icon>Offertes</a
-              >
-              <a
-                href="#!/jobs"
-                class="nav-item"
-                ><custom-icon icon="inventory2"></custom-icon>Jobs</a
-              >
-              <a
-                href="#!/planning"
-                class="nav-item"
-                ><custom-icon icon="calendar_month"></custom-icon>Planning</a
-              >
-              <a
-                href="#!/companies"
-                class="nav-item"
-                ><custom-icon icon="source_environment"></custom-icon>Klanten</a
-              >
-              <a
-                href="#!/suppliers"
-                class="nav-item"
-                ><custom-icon icon="local_shipping"></custom-icon>Leveranciers</a
-              >
-              <a
-                href="#!/invoices"
-                class="nav-item"
-                ><custom-icon icon="receipt"></custom-icon>Facturen</a
-              >
-              <span class="nav-section-label">Materiaal</span>
-              <a
-                href="#!/shop"
-                class="nav-item"
-                ><custom-icon icon="storefront"></custom-icon>Shop</a
-              >
-              <a
-                href="#!/users"
-                class="nav-item"
-                ><custom-icon icon="group"></custom-icon>Team</a
-              >
-            </div>
-            <div class="drawer-bottom"><build-info></build-info></div>
-          </aside>`
+              <div class="logo-area">
+                <img
+                  class="logo"
+                  loading="lazy"
+                  src="https://dimac.be/assets/dimac.svg"
+                  alt="Dimac" />
+              </div>
+              <div
+                class="nav-container"
+                @click=${() => this._closeMenu()}>
+                <a
+                  href="#!/home"
+                  class=${this.selected === 'home' ? 'nav-item active' : 'nav-item'}
+                  ><custom-icon icon="home"></custom-icon>Home</a
+                >
+                <a
+                  href="#!/timeline"
+                  class=${this.selected === 'timeline' ? 'nav-item active' : 'nav-item'}
+                  ><custom-icon icon="timeline"></custom-icon>Mijn tijdlijn</a
+                >
+                <a
+                  href="#!/quotes"
+                  class=${this.selected === 'quotes' ? 'nav-item active' : 'nav-item'}
+                  ><custom-icon icon="request_quote"></custom-icon>Offertes</a
+                >
+                <a
+                  href="#!/jobs"
+                  class=${this.selected === 'jobs' ? 'nav-item active' : 'nav-item'}
+                  ><custom-icon icon="inventory2"></custom-icon>Jobs</a
+                >
+                <a
+                  href="#!/planning"
+                  class=${this.selected === 'planning' ? 'nav-item active' : 'nav-item'}
+                  ><custom-icon icon="calendar_month"></custom-icon>Planning</a
+                >
+                <a
+                  href="#!/companies"
+                  class=${this.selected === 'companies' ? 'nav-item active' : 'nav-item'}
+                  ><custom-icon icon="source_environment"></custom-icon>Klanten</a
+                >
+                <a
+                  href="#!/suppliers"
+                  class=${this.selected === 'suppliers' ? 'nav-item active' : 'nav-item'}
+                  ><custom-icon icon="local_shipping"></custom-icon>Leveranciers</a
+                >
+                <a
+                  href="#!/invoices"
+                  class=${this.selected === 'invoices' ? 'nav-item active' : 'nav-item'}
+                  ><custom-icon icon="receipt"></custom-icon>Facturen</a
+                >
+                <span class="nav-section-label">Materiaal</span>
+                <a
+                  href="#!/shop"
+                  class=${this.selected === 'shop' ? 'nav-item active' : 'nav-item'}
+                  ><custom-icon icon="storefront"></custom-icon>Shop</a
+                >
+                <a
+                  href="#!/users"
+                  class=${this.selected === 'users' ? 'nav-item active' : 'nav-item'}
+                  ><custom-icon icon="group"></custom-icon>Team</a
+                >
+              </div>
+              <div class="drawer-bottom"><build-info></build-info></div>
+            </aside>`
         : ''}
 
       <main>

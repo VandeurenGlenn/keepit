@@ -260,6 +260,14 @@ Om catalog + cache te verplaatsen naar een andere server zonder volledige resync
 
 - `npm run catalog:zip`
 
+Herstel de nieuwste catalog snapshot naar de projectmap:
+
+- `npm run catalog:unzip`
+
+Of herstel een specifieke snapshot:
+
+- `npm run catalog:unzip -- catalog-snapshots/catalog-snapshot-2026-05-15_19-22-10-175.zip`
+
 Dit maakt een zip in `catalog-snapshots/` met:
 
 - `.database/desco-materials.json`

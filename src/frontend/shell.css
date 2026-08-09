@@ -64,39 +64,15 @@ aside {
   top: 0;
   left: 0;
   bottom: 0;
-  width: 320px;
+  width: 280px;
   pointer-events: auto;
-  box-shadow: 0 12px 30px rgba(9, 8, 12, 0.2);
-  color: var(--md-sys-color-on-surface);
-  border-top-right-radius: 20px;
-  border-bottom-right-radius: 20px;
-  overflow: hidden;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--md-sys-color-background) 93%, var(--app-panel) 7%),
-    color-mix(in srgb, var(--md-sys-color-background) 97%, black 3%)
-  );
-  border-right: 1px solid color-mix(in srgb, var(--app-border) 56%, transparent 44%);
-}
-
-aside::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  pointer-events: none;
-  background: color-mix(in srgb, white 4%, transparent 96%);
-  z-index: 0;
-}
-
-aside::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-right: 1px solid color-mix(in srgb, black 8%, transparent 92%);
   box-shadow: none;
-  z-index: 1;
+  color: var(--md-sys-color-on-surface);
+  border-radius: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--md-sys-color-background) 96%, var(--app-panel) 4%);
+  border: 0;
+  border-right: 1px solid var(--app-border);
 }
 
 :host(:not([signed-in])) aside {
@@ -108,7 +84,7 @@ main {
   flex-direction: column;
   position: absolute;
   top: 0;
-  left: 320px;
+  left: 280px;
   bottom: 0;
   right: 0;
   overflow: auto;
@@ -350,7 +326,7 @@ main::before {
 
 .logo-area {
   position: relative;
-  padding: 22px 20px 14px;
+  padding: 24px 20px 18px;
   flex-shrink: 0;
   z-index: 1;
 }
@@ -370,12 +346,12 @@ main::before {
   left: 20px;
   right: 20px;
   height: 1px;
-  background: color-mix(in srgb, var(--app-border) 70%, transparent 30%);
+  background: var(--app-border);
 }
 
 .logo {
   display: block;
-  width: 112px;
+  width: 120px;
   height: auto;
   box-sizing: border-box;
   overflow: hidden;
@@ -427,20 +403,19 @@ flex-container.wide-workspace {
 .nav-item {
   position: relative;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
-  padding: 9px 10px;
+  padding: 0 14px;
   box-sizing: border-box;
   text-decoration: none;
-  font-size: 0.84rem;
-  font-weight: 600;
-  min-height: 42px;
+  font-size: 0.95rem;
+  font-weight: 750;
+  min-height: 44px;
   cursor: pointer;
-  gap: 8px;
-  letter-spacing: 0.002em;
-  border-radius: 10px;
+  gap: 12px;
+  border-radius: 14px;
   border: 1px solid transparent;
-  color: color-mix(in srgb, var(--md-sys-color-on-surface) 72%, transparent 28%);
+  color: var(--md-sys-color-on-surface-variant);
   background: transparent;
   transition:
     transform 0.12s ease,
@@ -451,26 +426,14 @@ flex-container.wide-workspace {
 }
 
 .nav-item::before {
-  content: '';
-  position: absolute;
-  left: 4px;
-  top: 50%;
-  transform: translateY(-50%) scaleY(0);
-  width: 2px;
-  height: 18px;
-  border-radius: 999px;
-  background: var(--app-accent);
-  opacity: 0;
-  transition:
-    transform 0.18s ease,
-    opacity 0.18s ease;
+  display: none;
 }
 
 .nav-container {
   display: flex;
   flex-direction: column;
   flex: 1;
-  padding: 12px 10px 8px;
+  padding: 16px 14px 12px;
   gap: 4px;
   overflow-y: auto;
   position: relative;
@@ -480,22 +443,26 @@ flex-container.wide-workspace {
 .nav-section-label {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 8px 4px;
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 16px 12px 8px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
   line-height: 1;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--md-sys-color-on-surface-variant) 48%, transparent 52%);
+  color: var(--app-accent);
 }
 
-.nav-section-label::before,
+.nav-section-label::before {
+  display: none;
+}
+
 .nav-section-label::after {
   content: '';
   flex: 1;
   height: 1px;
-  background: color-mix(in srgb, var(--app-border) 70%, transparent 30%);
+  background: var(--app-border);
 }
 
 :host([is-narrow]) .menu-toggle {
@@ -521,11 +488,6 @@ flex-container.wide-workspace {
   width: 100%;
   position: fixed;
   z-index: 1000;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--md-sys-color-background) 93%, var(--app-panel) 7%),
-    color-mix(in srgb, var(--md-sys-color-background) 97%, black 3%)
-  );
   transition:
     opacity 0.3s ease-in,
     transform 0.3s ease-in,
@@ -557,24 +519,23 @@ flex-container.wide-workspace {
 }
 
 .active {
-  background: color-mix(in srgb, var(--app-panel-strong) 94%, var(--app-accent) 6%);
+  background: var(--app-accent-soft-strong);
   color: var(--md-sys-color-on-surface);
-  border-radius: 10px;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 4%, transparent 96%);
-  font-weight: 600;
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 5%, transparent 95%);
+  font-weight: 800;
   cursor: pointer;
   --custom-icon-color: var(--app-accent);
-  border-color: color-mix(in srgb, var(--app-accent) 20%, transparent 80%);
+  border-color: color-mix(in srgb, var(--app-accent) 28%, transparent 72%);
 }
 
-.active::before {
-  transform: translateY(-50%) scaleY(1);
-  opacity: 1;
+.nav-item.active:hover {
+  background: color-mix(in srgb, var(--app-accent) 30%, transparent 70%);
 }
 
 .nav-item:hover:not(.active) {
-  background: color-mix(in srgb, var(--app-panel-strong) 92%, transparent 8%);
-  border-color: color-mix(in srgb, var(--app-border) 52%, transparent 48%);
+  background: var(--app-panel-strong);
+  border-color: var(--app-border);
   box-shadow: none;
   color: var(--md-sys-color-on-surface);
   cursor: pointer;
@@ -586,14 +547,9 @@ flex-container.wide-workspace {
   outline-offset: -2px;
 }
 
-.nav-item:hover:not(.active)::before {
-  transform: translateY(-50%) scaleY(0);
-  opacity: 0;
-}
-
 .nav-item custom-icon {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -605,18 +561,21 @@ flex-container.wide-workspace {
 }
 
 .drawer-bottom {
-  padding: 10px 14px 14px;
-  border-top: 1px solid color-mix(in srgb, var(--app-border) 44%, transparent 56%);
+  padding: 16px 22px 18px;
+  border-top: 1px solid var(--app-border);
   flex-shrink: 0;
   position: relative;
   z-index: 1;
 }
 
 .drawer-bottom build-info {
-  font-size: 0.62rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  opacity: 0.3;
+  display: block;
+  width: 100%;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  opacity: 0.55;
 }
 
 @media (max-width: 720px) {
@@ -626,6 +585,9 @@ flex-container.wide-workspace {
   }
 
   :host([is-narrow]) aside {
+    top: 0;
+    left: 0;
+    bottom: 0;
     width: min(86vw, 320px);
     max-width: 320px;
     border-radius: 0 18px 18px 0;
@@ -633,6 +595,8 @@ flex-container.wide-workspace {
     pointer-events: none;
     transform: translateX(-110%);
     box-shadow: var(--app-shadow-strong);
+    background: linear-gradient(145deg, var(--app-panel-strong), var(--app-panel));
+    border-right: 1px solid var(--app-border);
   }
 
   :host([is-narrow][is-menu-open]) aside {
@@ -665,19 +629,29 @@ flex-container.wide-workspace {
   }
 
   .logo-area {
-    padding: 18px 18px 14px;
+    padding: 20px 18px 16px;
+  }
+
+  .logo-area::after {
+    left: 18px;
+    right: 18px;
+  }
+
+  .logo {
+    width: 128px;
   }
 
   .nav-container {
-    padding: 10px 12px;
-    gap: 3px;
+    padding: 12px;
+    gap: 4px;
   }
 
   .nav-item {
-    grid-template-columns: 28px minmax(0, 1fr);
-    font-size: 0.85rem;
-    padding: 9px 10px;
-    min-height: 44px;
+    grid-template-columns: 24px minmax(0, 1fr);
+    min-height: 48px;
+    padding: 0 14px;
+    gap: 12px;
+    font-size: 0.95rem;
   }
 
   .signed-out-shell {
