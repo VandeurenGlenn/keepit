@@ -21,6 +21,8 @@
     "images:cache": "node ./server/cli.js images",
     "catalog:zip": "node ./scripts/catalog-snapshot.mjs",
     "catalog:unzip": "node ./scripts/catalog-restore.mjs",
+    "catalog:publish": "node ./scripts/catalog-publish.mjs",
+    "catalog:latest": "node ./scripts/catalog-latest.mjs",
     "catalog:recover-desco-cache": "node ./scripts/recover-desco-cache.mjs",
     "enrich:manufacturers": "node ./scripts/manufacturer-enrichment.mjs"
   },
