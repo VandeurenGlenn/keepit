@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdir } from 'fs/promises'
+import { mkdir, rm } from 'fs/promises'
 import { resolve } from 'path'
 import { spawnSync } from 'child_process'
 
@@ -33,8 +33,10 @@ const main = async () => {
   if (!archiveName) throw new Error(`No catalog snapshot assets found in GitHub Release ${releaseTag}.`)
 
   await mkdir(snapshotDir, { recursive: true })
-  run('gh', ['release', 'download', releaseTag, '--pattern', archiveName, '--dir', snapshotDir, '--clobber'])
-  run(process.execPath, ['./scripts/catalog-restore.mjs', resolve(snapshotDir, archiveName)])
+  const archivePath = resolve(snapshotDir, archiveName)
+  await rm(archivePath, { force: true })
+  run('gh', ['release', 'download', releaseTag, '--pattern', archiveName, '--dir', snapshotDir])
+  run(process.execPath, ['./scripts/catalog-restore.mjs', archivePath])
 }
 
 main().catch((error) => {
