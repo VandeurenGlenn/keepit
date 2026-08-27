@@ -1,6 +1,8 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import { User, Users } from '../../types/index.js'
 import './../elements/list/item.js'
+import { confirmAction } from '../helpers/confirmation.js'
+import { showToast } from '../helpers/toast.js'
 
 export class UsersView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor users: Users
@@ -34,12 +36,8 @@ export class UsersView extends LiteElement {
         gap: 16px;
         width: 100%;
         padding: 22px 24px;
-        border-radius: 22px;
-        background: linear-gradient(
-          180deg,
-          color-mix(in srgb, var(--workspace-panel) 96%, white 4%),
-          var(--workspace-panel)
-        );
+        border-radius: var(--app-radius-panel);
+        background: var(--workspace-panel);
         border: 1px solid var(--workspace-border);
         box-shadow: var(--app-shadow-soft);
         box-sizing: border-box;
@@ -56,14 +54,13 @@ export class UsersView extends LiteElement {
         width: fit-content;
         align-items: center;
         gap: 8px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: var(--workspace-accent-soft);
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
         color: var(--workspace-accent);
         font-size: 0.76rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        font-weight: 500;
+        letter-spacing: 0;
       }
 
       .panel-title-row,
@@ -84,7 +81,8 @@ export class UsersView extends LiteElement {
       .panel-title {
         margin: 0;
         font-size: 1.5rem;
-        line-height: 1.08;
+        font-weight: 600;
+        line-height: 1.2;
       }
 
       .panel-description {
@@ -97,7 +95,7 @@ export class UsersView extends LiteElement {
       .users-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-        gap: 16px;
+        gap: 10px;
         width: 100%;
       }
 
@@ -106,14 +104,10 @@ export class UsersView extends LiteElement {
         flex-direction: column;
         gap: 12px;
         padding: 15px;
-        border-radius: 17px;
+        border-radius: var(--app-radius-control);
         border: 1px solid color-mix(in srgb, var(--workspace-border) 88%, transparent 12%);
-        background: linear-gradient(
-          180deg,
-          color-mix(in srgb, var(--workspace-panel-strong) 94%, white 6%),
-          color-mix(in srgb, var(--workspace-panel-strong) 100%, black 0%)
-        );
-        box-shadow: var(--app-shadow-soft);
+        background: var(--workspace-panel);
+        box-shadow: none;
       }
 
       .user-header {
@@ -131,7 +125,7 @@ export class UsersView extends LiteElement {
         object-fit: cover;
         background: color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent 82%);
         color: var(--md-sys-color-primary);
-        font-weight: 700;
+        font-weight: 600;
       }
 
       .user-meta {
@@ -171,7 +165,7 @@ export class UsersView extends LiteElement {
         padding: 0 13px;
         font: inherit;
         font-size: 0.76rem;
-        font-weight: 700;
+        font-weight: 500;
         cursor: pointer;
       }
 
@@ -215,7 +209,7 @@ export class UsersView extends LiteElement {
         .workspace-panel,
         .user-card {
           padding: 16px;
-          border-radius: 17px;
+          border-radius: var(--app-radius-panel);
         }
 
         .panel-title-row {
@@ -402,7 +396,7 @@ export class UsersView extends LiteElement {
   }
 
   _deleteUser = async (uuid: string) => {
-    const answer = confirm('Ben je zeker dat je deze gebruiker wilt verwijderen?')
+    const answer = await confirmAction({ title: 'Medewerker verwijderen?', message: 'De medewerker verliest toegang tot Keepit. Bestaande uren blijven bewaard.', confirmLabel: 'Medewerker verwijderen' })
     if (!answer) return
     const response = await fetch(`/api/users/${uuid}`, {
       method: 'DELETE',
@@ -421,6 +415,7 @@ export class UsersView extends LiteElement {
 
     delete this.users[uuid]
     this.requestRender()
+    showToast('Medewerker verwijderd.')
   }
 
   renderRoleBadges(roles: string[] = []) {

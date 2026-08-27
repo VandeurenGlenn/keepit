@@ -48,6 +48,7 @@ export type TimelineLocationEvent = {
 }
 
 export type Prestation = {
+  id?: prestationId
   description?: string
   checkin: EpochTimeStamp
   serverCheckin: EpochTimeStamp
@@ -64,6 +65,20 @@ export type Prestation = {
   checkoutLocationVerification?: LocationVerification
   invoicedAt?: EpochTimeStamp
   invoiceId?: invoiceId
+  /** How this work session was created. Location timeline events never create work sessions. */
+  source?: 'manual' | 'offline-sync' | 'admin' | 'legacy'
+  clientRequestId?: string
+  checkoutClientRequestId?: string
+  corrections?: WorkTimeCorrection[]
+}
+
+export type WorkTimeCorrection = {
+  id: string
+  actorId: userId
+  correctedAt: string
+  reason: string
+  before: { checkin: EpochTimeStamp; checkout?: EpochTimeStamp }
+  after: { checkin: EpochTimeStamp; checkout?: EpochTimeStamp }
 }
 
 export interface InvoiceHourLine {
@@ -110,6 +125,18 @@ export interface Job extends BaseInput {
     author?: string
   }[]
   status?: 'active' | 'completed'
+  archivedAt?: string
+}
+
+export type JobCompletionCheck = {
+  ready: boolean
+  issues: Array<{ kind: 'open-hours' | 'uninvoiced-hours' | 'materials' | 'notes' | 'images' | 'planning'; message: string; blocking: boolean }>
+}
+
+export type WorkReport = {
+  from: string
+  to: string
+  rows: Array<{ userId: userId; jobId: jobId; prestationId: prestationId; checkin: number; checkout?: number; duration: number; unusual: boolean; future: boolean }>
 }
 
 export interface Company extends BaseInput {
@@ -119,6 +146,7 @@ export interface Company extends BaseInput {
 }
 
 export interface User extends BaseInput {
+  id?: userId
   email: string
   googleEmail?: string
   picture: string
@@ -126,8 +154,12 @@ export interface User extends BaseInput {
   phone: string
   roles?: string[]
   currentJob?: jobId
+  currentPrestationId?: prestationId
   preferences?: {
     continuousTimelineLocation?: boolean
+    planningNotifications?: boolean
+    planningEmailNotifications?: boolean
+    locationSuggestionNotifications?: boolean
   }
   invited?: boolean
 }
@@ -172,6 +204,10 @@ export interface Invoice extends BaseInput {
   year?: number
   materials?: MaterialLine[]
   hours?: InvoiceHourLine[]
+  quoteId?: quoteId
+  laborAmount?: number
+  discountAmount?: number
+  vatRate?: number
 }
 
 export type QuoteStatus = 'draft' | 'sent' | 'approved' | 'rejected'
@@ -184,6 +220,10 @@ export interface Quote extends BaseInput {
   notes?: string
   validUntil?: string
   createdBy: userId
+  laborAmount?: number
+  discountAmount?: number
+  vatRate?: number
+  convertedInvoiceId?: invoiceId
 }
 
 export interface MaterialLine {
@@ -202,6 +242,7 @@ export interface MaterialLine {
   manufacturerData?: Record<string, string>
   dataSources?: ProductDataSource[]
   imageCandidates?: ProductImageCandidate[]
+  enrichedAt?: string
 }
 
 export interface ProductDataSource {
@@ -308,6 +349,23 @@ export type Quotes = {
   [quoteId: string]: Quote
 }
 
+export type BackupReason = 'automatic' | 'manual' | 'pre-restore'
+
+export interface BackupSummary {
+  id: string
+  createdAt: string
+  reason: BackupReason
+  sizeBytes: number
+}
+
+export interface KeepitBackup {
+  format: 'keepit-backup'
+  version: 1
+  createdAt: string
+  reason: BackupReason
+  datasets: Record<string, Record<string, unknown>>
+}
+
 export type MediaAssets = {
   [mediaId: string]: MediaAsset
 }
@@ -345,6 +403,10 @@ export type TimelineTrackingStates = {
     activeJobId?: jobId
     activeJobStartedAt?: EpochTimeStamp
     activeJobLocation?: WorkLocation
+    nearbyJobId?: jobId
+    nearbyJobSamples?: number
+    suggestedCheckinJobId?: jobId
+    suggestedCheckinAt?: EpochTimeStamp
   }
 }
 export type Invites = {

@@ -12,16 +12,14 @@ export class ViewHeader extends LiteElement {
       :host {
         display: flex;
         align-items: center;
-        min-height: 86px;
-        background:
-          radial-gradient(circle at 92% 10%, var(--app-accent-soft), transparent 34%),
-          linear-gradient(145deg, var(--app-panel-strong), var(--app-panel));
+        min-height: 80px;
+        background: var(--app-panel);
         color: var(--md-sys-color-on-surface);
-        border-radius: 20px;
+        border-radius: var(--app-radius-panel);
         --custom-icon-color: var(--app-accent);
         --custom-icon-size: 26px;
         width: 100%;
-        padding: 18px 20px;
+        padding: 16px 18px;
         box-sizing: border-box;
         border: 1px solid var(--app-border);
         box-shadow: var(--app-shadow-soft);
@@ -59,8 +57,10 @@ export class ViewHeader extends LiteElement {
 
       h1 {
         grid-column: 2;
-        font-size: clamp(1.35rem, 2vw, 1.8rem);
-        line-height: 1.05;
+        font-size: 1.55rem;
+        font-weight: 600;
+        line-height: 1.2;
+        letter-spacing: 0;
       }
 
       p {
@@ -78,7 +78,7 @@ export class ViewHeader extends LiteElement {
         place-items: center;
         width: 46px;
         height: 46px;
-        border-radius: 13px;
+        border-radius: var(--app-radius-control);
         background: var(--app-accent-soft);
       }
 
@@ -97,9 +97,10 @@ export class ViewHeader extends LiteElement {
       }
 
       @media (max-width: 720px) {
-        :host { min-height: 76px; padding: 15px 16px; border-radius: 17px; }
+        :host { min-height: 72px; padding: 14px 16px; border-radius: var(--app-radius-panel); }
         a { grid-template-columns: 38px minmax(0, 1fr); gap: 2px 11px; }
         custom-icon { width: 38px; height: 38px; --custom-icon-size: 22px; }
+        h1 { font-size: 1.3rem; }
       }
     `
   ]

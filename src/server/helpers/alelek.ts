@@ -20,6 +20,7 @@ type AlelekCatalog = {
 }
 
 const alelekCatalogPath = resolve('.database', 'alelek-materials.json')
+const alelekManufacturerOverridesPath = resolve('.database', 'alelek-manufacturer-overrides.json')
 let alelekCatalogCache: { modifiedAt: number; catalog: AlelekCatalog } | undefined
 
 const normalizeString = (value: unknown): string => {
@@ -399,14 +400,40 @@ const parseAlelekMaterials = (raw: string, contentType: string): MaterialLine[] 
   return dedupeMaterials(parseXmlMaterials(raw))
 }
 
+const applyManufacturerOverrides = async (items: MaterialLine[]): Promise<MaterialLine[]> => {
+  try {
+    const raw = JSON.parse(await readFile(alelekManufacturerOverridesPath, 'utf8')) as {
+      items?: Record<string, Partial<MaterialLine>>
+    }
+    const overrides = raw.items || {}
+    return items.map((item) => {
+      const key = String(item.articleNumber || item.productNumber || '')
+      const override = overrides[key]
+      if (!override) return item
+      const dataSources = [...(item.dataSources || []), ...(override.dataSources || [])]
+      return {
+        ...item,
+        image: override.image || item.image,
+        manufacturerData: override.manufacturerData,
+        imageCandidates: override.imageCandidates,
+        enrichedAt: override.enrichedAt,
+        dataSources: [...new Map(dataSources.map((source) => [`${source.provider}|${source.pageUrl}`, source])).values()]
+      }
+    })
+  } catch {
+    return items
+  }
+}
+
 const writeAlelekCatalog = async (items: MaterialLine[]): Promise<AlelekCatalog> => {
   await mkdir(resolve('.database'), { recursive: true })
+  const enrichedItems = await applyManufacturerOverrides(items)
 
   const catalog: AlelekCatalog = {
     source: 'alelek',
     updatedAt: new Date().toISOString(),
-    count: items.length,
-    items
+    count: enrichedItems.length,
+    items: enrichedItems
   }
 
   await writeFile(alelekCatalogPath, JSON.stringify(catalog, null, 2), 'utf8')

@@ -22,6 +22,7 @@ export class TimelineTracker {
   private watchId?: number
   private lastSent?: WorkLocation
   private sending = false
+  suggestionsEnabled = true
 
   start() {
     if (this.watchId !== undefined || !('geolocation' in navigator)) return
@@ -63,8 +64,11 @@ export class TimelineTracker {
     try {
       const result = await api.submitTimelinePosition(location)
       if (result.accepted) this.lastSent = location
-      if (result.shouldNotifyCheckout && result.currentJob) {
+      if (this.suggestionsEnabled && result.shouldNotifyCheckout && result.currentJob) {
         await this.showCheckoutNotification(result.currentJob)
+      }
+      if (this.suggestionsEnabled && result.shouldSuggestCheckin && result.suggestedJob) {
+        await this.showCheckinNotification(result.suggestedJob)
       }
       if (result.events?.length) {
         window.dispatchEvent(new CustomEvent('keepit-timeline-events', { detail: result.events }))
@@ -77,23 +81,70 @@ export class TimelineTracker {
   }
 
   private async showCheckoutNotification(job: { id: string; name: string }) {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return
+    const title = 'Voorstel: werk stoppen?'
+    const body = `Je bent vertrokken van ${job.name}. Keepit heeft niets automatisch gestopt; bevestig zelf je check-out.`
+    const target = '#!/checkout'
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      this.showInAppSuggestion(`${body}`, 'Check-out bekijken', target)
+      return
+    }
     const options: NotificationOptions = {
-      body: `Je bent vertrokken van ${job.name}, maar je werkregistratie loopt nog.`,
+      body,
       icon: '/assets/dimac.svg',
       badge: '/assets/dimac.svg',
       tag: `checkout-${job.id}`,
-      data: { url: '#!/checkout' }
+      data: { url: target }
     }
     if ('serviceWorker' in navigator) {
       const registration = await navigator.serviceWorker.ready
-      await registration.showNotification('Nog uitchecken?', options)
+      await registration.showNotification(title, options)
       return
     }
-    const notification = new Notification('Nog uitchecken?', options)
+    const notification = new Notification(title, options)
     notification.onclick = () => {
-      location.hash = '#!/checkout'
+      location.hash = target
       window.focus()
     }
+  }
+
+  private async showCheckinNotification(job: { id: string; name: string }) {
+    const title = 'Voorstel: werk starten?'
+    const body = `Je lijkt aangekomen bij ${job.name}. Keepit start niets automatisch; bevestig zelf je check-in.`
+    const target = `#!/checkin?job=${encodeURIComponent(job.id)}`
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      this.showInAppSuggestion(body, 'Check-in bekijken', target)
+      return
+    }
+    const options: NotificationOptions = {
+      body,
+      icon: '/assets/dimac.svg',
+      badge: '/assets/dimac.svg',
+      tag: `checkin-suggestion-${job.id}`,
+      data: { url: target }
+    }
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.ready
+      await registration.showNotification(title, options)
+      return
+    }
+    const notification = new Notification(title, options)
+    notification.onclick = () => {
+      location.hash = target
+      window.focus()
+    }
+  }
+
+  private showInAppSuggestion(message: string, actionLabel: string, target: string) {
+    window.dispatchEvent(
+      new CustomEvent('keepit-toast', {
+        detail: {
+          message,
+          actionLabel,
+          action: () => {
+            location.hash = target
+          }
+        }
+      })
+    )
   }
 }

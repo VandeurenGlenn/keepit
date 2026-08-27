@@ -14,14 +14,14 @@
   z-index: 2200;
   padding: 20px;
   box-sizing: border-box;
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(6px);
 }
 
 .hero {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
+  background: var(--app-panel);
   color: var(--md-sys-color-on-surface-container-high);
   padding: 22px;
-  border-radius: 20px;
+  border-radius: var(--app-radius-dialog);
   box-shadow: var(--app-shadow-strong);
   border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
   width: min(100%, 560px);
@@ -55,9 +55,8 @@ header small {
   border-radius: 999px;
   background: var(--app-accent-soft);
   color: var(--app-accent);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .step-info {
@@ -101,7 +100,7 @@ footer {
 
   .hero {
     padding: 18px;
-    border-radius: 22px;
+    border-radius: var(--app-radius-dialog);
   }
 
   header small {

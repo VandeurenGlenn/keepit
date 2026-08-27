@@ -8,6 +8,7 @@ const jobsMixin = JobsMixin(LiteElement)
 export class JobsView extends jobsMixin {
   @property({ type: String }) accessor searchQuery = ''
   @property({ type: String }) accessor statusFilter = 'active'
+  @property({ type: Object, consumes: true }) accessor user: any
 
   static styles = [
     css`
@@ -38,10 +39,8 @@ export class JobsView extends jobsMixin {
         padding: 22px 24px;
         overflow: hidden;
         border: 1px solid var(--app-border);
-        border-radius: 22px;
-        background:
-          radial-gradient(circle at 92% 10%, color-mix(in srgb, var(--app-accent) 13%, transparent 87%), transparent 32%),
-          linear-gradient(145deg, var(--app-panel-strong), var(--app-panel));
+        border-radius: var(--app-radius-panel);
+        background: var(--app-panel);
         box-shadow: var(--app-shadow-soft);
       }
 
@@ -82,15 +81,15 @@ export class JobsView extends jobsMixin {
         margin-bottom: 4px;
         color: var(--app-accent);
         font-size: 0.72rem;
-        font-weight: 800;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
+        font-weight: 500;
+        letter-spacing: 0;
       }
 
       .page-header h1 {
-        font-size: clamp(1.65rem, 3vw, 2.3rem);
-        line-height: 1.05;
-        letter-spacing: -0.025em;
+        font-size: 1.75rem;
+        font-weight: 600;
+        line-height: 1.2;
+        letter-spacing: 0;
       }
 
       .page-header p {
@@ -118,7 +117,7 @@ export class JobsView extends jobsMixin {
         border-color: var(--app-accent-strong);
         background: var(--app-accent);
         color: var(--md-sys-color-on-primary);
-        font-weight: 750;
+        font-weight: 600;
         white-space: nowrap;
       }
 
@@ -209,8 +208,8 @@ export class JobsView extends jobsMixin {
         min-height: 118px;
         overflow: hidden;
         border: 1px solid var(--app-border);
-        border-radius: 18px;
-        background: linear-gradient(145deg, var(--app-panel-strong), var(--app-panel));
+        border-radius: var(--app-radius-panel);
+        background: var(--app-panel);
         box-shadow: var(--app-shadow-soft);
         transition:
           transform 160ms ease,
@@ -219,9 +218,9 @@ export class JobsView extends jobsMixin {
       }
 
       .job-card:hover {
-        transform: translateY(-2px);
         border-color: color-mix(in srgb, var(--app-accent) 34%, var(--app-border) 66%);
-        box-shadow: var(--app-shadow-strong);
+        background: var(--app-panel-strong);
+        box-shadow: var(--app-shadow-soft);
       }
 
       .job-link {
@@ -281,7 +280,7 @@ export class JobsView extends jobsMixin {
         padding: 0 8px;
         border-radius: 999px;
         font-size: 0.67rem;
-        font-weight: 750;
+        font-weight: 600;
       }
 
       .status {
@@ -429,13 +428,13 @@ export class JobsView extends jobsMixin {
             <p>${activeCount} actieve ${activeCount === 1 ? 'job' : 'jobs'} · ${allJobs.length} totaal</p>
           </div>
         </div>
-        <button
+        ${this.user?.roles?.includes('admin') ? html`<button
           class="primary"
           ?disabled=${this.creatingJob}
           @click=${() => this._createJob()}>
           <custom-icon icon="add"></custom-icon>
           <span class="primary-label">Nieuwe job</span>
-        </button>
+        </button>` : ''}
       </header>
 
       <div class="toolbar">
@@ -490,14 +489,14 @@ export class JobsView extends jobsMixin {
                     class="job-arrow"
                     icon="arrow-forward"></custom-icon>
                 </a>
-                <button
+                ${this.user?.roles?.includes('admin') ? html`<button
                   type="button"
                   class="delete-button"
-                  aria-label=${`${job.name || 'job'} verwijderen`}
-                  title="Job verwijderen"
+                  aria-label=${`${job.name || 'job'} ${job.status === 'completed' ? 'heropenen' : 'archiveren'}`}
+                  title=${job.status === 'completed' ? 'Job heropenen' : 'Job archiveren'}
                   @click=${() => this._deleteJob(key)}>
-                  <custom-icon icon="delete"></custom-icon>
-                </button>
+                  <custom-icon icon=${job.status === 'completed' ? 'unarchive' : 'archive'}></custom-icon>
+                </button>` : ''}
               </article>`
             )}
           </section>`

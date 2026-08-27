@@ -2,6 +2,8 @@ import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
 import { Job, MaterialLine, Prestation, ShopProduct, User } from '../../types/index.js'
 import { api } from '../api/client.js'
+import { setUnsavedChanges } from '../helpers/unsaved-changes.js'
+import { showToast } from '../helpers/toast.js'
 
 function msToTime(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '-'
@@ -95,10 +97,20 @@ export class JobView extends LiteElement {
   @property({ type: Boolean }) accessor savingDetails = false
   @property({ type: String }) accessor detailName = ''
   @property({ type: String }) accessor detailDescription = ''
+  @property({ type: String }) accessor correctionId = ''
+  @property({ type: String }) accessor correctionUserId = ''
+  @property({ type: String }) accessor correctionStart = ''
+  @property({ type: String }) accessor correctionEnd = ''
+  @property({ type: String }) accessor correctionReason = ''
+  @property({ type: Boolean }) accessor correctingHours = false
 
   favoriteNames: Set<string> = new Set()
   private materialPickerLoadToken = 0
   private materialPickerSearchTimer: ReturnType<typeof setTimeout> | undefined
+  materialBaseline='[]'
+  detailBaseline=''
+  get jobDirty(){return JSON.stringify(this.sanitizedMaterials)!==this.materialBaseline||(this.editingDetails&&JSON.stringify([this.detailName.trim(),this.detailDescription.trim()])!==this.detailBaseline)}
+  disconnectedCallback(){setUnsavedChanges('job',false);super.disconnectedCallback()}
 
   static styles = [
     css`
@@ -120,10 +132,10 @@ export class JobView extends LiteElement {
         gap: 14px;
         width: 100%;
         padding: 18px;
-        border-radius: 24px;
-        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
+        border-radius: var(--app-radius-panel);
+        background: var(--app-panel);
         border: 1px solid var(--app-border);
-        box-shadow: var(--app-shadow-strong);
+        box-shadow: var(--app-shadow-soft);
         box-sizing: border-box;
       }
 
@@ -260,7 +272,7 @@ export class JobView extends LiteElement {
         min-width: 70px;
         color: var(--app-accent);
         font-size: 0.82rem;
-        font-weight: 800;
+        font-weight: 600;
         text-align: right;
       }
 
@@ -680,6 +692,15 @@ export class JobView extends LiteElement {
         font-weight: 750;
         line-height: 1.4;
       }
+      .hour-edit { min-height:30px; padding:0 9px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel-strong); color:var(--app-accent); font:inherit; font-size:.7rem; cursor:pointer; }
+      .correction-form { flex-basis:100%; display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:12px; border:1px solid var(--app-border); border-radius:var(--app-radius-control); background:var(--app-panel-strong); }
+      .correction-form label { display:flex; flex-direction:column; gap:5px; font-size:.68rem; }
+      .correction-form input { min-width:0; height:38px; padding:0 9px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel); color:inherit; font:inherit; }
+      .correction-reason { grid-column:1/-1; }
+      .correction-actions { grid-column:1/-1; display:flex; justify-content:flex-end; gap:7px; }
+      .correction-actions button { min-height:36px; padding:0 11px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel); color:inherit; font:inherit; cursor:pointer; }
+      .correction-actions .save { border-color:var(--app-accent-strong); background:var(--app-accent); color:var(--md-sys-color-on-primary); }
+      .correction-audit { flex-basis:100%; color:var(--md-sys-color-on-surface-variant); font-size:.68rem; }
 
       .note-meta {
         font-size: 12px;
@@ -712,7 +733,7 @@ export class JobView extends LiteElement {
         box-sizing: border-box;
         overflow: hidden;
         border: 1px solid var(--app-border);
-        border-radius: 22px;
+        border-radius: var(--app-radius-panel);
         background:
           radial-gradient(circle at 92% 10%, color-mix(in srgb, var(--app-accent) 13%, transparent 87%), transparent 32%),
           linear-gradient(145deg, var(--app-panel-strong), var(--app-panel));
@@ -756,9 +777,8 @@ export class JobView extends LiteElement {
         margin-bottom: 5px;
         color: var(--app-accent);
         font-size: 0.72rem;
-        font-weight: 800;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
+        font-weight: 500;
+        letter-spacing: 0;
       }
 
       .job-title,
@@ -866,6 +886,8 @@ export class JobView extends LiteElement {
         background: color-mix(in srgb, var(--app-panel) 96%, white 4%);
       }
 
+      .section-nav{position:sticky;z-index:20;top:0;display:flex;gap:6px;padding:7px;border:1px solid var(--app-border);border-radius:14px;background:color-mix(in srgb,var(--md-sys-color-surface) 92%,transparent);backdrop-filter:blur(16px);box-shadow:var(--app-shadow-soft)}.section-nav button{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 11px;border:0;border-radius:9px;background:transparent;color:var(--md-sys-color-on-surface-variant);font:inherit;font-size:.76rem;font-weight:700}.section-nav button:hover,.section-nav button:focus-visible{background:var(--app-accent-soft);color:var(--app-accent);outline:0}.section-nav custom-icon{--custom-icon-color:currentColor;--custom-icon-size:17px}.section-panel{scroll-margin-top:64px}
+
       .stat-copy {
         display: flex;
         flex-direction: column;
@@ -876,13 +898,12 @@ export class JobView extends LiteElement {
         color: var(--md-sys-color-on-surface-variant);
         font-size: 0.72rem;
         font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
+        letter-spacing: 0;
       }
 
       .stat-value {
         font-size: 1.3rem;
-        font-weight: 800;
+        font-weight: 600;
         font-variant-numeric: tabular-nums;
       }
 
@@ -1046,7 +1067,7 @@ export class JobView extends LiteElement {
         .details-panel,
         .section-panel {
           padding: 16px;
-          border-radius: 20px;
+          border-radius: var(--app-radius-panel);
         }
 
         .job-hero {
@@ -1154,7 +1175,7 @@ export class JobView extends LiteElement {
           height: min(88dvh, 820px);
           border-left: none;
           border-top: 1px solid var(--app-border);
-          border-radius: 22px 22px 0 0;
+          border-radius: var(--app-radius-dialog) var(--app-radius-dialog) 0 0;
           box-shadow: 0 -18px 48px rgb(0 0 0 / 28%);
         }
 
@@ -1207,10 +1228,14 @@ export class JobView extends LiteElement {
       }
       this.selectedJobId = selected
       this.materials = this.normalizeMaterials(this.job?.materials)
+      this.materialBaseline=JSON.stringify(this.sanitizedMaterials)
       this.openMaterials = false
+      const tab=params.get('tab')
+      if(tab==='materials')this.openMaterials=true
       this.editingDetails = false
       this.detailName = this.job?.name || ''
       this.detailDescription = this.job?.description || ''
+      this.detailBaseline=JSON.stringify([this.detailName.trim(),this.detailDescription.trim()])
       await this.loadMaterialSuggestions()
 
       try {
@@ -1236,6 +1261,7 @@ export class JobView extends LiteElement {
         this.openUsers = {}
       }
     }
+    queueMicrotask(()=>setUnsavedChanges('job',this.jobDirty))
   }
 
   normalizeMaterials(value: MaterialLine[] | undefined): MaterialDraft[] {
@@ -1613,16 +1639,19 @@ export class JobView extends LiteElement {
   }
 
   async saveMaterials(closePicker = false) {
-    if (!this.selectedJobId) return alert('De job kon niet bepaald worden.')
+    if (!this.selectedJobId) return showToast('De job kon niet bepaald worden.')
 
     try {
       const updated = await api.updateJob(this.selectedJobId, { materials: this.sanitizedMaterials })
       this.job = updated
+      this.materialBaseline=JSON.stringify(this.sanitizedMaterials)
+      setUnsavedChanges('job',false)
       if (closePicker) this.closeMaterialPickerPanel()
       this.requestRender()
+      showToast('Materialen opgeslagen.')
     } catch (error) {
       console.error('Failed to save materials:', error)
-      alert('De materialen konden niet opgeslagen worden.')
+      showToast('De materialen konden niet opgeslagen worden.')
     }
   }
 
@@ -1648,10 +1677,13 @@ export class JobView extends LiteElement {
         description: this.detailDescription.trim()
       })
       this.editingDetails = false
+      this.detailBaseline=JSON.stringify([this.detailName.trim(),this.detailDescription.trim()])
+      setUnsavedChanges('job',this.jobDirty)
       this.requestRender()
+      showToast('Jobgegevens opgeslagen.')
     } catch (error) {
       console.error('Failed to save job details:', error)
-      alert('De jobgegevens konden niet opgeslagen worden.')
+      showToast('De jobgegevens konden niet opgeslagen worden.')
     } finally {
       this.savingDetails = false
     }
@@ -1691,6 +1723,40 @@ export class JobView extends LiteElement {
     return 'Ongebruikelijk lange registratie: meer dan 12 uur. Controleer de tijden.'
   }
 
+  toLocalDateTime(value?: number) {
+    if (!value || !Number.isFinite(value)) return ''
+    const date = new Date(value - new Date(value).getTimezoneOffset() * 60_000)
+    return date.toISOString().slice(0, 16)
+  }
+
+  startHourCorrection(userId: string, prestation: Prestation) {
+    if (!prestation.id) return
+    this.correctionId = prestation.id
+    this.correctionUserId = userId
+    this.correctionStart = this.toLocalDateTime(Number(prestation.checkin))
+    this.correctionEnd = this.toLocalDateTime(Number(prestation.checkout))
+    this.correctionReason = ''
+  }
+
+  cancelHourCorrection() { this.correctionId = ''; this.correctionUserId = ''; this.correctionReason = '' }
+
+  async saveHourCorrection() {
+    const checkin = new Date(this.correctionStart).getTime()
+    const checkout = this.correctionEnd ? new Date(this.correctionEnd).getTime() : undefined
+    if (!this.selectedJobId || !this.correctionId || !this.correctionUserId || !Number.isFinite(checkin) || (checkout !== undefined && (!Number.isFinite(checkout) || checkout < checkin))) return showToast('Controleer de begin- en eindtijd.')
+    if (this.correctionReason.trim().length < 3) return showToast('Geef kort aan waarom je de uren corrigeert.')
+    this.correctingHours = true
+    try {
+      const updated = await api.correctHours(this.selectedJobId, this.correctionUserId, this.correctionId, { checkin, checkout, reason: this.correctionReason.trim() })
+      this.hours = { ...this.hours, [this.correctionUserId]: (this.hours[this.correctionUserId] || []).map((item) => item.id === this.correctionId ? updated : item) }
+      this.cancelHourCorrection()
+      showToast('Uren gecorrigeerd en vastgelegd in het auditlog.')
+    } catch (error) {
+      console.error(error)
+      showToast('De urencorrectie kon niet opgeslagen worden.')
+    } finally { this.correctingHours = false }
+  }
+
   @property({ type: Object, consumes: true }) accessor job: Job | undefined = undefined
 
   @property({ type: String }) accessor newNoteText = ''
@@ -1699,7 +1765,7 @@ export class JobView extends LiteElement {
     if (!this.job) return
 
     const text = (this.newNoteText || '').trim()
-    if (!text) return alert('Vul eerst een notitie in.')
+    if (!text) return showToast('Vul eerst een notitie in.')
 
     const note = {
       id: crypto.randomUUID(),
@@ -1713,7 +1779,7 @@ export class JobView extends LiteElement {
     // try to determine job uuid key; shell provides this.job from consuming context and may include uuid elsewhere
     const jobId = this.selectedJobId
     if (!jobId) {
-      return alert('Unable to determine job id')
+      return showToast('De job kon niet bepaald worden.')
     }
 
     try {
@@ -1721,9 +1787,10 @@ export class JobView extends LiteElement {
       this.job = updated
       this.newNoteText = ''
       this.requestRender()
+      showToast('Notitie toegevoegd.')
     } catch (error) {
       console.error('Failed to save note:', error)
-      alert('De notitie kon niet bewaard worden.')
+      showToast('De notitie kon niet bewaard worden.')
     }
   }
 
@@ -1973,9 +2040,11 @@ export class JobView extends LiteElement {
         </div>
       </section>
 
+      <nav class="section-nav" aria-label="Jobsecties">${[['job-hours','schedule','Uren'],['job-materials','inventory2','Materialen'],['job-notes','notes','Notities']].map(([id,icon,label])=>html`<button type="button" @click=${()=>this.shadowRoot?.getElementById(id)?.scrollIntoView({behavior:'smooth'})}><custom-icon icon=${icon}></custom-icon>${label}</button>`)}</nav>
+
       <div class="job-content-grid">
         <div class="main-column">
-      <section class="section-panel">
+      <section class="section-panel" id="job-hours">
         <div class="section-heading">
           <div><h2>Uren</h2><p>Registraties per medewerker</p></div>
         </div>
@@ -2015,6 +2084,10 @@ export class JobView extends LiteElement {
                                 )}</span
                               >
                               <span>${msToTime(getPrestationDuration(prestation))}</span>
+                              <small>${prestation.source === 'offline-sync' ? 'Offline geregistreerd' : prestation.source === 'admin' ? 'Admin' : prestation.source === 'legacy' ? 'Oude registratie' : 'Manueel'}</small>
+                              ${this.user?.roles?.includes('admin') && prestation.id && !prestation.invoiceId ? html`<button class="hour-edit" @click=${() => this.startHourCorrection(userId, prestation)}>Corrigeren</button>` : null}
+                              ${prestation.corrections?.length ? html`<span class="correction-audit">${prestation.corrections.length} ${prestation.corrections.length === 1 ? 'correctie' : 'correcties'} · laatste: ${prestation.corrections.at(-1)?.reason}</span>` : null}
+                              ${this.correctionId === prestation.id ? html`<div class="correction-form"><label>Begin<input type="datetime-local" .value=${this.correctionStart} @input=${(event:Event)=>(this.correctionStart=(event.target as HTMLInputElement).value)} /></label><label>Einde<input type="datetime-local" .value=${this.correctionEnd} @input=${(event:Event)=>(this.correctionEnd=(event.target as HTMLInputElement).value)} /></label><label class="correction-reason">Reden<input maxlength="500" placeholder="Waarom worden deze uren aangepast?" .value=${this.correctionReason} @input=${(event:Event)=>(this.correctionReason=(event.target as HTMLInputElement).value)} /></label><div class="correction-actions"><button @click=${()=>this.cancelHourCorrection()}>Annuleren</button><button class="save" ?disabled=${this.correctingHours} @click=${()=>this.saveHourCorrection()}>${this.correctingHours?'Opslaan…':'Correctie opslaan'}</button></div></div>` : null}
                               ${futureTimeWarning
                                 ? html`<div class="hour-future-warning" role="status">
                                     ⚠ ${futureTimeWarning}
@@ -2036,7 +2109,7 @@ export class JobView extends LiteElement {
         </div>
       </section>
 
-      <section class="section-panel">
+      <section class="section-panel" id="job-materials">
         <div class="materials-header">
           <div class="materials-header-meta">
             <h4 class="section-title">Materialen</h4>
@@ -2204,7 +2277,7 @@ export class JobView extends LiteElement {
         </div>
         <div class="side-column">
 
-      <section class="section-panel">
+      <section class="section-panel" id="job-notes">
         <div class="section-heading">
           <div><h2>Notities</h2><p>Afspraken en werfinfo</p></div>
         </div>

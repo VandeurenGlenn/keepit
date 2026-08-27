@@ -8,11 +8,8 @@ export class ActionItem extends LiteElement {
 
   render() {
     return html`
-        <custom-icon-button
-          .icon=${this.icon ? this.icon : this.action}
-          > </custom-icon-button>
-        ${this.inDropdown ? html`<span>${this.action ? this.action : this.icon}</span>` : ''}
-      </div>
+      <custom-icon-button .icon=${this.icon ? this.icon : this.action}></custom-icon-button>
+      ${this.inDropdown ? html`<span>${this.action ? this.action : this.icon}</span>` : ''}
     `
   }
 
@@ -23,9 +20,14 @@ export class ActionItem extends LiteElement {
         align-items: center;
         cursor: pointer;
         color: var(--md-sys-color-on-surface);
+        gap: 8px;
+        border-radius: var(--app-radius-control);
       }
       :host([in-dropdown]) {
         width: 100%;
+        min-height: 40px;
+        padding: 0 10px;
+        box-sizing: border-box;
       }
     `
   ]

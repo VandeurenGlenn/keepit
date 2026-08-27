@@ -1,20 +1,24 @@
 import { createHash, randomUUID } from 'crypto'
-import { mkdir, readFile, rename, writeFile } from 'fs/promises'
+import { mkdir, readFile, readdir, rename, writeFile } from 'fs/promises'
 import { get as httpGet } from 'http'
 import { get as httpsGet } from 'https'
 import { resolve, sep } from 'path'
 import sharp from 'sharp'
 import { readDescoCatalog } from './desco.js'
 import { readAlelekCatalog } from './alelek.js'
+import { repairProductImageUrl } from './image-url-repair.js'
 
 export type ProductImageVariant = 'card' | 'detail'
 export type ProductImageSource = 'all' | 'desco' | 'alelek'
 
 const PRODUCT_IMAGE_VARIANTS: ProductImageVariant[] = ['card', 'detail']
 const productImageRoot = resolve('.database/product-images')
+const productImageStatePath = resolve('.database/product-image-cache-state.json')
+const catalogAssetRoot = resolve('.database/catalog-assets')
 const publicRoot = resolve('www')
 const productImageRequests = new Map<string, Promise<void>>()
 const productImageFailures = new Map<string, { expiresAt: number; error: Error }>()
+const CURRENT_REPAIR_VERSION = 1
 let conversionQueue: Promise<void> = Promise.resolve()
 let catalogImageUrls: { expiresAt: number; urls: Set<string> } | undefined
 
@@ -29,6 +33,9 @@ const cachePathFor = (imageUrl: string, variant: ProductImageVariant) => {
   return resolve(productImageRoot, `${cacheKey}.webp`)
 }
 
+const cacheFileFor = (imageUrl: string, variant: ProductImageVariant) =>
+  `${createHash('sha256').update(`v2:${variant}:${imageUrl}`).digest('hex')}.webp`
+
 const readCached = async (imageUrl: string, variant: ProductImageVariant): Promise<Buffer | undefined> => {
   try {
     return await readFile(cachePathFor(imageUrl, variant))
@@ -37,8 +44,11 @@ const readCached = async (imageUrl: string, variant: ProductImageVariant): Promi
   }
 }
 
-export const getCatalogImageUrls = async (source: ProductImageSource = 'all'): Promise<Set<string>> => {
-  if (source === 'all' && catalogImageUrls && catalogImageUrls.expiresAt > Date.now()) {
+export const getCatalogImageUrls = async (
+  source: ProductImageSource = 'all',
+  provider?: string
+): Promise<Set<string>> => {
+  if (source === 'all' && !provider && catalogImageUrls && catalogImageUrls.expiresAt > Date.now()) {
     return catalogImageUrls.urls
   }
 
@@ -46,12 +56,19 @@ export const getCatalogImageUrls = async (source: ProductImageSource = 'all'): P
     source === 'alelek' ? undefined : readDescoCatalog(),
     source === 'desco' ? undefined : readAlelekCatalog()
   ])
+  const providerKey = provider?.toLowerCase()
+  const items = [...(descoCatalog?.items || []), ...(alelekCatalog?.items || [])]
   const urls = new Set(
-    [...(descoCatalog?.items || []), ...(alelekCatalog?.items || [])]
+    items
+      .filter(
+        (item) =>
+          !providerKey ||
+          item.dataSources?.some((dataSource) => dataSource.provider.toLowerCase().includes(providerKey))
+      )
       .map((item) => item.image)
       .filter((image): image is string => typeof image === 'string' && image.length > 0)
   )
-  if (source === 'all') catalogImageUrls = { urls, expiresAt: Date.now() + 5 * 60_000 }
+  if (source === 'all' && !provider) catalogImageUrls = { urls, expiresAt: Date.now() + 5 * 60_000 }
   return urls
 }
 
@@ -60,51 +77,92 @@ const maxOriginalSize = 12 * 1024 * 1024
 const fetchRemoteOriginal = (imageUrl: string, redirects = 0): Promise<Buffer> =>
   new Promise((resolvePromise, rejectPromise) => {
     const url = new URL(imageUrl)
-    const request = (url.protocol === 'https:' ? httpsGet : httpGet)(url, { timeout: 20_000 }, (response) => {
-      const status = response.statusCode || 0
-      if (status >= 300 && status < 400 && response.headers.location && redirects < 5) {
-        response.resume()
-        try {
-          const redirectUrl = new URL(response.headers.location, url).href
-          void fetchRemoteOriginal(redirectUrl, redirects + 1).then(resolvePromise, rejectPromise)
-        } catch (error) {
-          rejectPromise(error)
+    const request = (url.protocol === 'https:' ? httpsGet : httpGet)(
+      url,
+      {
+        timeout: 20_000,
+        headers: {
+          Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          'Accept-Language': 'nl-BE,nl;q=0.9,en;q=0.7',
+          Referer: `${url.protocol}//${url.host}/`,
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139 Safari/537.36 KeepitImageCache/1.0'
         }
-        return
-      }
-      if (status < 200 || status >= 300) {
-        response.resume()
-        rejectPromise(new Error(`HTTP ${status}`))
-        return
-      }
-
-      const declaredSize = Number(response.headers['content-length'])
-      if (Number.isFinite(declaredSize) && declaredSize > maxOriginalSize) {
-        response.destroy()
-        rejectPromise(new Error('bronafbeelding is groter dan 12 MB'))
-        return
-      }
-
-      const chunks: Buffer[] = []
-      let received = 0
-      response.on('data', (chunk: Buffer) => {
-        received += chunk.byteLength
-        if (received > maxOriginalSize) {
-          response.destroy(new Error('bronafbeelding is groter dan 12 MB'))
+      },
+      (response) => {
+        const status = response.statusCode || 0
+        if (status >= 300 && status < 400 && response.headers.location && redirects < 5) {
+          response.resume()
+          try {
+            const redirectUrl = new URL(response.headers.location, url).href
+            void fetchRemoteOriginal(redirectUrl, redirects + 1).then(resolvePromise, rejectPromise)
+          } catch (error) {
+            rejectPromise(error)
+          }
           return
         }
-        chunks.push(chunk)
-      })
-      response.on('end', () => resolvePromise(Buffer.concat(chunks)))
-      response.on('error', rejectPromise)
-    })
+        if (status < 200 || status >= 300) {
+          response.resume()
+          rejectPromise(new Error(`HTTP ${status}`))
+          return
+        }
+
+        const contentType = String(response.headers['content-type'] || '').toLowerCase()
+        if (/text\/html|application\/(?:json|xml)/i.test(contentType)) {
+          response.resume()
+          rejectPromise(new Error(`bron antwoordde ${contentType || 'geen afbeelding'}`))
+          return
+        }
+
+        const declaredSize = Number(response.headers['content-length'])
+        if (Number.isFinite(declaredSize) && declaredSize > maxOriginalSize) {
+          response.destroy()
+          rejectPromise(new Error('bronafbeelding is groter dan 12 MB'))
+          return
+        }
+
+        const chunks: Buffer[] = []
+        let received = 0
+        response.on('data', (chunk: Buffer) => {
+          received += chunk.byteLength
+          if (received > maxOriginalSize) {
+            response.destroy(new Error('bronafbeelding is groter dan 12 MB'))
+            return
+          }
+          chunks.push(chunk)
+        })
+        response.on('end', () => resolvePromise(Buffer.concat(chunks)))
+        response.on('error', rejectPromise)
+      }
+    )
     request.on('timeout', () => request.destroy(new Error('Afbeeldingsrequest timeout')))
     request.on('error', rejectPromise)
   })
 
 const fetchOriginal = async (imageUrl: string): Promise<Buffer> => {
-  if (/^https?:\/\//i.test(imageUrl)) return fetchRemoteOriginal(imageUrl)
-  if (/^[a-z0-9.-]+\.[a-z]{2,}\//i.test(imageUrl)) return fetchRemoteOriginal(`https://${imageUrl}`)
+  const repairedUrl = repairProductImageUrl(imageUrl)
+  if (/^https?:\/\//i.test(repairedUrl)) {
+    const candidates = [repairedUrl]
+    if (/^http:\/\//i.test(repairedUrl)) candidates.unshift(repairedUrl.replace(/^http:/i, 'https:'))
+    let lastError: unknown
+    for (const candidate of [...new Set(candidates)]) {
+      try {
+        return await fetchRemoteOriginal(candidate)
+      } catch (error) {
+        lastError = error
+      }
+    }
+    throw lastError
+  }
+  if (imageUrl.startsWith('/catalog-assets/')) {
+    const relativePath = imageUrl.slice('/catalog-assets/'.length)
+    const localPath = resolve(catalogAssetRoot, relativePath)
+    if (!localPath.startsWith(`${catalogAssetRoot}${sep}`)) throw new Error('Ongeldig lokaal catalogusbeeldpad')
+    const original = await readFile(localPath)
+    if (original.byteLength > maxOriginalSize) throw new Error('bronafbeelding is groter dan 12 MB')
+    return original
+  }
+
   if (!imageUrl.startsWith('/cache/')) throw new Error('Niet-ondersteunde afbeeldingsbron')
 
   const localPath = resolve(publicRoot, `.${imageUrl}`)
@@ -124,7 +182,7 @@ const writeVariant = async (original: Buffer, imageUrl: string, variant: Product
 
   try {
     const settings = variantSettings[variant]
-    const converted = await sharp(original, { limitInputPixels: 40_000_000 })
+    const converted = await sharp(original, { limitInputPixels: 100_000_000 })
       .rotate()
       .resize({ width: settings.width, height: settings.height, fit: 'inside', withoutEnlargement: true })
       .webp({ quality: settings.quality, effort: settings.effort })
@@ -181,37 +239,191 @@ export const getProductImage = async (imageUrl: string, variant: ProductImageVar
 }
 
 export type ProductImageCacheReport = {
+  catalogTotal: number
   total: number
   completed: number
+  alreadyCached: number
+  deferred: number
   failed: Array<{ url: string; error: string }>
+}
+
+type PersistedImageFailure = {
+  url: string
+  attempts: number
+  error: string
+  lastAttemptAt: string
+  retryAfter: string
+  permanent: boolean
+  repairVersion?: number
+}
+
+type ProductImageCacheState = {
+  version: 1
+  updatedAt: string
+  failures: Record<string, PersistedImageFailure>
+}
+
+type ProductImageCacheOptions = {
+  limit?: number
+  retryFailures?: boolean
+  repairFailures?: boolean
+  provider?: string
+}
+
+const readImageCacheState = async (): Promise<ProductImageCacheState> => {
+  try {
+    const parsed = JSON.parse(await readFile(productImageStatePath, 'utf8')) as Partial<ProductImageCacheState>
+    return {
+      version: 1,
+      updatedAt: String(parsed.updatedAt || ''),
+      failures: parsed.failures && typeof parsed.failures === 'object' ? parsed.failures : {}
+    }
+  } catch {
+    return { version: 1, updatedAt: '', failures: {} }
+  }
+}
+
+const writeImageCacheState = async (state: ProductImageCacheState): Promise<void> => {
+  state.updatedAt = new Date().toISOString()
+  const temporaryPath = `${productImageStatePath}.${randomUUID()}.tmp`
+  await writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+  await rename(temporaryPath, productImageStatePath)
+}
+
+const imageUrlKey = (imageUrl: string) => createHash('sha256').update(imageUrl).digest('hex')
+
+const permanentImageFailure = (message: string): boolean =>
+  /HTTP 404|HTTP 410|niet-ondersteunde afbeeldingsbron|unsupported image format|corrupt header|XML parse error|groter dan 12 MB|bron antwoordde text\/html/i.test(
+    message
+  )
+
+const repairableImageFailure = (failure: PersistedImageFailure): boolean =>
+  repairProductImageUrl(failure.url) !== failure.url.trim() ||
+  /HTTP 400|HTTP 401|HTTP 403|certificate|pixel limit/i.test(failure.error)
+
+const interleaveByHost = (urls: string[]): string[] => {
+  const byHost = new Map<string, string[]>()
+  for (const url of urls) {
+    let host = 'local'
+    try {
+      host = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).host || 'local'
+    } catch {
+      // Unsupported values are grouped and recorded as failures by the normal loader.
+    }
+    const group = byHost.get(host) || []
+    group.push(url)
+    byHost.set(host, group)
+  }
+
+  const result: string[] = []
+  const groups = [...byHost.values()]
+  let remaining = urls.length
+  while (remaining > 0) {
+    for (const group of groups) {
+      const next = group.shift()
+      if (!next) continue
+      result.push(next)
+      remaining -= 1
+    }
+  }
+  return result
 }
 
 export const cacheCatalogImages = async (
   source: ProductImageSource = 'all',
   concurrency = 2,
-  onProgress?: (report: ProductImageCacheReport) => void
+  onProgress?: (report: ProductImageCacheReport) => void,
+  options: ProductImageCacheOptions = {}
 ): Promise<ProductImageCacheReport> => {
-  const urls = [...(await getCatalogImageUrls(source))]
-  const report: ProductImageCacheReport = { total: urls.length, completed: 0, failed: [] }
+  const urls = [...(await getCatalogImageUrls(source, options.provider))]
+  await mkdir(productImageRoot, { recursive: true })
+  const cachedFiles = new Set(await readdir(productImageRoot))
+  const state = await readImageCacheState()
+  const now = Date.now()
+  const missing: string[] = []
+  let alreadyCached = 0
+  let deferred = 0
+
+  for (const imageUrl of urls) {
+    const complete = PRODUCT_IMAGE_VARIANTS.every((variant) => cachedFiles.has(cacheFileFor(imageUrl, variant)))
+    if (complete) {
+      alreadyCached += 1
+      delete state.failures[imageUrlKey(imageUrl)]
+      continue
+    }
+    const previousFailure = state.failures[imageUrlKey(imageUrl)]
+    if (
+      previousFailure &&
+      options.repairFailures &&
+      (!repairableImageFailure(previousFailure) || previousFailure.repairVersion === CURRENT_REPAIR_VERSION)
+    ) {
+      deferred += 1
+      continue
+    }
+    if (
+      previousFailure &&
+      !options.retryFailures &&
+      !options.repairFailures &&
+      (previousFailure.permanent || Date.parse(previousFailure.retryAfter) > now)
+    ) {
+      deferred += 1
+      continue
+    }
+    missing.push(imageUrl)
+  }
+
+  const ordered = interleaveByHost(missing)
+  const selected = Number.isFinite(options.limit) ? ordered.slice(0, Math.max(0, Number(options.limit))) : ordered
+  const report: ProductImageCacheReport = {
+    catalogTotal: urls.length,
+    total: selected.length,
+    completed: 0,
+    alreadyCached,
+    deferred,
+    failed: []
+  }
   const workerCount = Math.max(1, Math.min(6, Math.floor(concurrency) || 2))
   let cursor = 0
+  let stateWrite = Promise.resolve()
+
+  const checkpoint = (): Promise<void> => {
+    stateWrite = stateWrite.then(() => writeImageCacheState(state))
+    return stateWrite
+  }
 
   const worker = async () => {
-    while (cursor < urls.length) {
-      const imageUrl = urls[cursor++]
+    while (cursor < selected.length) {
+      const imageUrl = selected[cursor++]
       try {
         await cacheProductImage(imageUrl)
+        delete state.failures[imageUrlKey(imageUrl)]
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
         report.failed.push({
           url: imageUrl,
-          error: error instanceof Error ? error.message : String(error)
+          error: message
         })
+        const key = imageUrlKey(imageUrl)
+        const attempts = Number(state.failures[key]?.attempts || 0) + 1
+        const permanent = permanentImageFailure(message)
+        const retryDelay = permanent ? 365 * 24 * 60 * 60_000 : Math.min(7, 2 ** Math.min(attempts, 6)) * 60 * 60_000
+        state.failures[key] = {
+          url: imageUrl,
+          attempts,
+          error: message,
+          lastAttemptAt: new Date().toISOString(),
+          retryAfter: new Date(Date.now() + retryDelay).toISOString(),
+          permanent,
+          repairVersion: options.repairFailures ? CURRENT_REPAIR_VERSION : state.failures[key]?.repairVersion
+        }
       }
       report.completed += 1
       onProgress?.(report)
+      if (report.completed % 100 === 0) await checkpoint()
     }
   }
 
   await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  await checkpoint()
   return report
 }

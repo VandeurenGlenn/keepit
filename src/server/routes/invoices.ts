@@ -350,6 +350,10 @@ router.post('/', async (ctx) => {
     uuid?: string
     materials?: unknown
     hours?: unknown
+    quoteId?: string
+    laborAmount?: number
+    discountAmount?: number
+    vatRate?: number
   }
   const { name, description, invoiceImages, company, job, user, notes } = body
   const materials = normalizeMaterials(body.materials)
@@ -374,6 +378,10 @@ router.post('/', async (ctx) => {
     notes,
     materials,
     hours: hoursSnapshot
+    ,quoteId: typeof body.quoteId === 'string' ? body.quoteId : undefined
+    ,laborAmount: Math.max(0, Number(body.laborAmount) || 0)
+    ,discountAmount: Math.max(0, Number(body.discountAmount) || 0)
+    ,vatRate: Math.min(100, Math.max(0, Number(body.vatRate) || 0))
   }
 
   const uuid = body.uuid || crypto.randomUUID()

@@ -13,6 +13,8 @@ import mimes from 'mime'
 import './../elements/list/item.js'
 import './../elements/view/header.js'
 import '@vandeurenglenn/lite-elements/icon.js'
+import { showToast } from '../helpers/toast.js'
+import { confirmAction } from '../helpers/confirmation.js'
 
 let debounceTimeout: ReturnType<typeof setTimeout>
 function debounce(fn: (...args: any[]) => void, delay = 300) {
@@ -91,8 +93,8 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         gap: 16px;
         width: 100%;
         padding: 18px;
-        border-radius: 20px;
-        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
+        border-radius: var(--app-radius-panel);
+        background: var(--app-panel);
         border: 1px solid var(--app-border);
         box-shadow: var(--app-shadow-soft);
         box-sizing: border-box;
@@ -116,9 +118,8 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         background: var(--app-accent-soft);
         color: var(--app-accent);
         font-size: 0.76rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        font-weight: 500;
+        letter-spacing: 0;
       }
 
       .panel-title-row {
@@ -192,7 +193,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         box-sizing: border-box;
         backdrop-filter: blur(5px);
         transition: opacity 0.3s ease-in-out;
-        border-radius: 20px;
+        border-radius: var(--app-radius-panel);
         overflow: hidden;
         background: color-mix(in srgb, var(--md-sys-color-surface-container) 86%, black 14%);
       }
@@ -416,7 +417,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         .capture-panel,
         .list-panel {
           padding: 16px;
-          border-radius: 20px;
+          border-radius: var(--app-radius-panel);
         }
 
         .panel-title-row,
@@ -748,11 +749,11 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     const companies = ((this as any).companies || {}) as Record<string, any>
     const userId = (this.user as User & { id?: string })?.id || this.user?.email
     const materials = this.sanitizedMaterials
-    if (!userId) return alert('No active user found')
+    if (!userId) return showToast('Er is geen actieve gebruiker gevonden.')
 
-    if (!this.notes && !selectedJob) return alert('Kies een job of voeg een notitie toe.')
+    if (!this.notes && !selectedJob) return showToast('Kies een job of voeg een notitie toe.')
     if (!this.notes) this.notes = 'No notes'
-    if (!selectedCompany) return alert('Kies een company.')
+    if (!selectedCompany) return showToast('Kies een klant of leverancier.')
 
     const _date = new Date()
     const date = _date.toISOString()
@@ -762,7 +763,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     const formattedTime = `${_date.getHours()}:${minutes < 10 ? '0' : ''}${minutes}`
 
     const invoiceId = crypto.randomUUID()
-    if (!this.dataUrl) return alert('No invoice image captured')
+    if (!this.dataUrl) return showToast('Maak eerst een foto van de factuur.')
     const invoiceImage = this.dataURLtoFile(this.dataUrl, invoiceId)
     const invoiceName = `${companies[selectedCompany]?.name || 'Invoice'} ${formattedDate} ${formattedTime}`
 
@@ -797,7 +798,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       this.requestRender()
     } catch (error) {
       console.error('Error saving invoice:', error)
-      alert('De factuur kon niet bewaard worden.')
+      showToast('De factuur kon niet bewaard worden.')
       this.takingPicture = false
       this.addingInvoice = false
       this.currentStream?.getTracks().forEach((track) => track.stop())
@@ -1094,15 +1095,16 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   }
 
   _deleteInvoice = async (key: string) => {
-    if (!confirm('Ben je zeker dat je deze factuur wilt verwijderen?')) return
+    if (!(await confirmAction({ title: 'Factuur verwijderen?', message: 'Deze factuur verdwijnt uit Keepit. Deze actie kan niet ongedaan gemaakt worden.', confirmLabel: 'Factuur verwijderen' }))) return
 
     try {
       await api.deleteInvoice(key)
       delete this.invoices[key]
       this.requestRender()
+      showToast('Factuur verwijderd.')
     } catch (error) {
       console.error('Failed to delete invoice:', error)
-      alert('De factuur kon niet verwijderd worden.')
+      showToast('De factuur kon niet verwijderd worden.')
     }
   }
 

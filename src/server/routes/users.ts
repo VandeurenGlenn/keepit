@@ -75,24 +75,25 @@ router.patch('/me/preferences', async (ctx) => {
   }
 
   const body = (ctx.request.body || {}) as Record<string, unknown>
-  const value = body.continuousTimelineLocation
-  if (typeof value !== 'boolean') {
+  const allowed = ['continuousTimelineLocation', 'planningNotifications', 'planningEmailNotifications', 'locationSuggestionNotifications'] as const
+  const updates = Object.fromEntries(allowed.filter((key) => typeof body[key] === 'boolean').map((key) => [key, body[key]]))
+  if (!Object.keys(updates).length) {
     ctx.status = 400
-    ctx.body = { error: 'continuousTimelineLocation must be a boolean' }
+    ctx.body = { error: 'Geef minstens één geldige voorkeur op.' }
     return
   }
 
   user.preferences = {
     ...user.preferences,
-    continuousTimelineLocation: value
+    ...updates
   }
   user.updatedAt = new Date().toISOString()
-  if (!value) delete timelineTrackingStates[userId]
+  if (updates.continuousTimelineLocation === false) delete timelineTrackingStates[userId]
 
   try {
     await Promise.all([
       usersStore.put(users),
-      !value ? timelineTrackingStatesStore.put(timelineTrackingStates) : Promise.resolve()
+      updates.continuousTimelineLocation === false ? timelineTrackingStatesStore.put(timelineTrackingStates) : Promise.resolve()
     ])
     ctx.status = 200
     ctx.body = user.preferences

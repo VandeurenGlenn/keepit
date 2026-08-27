@@ -1,9 +1,18 @@
 import pubsub from './../helpers/pubsub.js'
-import { mkdir, opendir, readFile, writeFile } from 'fs/promises'
-import { parse } from 'path'
+import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
+import { dirname, parse } from 'path'
+import { scheduleAutomaticBackup } from '../helpers/backups.js'
 
 export const write = async (file: string, data: any) => {
-  await writeFile(file, JSON.stringify(data, null, 2), 'utf-8')
+  await mkdir(dirname(file), { recursive: true })
+  const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`
+  try {
+    await writeFile(temporary, JSON.stringify(data, null, 2), 'utf-8')
+    await rename(temporary, file)
+  } catch (error) {
+    await unlink(temporary).catch(() => undefined)
+    throw error
+  }
 }
 
 export const read = async (file: string) => {
@@ -29,14 +38,14 @@ export class DataStore {
   }
 
   public async put(data: any) {
-    return new Promise((resolve) => {
-      this.queue.push({ type: 'write', data, resolve })
+    return new Promise((resolve, reject) => {
+      this.queue.push({ type: 'write', data, resolve, reject })
       this.runQueue()
     })
   }
   public async get() {
-    return new Promise((resolve) => {
-      this.queue.push({ type: 'read', resolve })
+    return new Promise((resolve, reject) => {
+      this.queue.push({ type: 'read', resolve, reject })
       this.runQueue()
     })
   }
@@ -51,24 +60,28 @@ export class DataStore {
   }
 
   private async processQueue() {
-    const { type, data, resolve } = this.queue.shift()!
-    if (type === 'update' || type === 'write') {
-      await write(`./.database/${this.file}.json`, data)
-      resolve()
-      console.log(`Data written to .database/${this.file}.json`)
-      console.log(`parse(this.file).name: ${parse(this.file).name}`)
-      pubsub.publish(`${parse(this.file).name}.changed`, data)
-    } else if (type === 'read') {
-      const data = await read(`./.database/${this.file}.json`)
-      if (!data) {
-        if (this.storageType === 'Array') {
-          resolve([])
+    const { type, data, resolve, reject } = this.queue.shift()!
+    try {
+      if (type === 'update' || type === 'write') {
+        await write(`./.database/${this.file}.json`, data)
+        resolve()
+        scheduleAutomaticBackup()
+        console.log(`Data written to .database/${this.file}.json`)
+        pubsub.publish(`${parse(this.file).name}.changed`, data)
+      } else if (type === 'read') {
+        const stored = await read(`./.database/${this.file}.json`)
+        if (!stored) {
+          if (this.storageType === 'Array') {
+            resolve([])
+          } else {
+            resolve({})
+          }
         } else {
-          resolve({})
+          resolve(stored)
         }
-      } else {
-        resolve(data)
       }
+    } catch (error) {
+      reject(error)
     }
     if (this.queue.length > 0) {
       return this.processQueue()

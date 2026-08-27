@@ -12,7 +12,11 @@ const candidates = [
   '.database/desco-materials.metadata.json',
   '.database/alelek-materials.json',
   '.database/alelek-materials.metadata.json',
+  '.database/alelek-manufacturer-overrides.json',
+  '.database/product-image-cache-state.json',
+  '.database/exports/siemens-mall-audit.json',
   '.database/product-images',
+  '.database/catalog-assets',
   'www/cache/desco',
   'www/cache/alelek'
 ]
@@ -50,7 +54,7 @@ const main = async () => {
   const zipFileName = `${snapshotName}-${formatTimestamp(new Date())}.zip`
   const zipPath = resolve(outputDir, zipFileName)
 
-  const args = ['-r', zipPath, ...existingEntries.map((entry) => relative(rootDir, resolve(rootDir, entry)))]
+  const args = ['-q', '-r', zipPath, ...existingEntries.map((entry) => relative(rootDir, resolve(rootDir, entry)))]
 
   const result = spawnSync('zip', args, {
     cwd: rootDir,

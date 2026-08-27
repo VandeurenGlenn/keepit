@@ -5,7 +5,7 @@ import type { MaterialLine, Quote, QuoteStatus } from '../../types/index.js'
 const router = new Router({ prefix: '/api/quotes' })
 const statuses: QuoteStatus[] = ['draft', 'sent', 'approved', 'rejected']
 
-type QuoteInput = Partial<Pick<Quote, 'name' | 'description' | 'jobId' | 'status' | 'materials' | 'notes' | 'validUntil'>>
+type QuoteInput = Partial<Pick<Quote, 'name' | 'description' | 'jobId' | 'status' | 'materials' | 'notes' | 'validUntil' | 'laborAmount' | 'discountAmount' | 'vatRate' | 'convertedInvoiceId'>>
 
 const optionalText = (value: unknown, maxLength: number): string | undefined => {
   if (typeof value !== 'string') return undefined
@@ -48,6 +48,8 @@ const validate = (input: QuoteInput): string | undefined => {
   if (!Array.isArray(input.materials) || normalizeMaterials(input.materials).length !== input.materials.length) {
     return 'Controleer de materiaalregels'
   }
+  for (const value of [input.laborAmount, input.discountAmount]) if (value !== undefined && (!Number.isFinite(Number(value)) || Number(value) < 0)) return 'Controleer de bedragen'
+  if (input.vatRate !== undefined && (!Number.isFinite(Number(input.vatRate)) || Number(input.vatRate) < 0 || Number(input.vatRate) > 100)) return 'Controleer het btw-percentage'
 }
 
 const quoteFromInput = (input: QuoteInput, current?: Quote): Omit<Quote, 'id' | 'createdAt' | 'updatedAt' | 'createdBy'> => ({
@@ -58,6 +60,10 @@ const quoteFromInput = (input: QuoteInput, current?: Quote): Omit<Quote, 'id' | 
   materials: normalizeMaterials(input.materials),
   notes: optionalText(input.notes, 5000),
   validUntil: input.validUntil ? new Date(input.validUntil).toISOString().slice(0, 10) : undefined
+  ,laborAmount: Math.max(0, Number(input.laborAmount) || 0)
+  ,discountAmount: Math.max(0, Number(input.discountAmount) || 0)
+  ,vatRate: Math.min(100, Math.max(0, Number(input.vatRate) || 0))
+  ,convertedInvoiceId: optionalText(input.convertedInvoiceId, 120)
 })
 
 router.get('/', (ctx) => {

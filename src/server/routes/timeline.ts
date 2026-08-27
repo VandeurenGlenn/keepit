@@ -21,6 +21,9 @@ const ARRIVAL_RADIUS_METERS = 120
 const MIN_SIGNIFICANT_TRIP_METERS = 500
 const ARRIVAL_DWELL_MS = 5 * 60 * 1000
 const RESET_AFTER_MS = 30 * 60 * 1000
+const CHECKIN_SUGGESTION_RADIUS_METERS = 150
+const CHECKIN_SUGGESTION_SAMPLES = 2
+const CHECKIN_SUGGESTION_COOLDOWN_MS = 2 * 60 * 60 * 1000
 
 const parseLocation = (value: unknown): WorkLocation | undefined => {
   if (!value || typeof value !== 'object') return undefined
@@ -109,11 +112,55 @@ router.post('/position', async (ctx) => {
   }
 
   const activeJobId = user.currentJob
+  let suggestedJob: { id: string; name: string } | undefined
+
+  if (!activeJobId) {
+    const nearbyJob = Object.entries(jobs)
+      .filter(([, job]) => job.status !== 'completed' && !job.archivedAt && job.place?.location)
+      .map(([id, job]) => ({
+        id,
+        name: job.name,
+        distance: distanceInMeters(
+          { ...job.place.location!, capturedAt: location.capturedAt },
+          location
+        )
+      }))
+      .filter((job) => job.distance <= CHECKIN_SUGGESTION_RADIUS_METERS)
+      .sort((a, b) => a.distance - b.distance)[0]
+
+    if (nearbyJob) {
+      state.nearbyJobSamples = state.nearbyJobId === nearbyJob.id ? (state.nearbyJobSamples || 0) + 1 : 1
+      state.nearbyJobId = nearbyJob.id
+      const recentlySuggested =
+        state.suggestedCheckinJobId === nearbyJob.id &&
+        Boolean(state.suggestedCheckinAt) &&
+        location.capturedAt - (state.suggestedCheckinAt || 0) < CHECKIN_SUGGESTION_COOLDOWN_MS
+      if ((state.nearbyJobSamples || 0) >= CHECKIN_SUGGESTION_SAMPLES && !recentlySuggested) {
+        suggestedJob = { id: nearbyJob.id, name: nearbyJob.name }
+        state.suggestedCheckinJobId = nearbyJob.id
+        state.suggestedCheckinAt = location.capturedAt
+        state.nearbyJobSamples = 0
+      }
+    } else {
+      state.nearbyJobId = undefined
+      state.nearbyJobSamples = 0
+    }
+  } else {
+    state.nearbyJobId = undefined
+    state.nearbyJobSamples = 0
+  }
+
   if (!state.lastPosition && !activeJobId) {
     state.lastPosition = location
     state.lastPlaceLocation = location
     await timelineTrackingStatesStore.put(timelineTrackingStates)
-    ctx.body = { accepted: true, events: [], shouldNotifyCheckout: false }
+    ctx.body = {
+      accepted: true,
+      events: [],
+      shouldNotifyCheckout: false,
+      shouldSuggestCheckin: Boolean(suggestedJob),
+      suggestedJob
+    }
     return
   }
 
@@ -234,7 +281,9 @@ router.post('/position', async (ctx) => {
     accepted: true,
     events: createdEvents,
     shouldNotifyCheckout: Boolean(jobDeparture),
-    currentJob: activeJobId ? { id: activeJobId, name: jobs[activeJobId]?.name || 'de werf' } : undefined
+    currentJob: activeJobId ? { id: activeJobId, name: jobs[activeJobId]?.name || 'de werf' } : undefined,
+    shouldSuggestCheckin: Boolean(suggestedJob),
+    suggestedJob
   }
 })
 

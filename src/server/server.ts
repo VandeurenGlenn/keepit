@@ -28,6 +28,11 @@ import timeline from './routes/timeline.js'
 import planning from './routes/planning.js'
 import notifications from './routes/notifications.js'
 import quotes from './routes/quotes.js'
+import backups from './routes/backups.js'
+import search from './routes/search.js'
+import control from './routes/control.js'
+import reports from './routes/reports.js'
+import { startAutomaticBackups } from './helpers/backups.js'
 import { handleWebSocketConnection } from './helpers/websocket.js'
 import { readDescoCatalog } from './helpers/desco.js'
 import { readAlelekCatalog } from './helpers/alelek.js'
@@ -44,7 +49,7 @@ api.use(
 api.use(statickoa('www'))
 
 // middleware
-api.use(bodyParser())
+api.use(bodyParser({ jsonLimit: '25mb' }))
 
 // contact form
 api.use(contact)
@@ -70,6 +75,10 @@ api.use(timeline)
 api.use(planning)
 api.use(notifications)
 api.use(quotes)
+api.use(backups)
+api.use(search)
+api.use(control)
+api.use(reports)
 api.use(users)
 api.use(roles)
 api.use(companies)
@@ -132,6 +141,12 @@ const findAvailablePort = async (startPort: number, maxAttempts: number): Promis
 const startServer = async (): Promise<void> => {
   const preferredPort = resolveStartPort()
   const port = await findAvailablePort(preferredPort, MAX_PORT_ATTEMPTS)
+
+  try {
+    await startAutomaticBackups()
+  } catch (error) {
+    console.error('Backup initialization failed:', error instanceof Error ? error.message : String(error))
+  }
 
   const [descoCatalog, alelekCatalog] = await Promise.all([readDescoCatalog(), readAlelekCatalog()])
   try {

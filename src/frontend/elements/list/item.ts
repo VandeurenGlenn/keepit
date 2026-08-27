@@ -15,37 +15,33 @@ export class ListItem extends LiteElement {
     css`
       :host {
         cursor: pointer;
-        height: 72px;
+        min-height: 68px;
         display: flex;
         flex-direction: row;
         box-sizing: border-box;
 
-        padding: 16px;
+        padding: 12px 14px;
         box-sizing: border-box;
-        background-color: var(--md-sys-color-surface);
-        border-radius: 18px;
-        box-shadow: var(--app-shadow-soft);
-        margin-bottom: 16px;
+        background: var(--app-panel);
+        border-radius: var(--app-radius-control);
+        box-shadow: none;
+        margin-bottom: 6px;
         color: var(--md-sys-color-on-surface);
         transition:
-          box-shadow 0.3s ease-in-out,
-          transform 0.18s ease,
+          background-color 0.18s ease,
           border-color 0.18s ease;
-        border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
-        border-radius: 18px;
-        background: linear-gradient(
-          180deg,
-          color-mix(in srgb, var(--app-panel-strong) 95%, white 5%),
-          var(--app-panel-strong)
-        );
+        border: 1px solid var(--app-border);
         color: var(--md-sys-color-on-surface-container);
         width: 100%;
       }
 
       :host(:hover) {
-        transform: translateY(-1px);
-        box-shadow: var(--app-shadow-strong);
+        background: var(--app-panel-strong);
         border-color: color-mix(in srgb, var(--app-accent) 34%, var(--app-border) 66%);
+      }
+
+      :host(:focus-within) {
+        box-shadow: var(--app-focus-ring);
       }
 
       .headline-container {
@@ -78,6 +74,7 @@ export class ListItem extends LiteElement {
         width: 100%;
         height: 100%;
         gap: 14px;
+        outline: none;
       }
     `
   ]

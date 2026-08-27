@@ -78,6 +78,52 @@ export const planning = promises[12] as unknown as PlanningEntries
 export const notifications = promises[13] as unknown as AppNotifications
 export const quotes = promises[14] as unknown as Quotes
 
+export const operationalData = {
+  jobs, companies, invoices, media, users, bannedUsers, hours, invites, shopOrders,
+  timelineLocations, timelineTrackingStates, timelinePlaceCache, planning, notifications, quotes
+}
+
+export const operationalStores = {
+  jobs: jobsStore,
+  companies: companiesStore,
+  invoices: invoicesStore,
+  media: mediaStore,
+  users: usersStore,
+  bannedUsers: bannedUsersStore,
+  hours: hoursStore,
+  invites: invitesStore,
+  shopOrders: shopOrdersStore,
+  timelineLocations: timelineLocationsStore,
+  timelineTrackingStates: timelineTrackingStatesStore,
+  timelinePlaceCache: timelinePlaceCacheStore,
+  planning: planningStore,
+  notifications: notificationsStore,
+  quotes: quotesStore
+}
+
+let workSessionMetadataMigrated = false
+for (const [userId, userHours] of Object.entries(hours)) {
+  for (const prestation of Object.values(userHours)) {
+    if (!prestation.source || prestation.source === 'legacy') {
+      // Before source metadata existed, work sessions could only be created by the explicit check-in endpoint.
+      prestation.source = 'manual'
+      workSessionMetadataMigrated = true
+    }
+  }
+  const user = users[userId]
+  if (user?.currentJob && !user.currentPrestationId) {
+    const openId = [...(jobs[user.currentJob]?.hours?.[userId] || [])].reverse().find((id) => {
+      const prestation = userHours[id]
+      return prestation && !prestation.checkout
+    })
+    if (openId) {
+      user.currentPrestationId = openId
+      workSessionMetadataMigrated = true
+    }
+  }
+}
+if (workSessionMetadataMigrated) await Promise.all([hoursStore.put(hours), usersStore.put(users)])
+
 const legacySupplierPattern = /^(facq|tecmine)(\s|$)/i
 let relationshipsMigrated = false
 for (const company of Object.values(companies)) {

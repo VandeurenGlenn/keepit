@@ -1,6 +1,7 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import { arrayRepeatBy, createKeyedLazyRepeatState, type KeyedLazyRepeatState } from '@vandeurenglenn/lite/helpers.js'
 import { api } from '../api/client.js'
+import { showToast } from '../helpers/toast.js'
 import { ShopProduct } from '../../types/index.js'
 
 export class ShopView extends LiteElement {
@@ -893,6 +894,7 @@ export class ShopView extends LiteElement {
 
   async connectedCallback() {
     super.connectedCallback()
+    this.searchQuery = new URLSearchParams(location.hash.split('?')[1] || '').get('search') || ''
     await this.loadProducts()
   }
 
@@ -1195,15 +1197,15 @@ export class ShopView extends LiteElement {
       })
 
       if (result.ok) {
-        alert(`Bestelling #${result.orderId} is aangemaakt.`)
+        showToast(`Bestelling #${result.orderId} is aangemaakt.`)
         this.cart = new Map()
         this.showCart = false
       } else {
-        alert('De bestelling kon niet aangemaakt worden.')
+        showToast('De bestelling kon niet aangemaakt worden.')
       }
     } catch (error) {
       console.error('Checkout error:', error)
-      alert('Error during checkout')
+      showToast('De bestelling kon niet afgerond worden.')
     }
   }
 
@@ -1399,7 +1401,8 @@ export class ShopView extends LiteElement {
               @keydown=${(event: Event) => event.stopPropagation()}>
               <button
                 class="favorite-button"
-                title=${this.favoriteNames.has(product.name) ? 'Remove from favorites' : 'Add to favorites'}
+                title=${this.favoriteNames.has(product.name) ? 'Uit favorieten verwijderen' : 'Toevoegen aan favorieten'}
+                aria-label=${this.favoriteNames.has(product.name) ? `${product.name} uit favorieten verwijderen` : `${product.name} toevoegen aan favorieten`}
                 @click=${() => {
                   if (this.favoriteNames.has(product.name)) {
                     void api.removeFromFavorites(product.name).then(() => this.refreshFavorites())
@@ -1426,7 +1429,8 @@ export class ShopView extends LiteElement {
                 <button
                   class="qty-button"
                   ?disabled=${draftQuantity <= 1}
-                  title="Decrease quantity"
+                  title="Aantal verlagen"
+                  aria-label=${`Aantal ${product.name} verlagen`}
                   @click=${() => this.adjustDraftQuantity(product.id, -1)}>
                   -
                 </button>
@@ -1434,6 +1438,7 @@ export class ShopView extends LiteElement {
                   class="qty-input"
                   type="number"
                   min="1"
+                  aria-label=${`Aantal ${product.name}`}
                   .value=${String(draftQuantity)}
                   @input=${(event: Event) => {
                     const input = event.target as HTMLInputElement | null
@@ -1441,14 +1446,16 @@ export class ShopView extends LiteElement {
                   }} />
                 <button
                   class="qty-button"
-                  title="Increase quantity"
+                  title="Aantal verhogen"
+                  aria-label=${`Aantal ${product.name} verhogen`}
                   @click=${() => this.adjustDraftQuantity(product.id, 1)}>
                   +
                 </button>
               </div>
               <button
                 class="cart-icon-button"
-                title="Add to cart"
+                title="Toevoegen aan winkelwagen"
+                aria-label=${`${product.name} toevoegen aan winkelwagen`}
                 @click=${() => this.addToCartWithQuantity(product, draftQuantity)}>
                 <svg
                   class="cart-icon"

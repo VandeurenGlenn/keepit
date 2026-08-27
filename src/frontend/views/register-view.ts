@@ -2,6 +2,7 @@ import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
 import { User } from '../../types/index.js'
 import { api } from '../api/client.js'
+import { showToast } from '../helpers/toast.js'
 import '@vandeurenglenn/lite-elements/icon-button.js'
 import '@vandeurenglenn/lite-elements/button.js'
 import '../elements/list/item.js'
@@ -33,7 +34,7 @@ export class RegisterView extends LiteElement {
         flex-direction: column;
         gap: 16px;
         padding: 18px;
-        border-radius: 20px;
+        border-radius: var(--app-radius-panel);
         background: var(--app-panel);
         border: 1px solid var(--app-border);
         box-shadow: var(--app-shadow-soft);
@@ -73,11 +74,11 @@ export class RegisterView extends LiteElement {
         min-height: 44px;
         padding: 0 17px;
         border: 1px solid var(--app-accent-strong);
-        border-radius: 12px;
+        border-radius: var(--app-radius-control);
         background: var(--app-accent);
         color: var(--md-sys-color-on-primary);
         font: inherit;
-        font-weight: 750;
+        font-weight: 600;
         cursor: pointer;
       }
 
@@ -89,7 +90,7 @@ export class RegisterView extends LiteElement {
         .register-panel,
         .profile-panel {
           padding: 16px;
-          border-radius: 20px;
+          border-radius: var(--app-radius-panel);
         }
 
         .primary {
@@ -133,7 +134,7 @@ export class RegisterView extends LiteElement {
       location.reload()
     } catch (error) {
       console.error('Error registering user:', error)
-      alert(error instanceof Error ? error.message : 'Registratie mislukt')
+      showToast(error instanceof Error ? error.message : 'Registratie mislukt')
     }
   }
 

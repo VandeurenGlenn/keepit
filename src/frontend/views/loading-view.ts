@@ -23,10 +23,15 @@ export class LoadingView extends LiteElement {
         align-items: center;
         gap: 12px;
         padding: 20px 24px;
-        border-radius: 18px;
+        border-radius: var(--app-radius-panel);
         background: var(--app-panel);
         border: 1px solid var(--app-border);
         box-shadow: var(--app-shadow-soft);
+      }
+
+      h1 {
+        font-size: 1.35rem;
+        font-weight: 600;
       }
 
       .loader {
@@ -44,6 +49,12 @@ export class LoadingView extends LiteElement {
         }
         100% {
           transform: rotate(360deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .loader {
+          animation-duration: 1.6s;
         }
       }
 

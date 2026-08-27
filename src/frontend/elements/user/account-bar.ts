@@ -8,14 +8,13 @@ export class AccountBar extends LiteElement {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 10px 16px;
+        padding: 7px 8px 7px 14px;
         box-sizing: border-box;
         border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
-        border-radius: 999px;
+        border-radius: var(--app-radius-panel);
         color: var(--md-sys-color-on-surface);
         background: color-mix(in srgb, var(--app-panel) 92%, white 8%);
-        box-shadow: var(--app-shadow-soft);
-        backdrop-filter: blur(16px);
+        box-shadow: none;
       }
       .user-info {
         display: flex;
@@ -23,14 +22,14 @@ export class AccountBar extends LiteElement {
         gap: 12px;
       }
       .user-info img {
-        width: 42px;
-        height: 42px;
+        width: 36px;
+        height: 36px;
         border-radius: 50%;
         border: 2px solid color-mix(in srgb, var(--app-accent) 28%, white 72%);
       }
       .user-info span {
-        font-size: 0.98rem;
-        font-weight: 600;
+        font-size: 0.88rem;
+        font-weight: 500;
       }
     `
   ]

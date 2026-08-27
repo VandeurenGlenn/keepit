@@ -1,6 +1,10 @@
 import { LiteElement, css, html, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
 import { api } from '../api/client.js'
+import { confirmAction } from '../helpers/confirmation.js'
+import { showToast } from '../helpers/toast.js'
+import { findPlanningConflicts } from '../helpers/planning-conflicts.js'
+import { setUnsavedChanges } from '../helpers/unsaved-changes.js'
 import type { Job, Jobs, PlanningEntry, User, Users } from '../../types/index.js'
 
 const dateKey = (date: Date) => {
@@ -43,6 +47,11 @@ export class PlanningView extends LiteElement {
   @property({ type: String }) accessor endTime = '16:30'
   @property({ type: String }) accessor notes = ''
   @property({ type: String }) accessor error = ''
+  editorBaseline = ''
+
+  draftSignature(){return JSON.stringify([this.selectedDate,this.selectedJob,[...this.selectedUsers].sort(),this.startTime,this.endTime,this.notes])}
+  get editorDirty(){return this.editorOpen&&Boolean(this.editorBaseline)&&this.draftSignature()!==this.editorBaseline}
+  onChange(){queueMicrotask(()=>setUnsavedChanges('planning',this.editorDirty))}
 
   closeEditorOnNavigation = () => {
     const path = (location.hash.split('!/')[1] || 'home').split('?')[0]
@@ -55,13 +64,12 @@ export class PlanningView extends LiteElement {
 
   connectedCallback() {
     super.connectedCallback()
-    window.addEventListener('hashchange', this.closeEditorOnNavigation)
     void this.loadEntries()
   }
 
   disconnectedCallback() {
-    window.removeEventListener('hashchange', this.closeEditorOnNavigation)
     this.editorOpen = false
+    setUnsavedChanges('planning',false)
     super.disconnectedCallback()
   }
 
@@ -95,6 +103,20 @@ export class PlanningView extends LiteElement {
 
   get selectedJobMaterials() {
     return this.jobs?.[this.selectedJob]?.materials || []
+  }
+
+  get draftInterval() {
+    return {
+      jobId: this.selectedJob,
+      userIds: this.selectedUsers,
+      start: new Date(`${this.selectedDate}T${this.startTime}:00`).toISOString(),
+      end: new Date(`${this.selectedDate}T${this.endTime}:00`).toISOString()
+    }
+  }
+
+  get planningConflicts() {
+    try { return findPlanningConflicts(this.entries, this.draftInterval, this.editingId) }
+    catch { return [] }
   }
 
   materialLabel(material: NonNullable<Job['materials']>[number]) {
@@ -150,6 +172,7 @@ export class PlanningView extends LiteElement {
     this.notes = ''
     this.error = ''
     this.editorOpen = true
+    this.editorBaseline = this.draftSignature()
   }
 
   openEntry(entry: PlanningEntry, event?: Event) {
@@ -165,6 +188,7 @@ export class PlanningView extends LiteElement {
     this.notes = entry.notes || ''
     this.error = ''
     this.editorOpen = true
+    this.editorBaseline = this.draftSignature()
   }
 
   toggleUser(id: string) {
@@ -196,9 +220,15 @@ export class PlanningView extends LiteElement {
       notes: this.notes
     }
     try {
+      if (this.planningConflicts.length && !(await confirmAction({
+        title: 'Planning bevat conflicten',
+        message: `${this.planningConflicts.length} conflict(en) gevonden. Toch bewaren?`,
+        confirmLabel: 'Toch bewaren'
+      }))) return
       if (this.editingId) await api.updatePlanning(this.editingId, input)
       else await api.createPlanning(input)
       this.editorOpen = false
+      setUnsavedChanges('planning',false)
       await this.loadEntries()
     } catch (error) {
       this.error = error instanceof Error ? error.message : 'Planning kon niet bewaard worden.'
@@ -208,12 +238,14 @@ export class PlanningView extends LiteElement {
   }
 
   async removePlanning() {
-    if (!this.editingId || !confirm('Deze planning verwijderen?')) return
+    if (!this.editingId || !(await confirmAction({ title: 'Planning verwijderen?', message: 'De werknemers zien deze planning daarna niet meer.', confirmLabel: 'Planning verwijderen' }))) return
     this.saving = true
     try {
       await api.deletePlanning(this.editingId)
       this.editorOpen = false
+      setUnsavedChanges('planning',false)
       await this.loadEntries()
+      showToast('Planning verwijderd.')
     } catch (error) {
       this.error = error instanceof Error ? error.message : 'Planning kon niet verwijderd worden.'
     } finally {
@@ -226,34 +258,34 @@ export class PlanningView extends LiteElement {
     h1,h2,h3,p { margin:0; }
     button,input,select,textarea { font:inherit; }
     button { cursor:pointer; color:inherit; }
-    .page-header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:22px 24px; border:1px solid var(--app-border); border-radius:22px; background:radial-gradient(circle at 92% 10%,var(--app-accent-soft),transparent 30%),linear-gradient(145deg,var(--app-panel-strong),var(--app-panel)); box-shadow:var(--app-shadow-soft); }
+    .page-header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:20px 22px; border:1px solid var(--app-border); border-radius:var(--app-radius-panel); background:var(--app-panel); box-shadow:var(--app-shadow-soft); }
     .heading { display:flex; align-items:center; gap:15px; }
-    .heading-icon { display:grid; place-items:center; width:52px; height:52px; flex:none; border-radius:15px; color:var(--app-accent); background:var(--app-accent-soft); --custom-icon-color:currentColor; --custom-icon-size:28px; }
-    .eyebrow { color:var(--app-accent); font-size:.72rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
-    h1 { margin-top:3px; font-size:clamp(1.65rem,3vw,2.3rem); line-height:1.05; letter-spacing:-.025em; }
+    .heading-icon { display:grid; place-items:center; width:46px; height:46px; flex:none; border-radius:var(--app-radius-control); color:var(--app-accent); background:var(--app-accent-soft); --custom-icon-color:currentColor; --custom-icon-size:24px; }
+    .eyebrow { color:var(--app-accent); font-size:.72rem; font-weight:500; letter-spacing:0; }
+    h1 { margin-top:3px; font-size:1.75rem; font-weight:600; line-height:1.2; letter-spacing:0; }
     .subtitle { margin-top:6px; color:var(--md-sys-color-on-surface-variant); font-size:.88rem; }
-    .primary { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:0 16px; border:1px solid var(--app-accent-strong); border-radius:12px; background:var(--app-accent); color:var(--md-sys-color-on-primary); font-weight:750; }
+    .primary { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:0 16px; border:1px solid var(--app-accent-strong); border-radius:var(--app-radius-control); background:var(--app-accent); color:var(--md-sys-color-on-primary); font-weight:600; }
     .primary custom-icon { --custom-icon-color:currentColor; --custom-icon-size:19px; }
     .workspace { display:grid; grid-template-columns:minmax(0,1fr) 290px; gap:16px; align-items:start; }
-    .calendar-panel,.upcoming-panel { overflow:hidden; border:1px solid var(--app-border); border-radius:20px; background:var(--app-panel); box-shadow:var(--app-shadow-soft); }
+    .calendar-panel,.upcoming-panel { overflow:hidden; border:1px solid var(--app-border); border-radius:var(--app-radius-panel); background:var(--app-panel); box-shadow:var(--app-shadow-soft); }
     .calendar-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid var(--app-border); }
     .month-actions { display:flex; align-items:center; gap:6px; }
     .icon-button,.today { min-height:38px; border:1px solid var(--app-border); border-radius:10px; background:var(--app-panel-strong); }
     .icon-button { display:grid; place-items:center; width:38px; padding:0; }
     .icon-button custom-icon { --custom-icon-size:20px; --custom-icon-color:currentColor; }
-    .today { padding:0 12px; font-size:.8rem; font-weight:700; }
+    .today { padding:0 12px; font-size:.8rem; font-weight:500; }
     .month-title { font-size:1.05rem; }
     .weekdays,.calendar-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); }
-    .weekdays span { padding:9px 8px; color:var(--md-sys-color-on-surface-variant); font-size:.68rem; font-weight:800; text-align:center; text-transform:uppercase; border-bottom:1px solid var(--app-border); }
+    .weekdays span { padding:9px 8px; color:var(--md-sys-color-on-surface-variant); font-size:.68rem; font-weight:500; text-align:center; border-bottom:1px solid var(--app-border); }
     .day { position:relative; min-width:0; min-height:118px; padding:8px; border:0; border-right:1px solid var(--app-border); border-bottom:1px solid var(--app-border); background:transparent; text-align:left; cursor:pointer; }
     .day:nth-child(7n) { border-right:0; }
     .day:hover { background:var(--app-accent-soft); }
     .day.outside { color:color-mix(in srgb,var(--md-sys-color-on-surface-variant) 52%,transparent 48%); background:color-mix(in srgb,var(--app-panel) 75%,transparent 25%); }
-    .day-number { display:grid; place-items:center; width:26px; height:26px; margin-bottom:5px; border-radius:999px; font-size:.76rem; font-weight:750; }
+    .day-number { display:grid; place-items:center; width:26px; height:26px; margin-bottom:5px; border-radius:999px; font-size:.76rem; font-weight:550; }
     .day.today-day .day-number { background:var(--app-accent); color:var(--md-sys-color-on-primary); }
     .day-entries { display:flex; flex-direction:column; gap:4px; }
-    .entry-chip { display:block; width:100%; min-width:0; padding:5px 6px; overflow:hidden; border:1px solid color-mix(in srgb,var(--app-accent) 32%,var(--app-border) 68%); border-radius:7px; background:var(--app-accent-soft); color:var(--md-sys-color-on-surface); font-size:.67rem; font-weight:700; line-height:1.15; text-overflow:ellipsis; white-space:nowrap; }
-    .more { padding-left:5px; color:var(--md-sys-color-on-surface-variant); font-size:.65rem; font-weight:700; }
+    .entry-chip { display:block; width:100%; min-width:0; padding:5px 6px; overflow:hidden; border:1px solid color-mix(in srgb,var(--app-accent) 24%,var(--app-border) 76%); border-radius:7px; background:var(--app-accent-soft); color:var(--md-sys-color-on-surface); font-size:.67rem; font-weight:500; line-height:1.15; text-overflow:ellipsis; white-space:nowrap; }
+    .more { padding-left:5px; color:var(--md-sys-color-on-surface-variant); font-size:.65rem; font-weight:500; }
     .upcoming-head { padding:17px; border-bottom:1px solid var(--app-border); }
     .upcoming-head h2 { font-size:1rem; }
     .upcoming-head p { margin-top:4px; color:var(--md-sys-color-on-surface-variant); font-size:.76rem; }
@@ -262,7 +294,7 @@ export class PlanningView extends LiteElement {
     .upcoming-item:hover { background:var(--app-accent-soft); }
     .date-badge { display:flex; flex-direction:column; align-items:center; padding:6px 3px; border-radius:10px; background:var(--app-panel-strong); border:1px solid var(--app-border); }
     .date-badge strong { font-size:1rem; }
-    .date-badge span { color:var(--app-accent); font-size:.58rem; font-weight:800; text-transform:uppercase; }
+    .date-badge span { color:var(--app-accent); font-size:.58rem; font-weight:550; }
     .upcoming-copy { min-width:0; }
     .upcoming-copy strong,.upcoming-copy span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .upcoming-copy strong { font-size:.8rem; }
@@ -276,14 +308,14 @@ export class PlanningView extends LiteElement {
     .editor-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:20px; border-bottom:1px solid var(--app-border); }
     .editor-head h2 { font-size:1.18rem; }
     .editor-body { display:flex; flex:1; flex-direction:column; gap:17px; overflow:auto; padding:20px; }
-    label,.field-group { display:flex; flex-direction:column; gap:7px; color:var(--md-sys-color-on-surface-variant); font-size:.74rem; font-weight:750; }
+    label,.field-group { display:flex; flex-direction:column; gap:7px; color:var(--md-sys-color-on-surface-variant); font-size:.78rem; font-weight:500; }
     input,select,textarea { width:100%; box-sizing:border-box; border:1px solid var(--app-border); border-radius:11px; background:var(--app-panel); color:var(--md-sys-color-on-surface); }
     input,select { height:44px; padding:0 12px; }
     textarea { min-height:90px; padding:11px 12px; resize:vertical; }
     .time-row { display:grid; grid-template-columns:1fr 1fr; gap:11px; }
     .date-field { grid-column:1 / -1; }
     .field-group-title { display:flex; flex-direction:row; align-items:center; justify-content:space-between; gap:10px; }
-    .selection-count { padding:3px 8px; border-radius:999px; background:var(--app-panel-strong); color:var(--md-sys-color-on-surface-variant); font-size:.65rem; font-weight:700; }
+    .selection-count { padding:3px 8px; border-radius:999px; background:var(--app-panel-strong); color:var(--md-sys-color-on-surface-variant); font-size:.65rem; font-weight:500; }
     .selection-count.active { background:var(--app-accent-soft); color:var(--app-accent); }
     .job-materials { display:flex; flex-direction:column; gap:8px; padding:12px; border:1px solid var(--app-border); border-radius:12px; background:var(--app-panel); }
     .job-materials-head { display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--md-sys-color-on-surface); }
@@ -300,24 +332,27 @@ export class PlanningView extends LiteElement {
     .employee.selected { border-color:color-mix(in srgb,var(--app-accent) 62%,var(--app-border) 38%); background:color-mix(in srgb,var(--app-accent) 10%,var(--app-panel) 90%); }
     .employee.selected::before { background:var(--app-accent); }
     .employee input { grid-column:3; grid-row:1; width:19px; height:19px; margin:0; justify-self:end; accent-color:var(--app-accent); }
-    .avatar { grid-column:1; grid-row:1; display:grid; place-items:center; width:36px; height:36px; border-radius:10px; background:var(--app-accent-soft); color:var(--app-accent); font-weight:850; }
+    .avatar { grid-column:1; grid-row:1; display:grid; place-items:center; width:36px; height:36px; border-radius:10px; background:var(--app-accent-soft); color:var(--app-accent); font-weight:600; }
     .employee-copy { min-width:0; }
     .employee-copy strong,.employee-copy span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .employee-copy strong { font-size:.78rem; }
     .employee-copy span { margin-top:3px; color:var(--md-sys-color-on-surface-variant); font-size:.68rem; font-weight:500; }
     .form-error { padding:10px 12px; border-radius:10px; font-size:.75rem; }
+    .conflicts { display:flex; flex-direction:column; gap:7px; padding:11px 12px; border:1px solid color-mix(in srgb,#f0a13a 35%,var(--app-border)); border-radius:var(--app-radius-control); background:color-mix(in srgb,#f0a13a 10%,transparent); }
+    .conflicts strong { color:#e69a38; font-size:.76rem; }
+    .conflicts span { color:var(--md-sys-color-on-surface-variant); font-size:.7rem; line-height:1.35; }
     .editor-actions { display:flex; align-items:center; justify-content:flex-end; gap:9px; padding:15px 20px; border-top:1px solid var(--app-border); }
-    .secondary,.danger { min-height:42px; padding:0 14px; border:1px solid var(--app-border); border-radius:11px; background:var(--app-panel); font-weight:700; }
+    .secondary,.danger { min-height:42px; padding:0 14px; border:1px solid var(--app-border); border-radius:var(--app-radius-control); background:var(--app-panel); font-weight:500; }
     .danger { margin-right:auto; color:var(--md-sys-color-error); }
     button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:none; box-shadow:0 0 0 3px color-mix(in srgb,var(--app-accent) 23%,transparent 77%); }
     @media(max-width:1050px) { .workspace { grid-template-columns:1fr; } .upcoming-panel { display:none; } }
     @media(max-width:720px) {
       :host { padding:10px; gap:10px; }
-      .page-header { padding:16px; border-radius:18px; }
+      .page-header { padding:16px; border-radius:var(--app-radius-panel); }
       .heading-icon { display:none; }
       .page-header > .primary { width:44px; padding:0; }
       .page-header > .primary span { display:none; }
-      .calendar-panel { border-radius:16px; }
+      .calendar-panel { border-radius:var(--app-radius-panel); }
       .calendar-toolbar { padding:11px; }
       .month-title { font-size:.92rem; }
       .today { display:none; }
@@ -379,6 +414,7 @@ export class PlanningView extends LiteElement {
             <label>Van<input type="time" .value=${this.startTime} @input=${(event: Event) => (this.startTime = (event.target as HTMLInputElement).value)} /></label>
             <label>Tot<input type="time" .value=${this.endTime} @input=${(event: Event) => (this.endTime = (event.target as HTMLInputElement).value)} /></label>
           </div>
+          ${this.planningConflicts.length ? html`<div class="conflicts" role="alert"><strong>Controleer deze planning</strong>${this.planningConflicts.map((conflict) => html`<span>${conflict.userIds.map((id) => this.userFor(id)?.name || this.userFor(id)?.email || 'Medewerker').join(', ')}: ${conflict.kind === 'overlap' ? 'overlapt met' : 'minder dan 30 min reistijd na/voor'} ${this.jobFor(conflict.entry)?.name || 'een andere job'} (${timeValue(conflict.entry.start)}–${timeValue(conflict.entry.end)}).</span>`)}</div>` : ''}
           <div class="field-group">
             <div class="field-group-title"><span>Medewerkers</span><span class="selection-count ${this.selectedUsers.length ? 'active' : ''}">${this.selectedUsers.length} geselecteerd</span></div>
             <div class="employee-list">

@@ -93,7 +93,7 @@ export class DataInput extends LiteElement {
       custom-dropdown {
         overflow-y: auto;
         max-height: 300px;
-        border-radius: 20px;
+        border-radius: var(--app-radius-dialog);
         background: color-mix(in srgb, var(--app-panel) 94%, white 6%);
         border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
         box-shadow: var(--app-shadow-strong);

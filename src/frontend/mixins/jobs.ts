@@ -1,6 +1,8 @@
 import { html, property, LiteElement } from '@vandeurenglenn/lite'
 import { DataFlow } from '../flows/data.js'
 import { api } from '../api/client.js'
+import { showToast } from '../helpers/toast.js'
+import { confirmAction } from '../helpers/confirmation.js'
 import '../flows/data.js'
 import '../flows/data-input.js'
 import './../animations/success.js'
@@ -96,21 +98,30 @@ export const JobsMixin = (base: typeof LiteElement) =>
       } catch (error) {
         console.error('Error creating job:', error)
         this.creatingJob = false
-        alert('De job kon niet aangemaakt worden.')
+        showToast('De job kon niet aangemaakt worden.')
       }
     }
 
     _deleteJob = async (uuid) => {
-      const answer = confirm('Ben je zeker dat je deze job wilt verwijderen?')
-      if (!answer) return
-
+      const previous = this.jobs[uuid]
+      const restoring = previous?.status === 'completed'
       try {
-        await api.deleteJob(uuid)
-        delete this.jobs[uuid]
+        if (!restoring) {
+          const check = await api.getJobCompletionCheck(uuid)
+          if (check.issues.length) {
+            const confirmed = await confirmAction({ title: check.ready ? 'Job afronden?' : 'Job is nog niet klaar', message: check.issues.map((issue) => `${issue.blocking ? 'Blokkerend' : 'Controle'}: ${issue.message}`).join(' · '), confirmLabel: check.ready ? 'Job afronden' : 'Toch afronden' })
+            if (!confirmed) return
+          }
+        }
+        const updated = await api.updateJob(uuid, restoring
+          ? { status: 'active', archivedAt: undefined }
+          : { status: 'completed', archivedAt: new Date().toISOString() })
+        this.jobs = { ...this.jobs, [uuid]: updated }
         this.requestRender()
+        if(!restoring)window.dispatchEvent(new CustomEvent('keepit-toast',{detail:{message:`${previous.name} is gearchiveerd.`,actionLabel:'Ongedaan maken',action:async()=>{const restored=await api.updateJob(uuid,{status:'active',archivedAt:undefined});this.jobs={...this.jobs,[uuid]:restored};this.requestRender()}}}))
       } catch (error) {
-        console.error('Error deleting job:', error)
-        alert('De job kon niet verwijderd worden.')
+        console.error('Error archiving job:', error)
+        window.dispatchEvent(new CustomEvent('keepit-toast',{detail:{message:'De job kon niet bijgewerkt worden.'}}))
       }
     }
 

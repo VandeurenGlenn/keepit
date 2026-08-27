@@ -49,15 +49,15 @@ export class TimelineView extends LiteElement {
       .eyebrow {
         color: var(--app-accent);
         font-size: 0.78rem;
-        font-weight: 800;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
+        font-weight: 500;
+        letter-spacing: 0;
       }
 
       h1 {
-        font-size: clamp(2rem, 6vw, 3.4rem);
-        line-height: 1;
-        letter-spacing: -0.04em;
+        font-size: 2.15rem;
+        font-weight: 600;
+        line-height: 1.15;
+        letter-spacing: 0;
       }
 
       .muted {
@@ -82,8 +82,8 @@ export class TimelineView extends LiteElement {
         grid-template-columns: 12px minmax(0, 1fr) auto;
         gap: 16px;
         align-items: start;
-        padding: 18px;
-        border-radius: 22px;
+        padding: 16px;
+        border-radius: var(--app-radius-panel);
         border: 1px solid var(--app-border);
         background: var(--app-panel);
         box-shadow: var(--app-shadow-soft);
@@ -120,13 +120,25 @@ export class TimelineView extends LiteElement {
         font-size: 0.9rem;
       }
 
+      .source-badge {
+        display: inline-flex;
+        width: fit-content;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: var(--app-panel-strong);
+        border: 1px solid var(--app-border);
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: 0.7rem;
+        font-weight: 650;
+      }
+
       .location-chip {
         position: relative;
         display: inline-flex;
         align-items: center;
         gap: 5px;
         color: var(--app-accent);
-        font-weight: 700;
+        font-weight: 550;
         cursor: help;
       }
 
@@ -156,7 +168,7 @@ export class TimelineView extends LiteElement {
       }
 
       .location-preview strong {
-        font-weight: 800;
+        font-weight: 600;
       }
 
       .location-preview small {
@@ -178,7 +190,7 @@ export class TimelineView extends LiteElement {
         background: color-mix(in srgb, var(--md-sys-color-error) 12%, transparent 88%);
         color: var(--md-sys-color-error);
         font-size: 0.78rem;
-        font-weight: 750;
+        font-weight: 600;
       }
 
       .hours-warning {
@@ -192,7 +204,7 @@ export class TimelineView extends LiteElement {
         background: color-mix(in srgb, #f0a13a 11%, transparent);
         color: color-mix(in srgb, #f0a13a 82%, white);
         font-size: 0.78rem;
-        font-weight: 750;
+        font-weight: 600;
       }
 
       .warning-icon {
@@ -211,14 +223,14 @@ export class TimelineView extends LiteElement {
         background: var(--app-accent-soft);
         color: var(--app-accent);
         font-size: 0.82rem;
-        font-weight: 800;
+        font-weight: 600;
         white-space: nowrap;
       }
 
       .empty {
         padding: 34px;
         border: 1px dashed var(--app-border);
-        border-radius: 24px;
+        border-radius: var(--app-radius-panel);
         text-align: center;
       }
 
@@ -226,7 +238,26 @@ export class TimelineView extends LiteElement {
         display: inline-flex;
         margin-top: 14px;
         color: var(--app-accent);
-        font-weight: 800;
+        font-weight: 600;
+      }
+
+      .timeline-explanation {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 12px 14px;
+        border: 1px solid var(--app-border);
+        border-radius: var(--app-radius-control);
+        background: var(--app-panel);
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: 0.82rem;
+        line-height: 1.45;
+      }
+
+      .timeline-explanation custom-icon {
+        flex: 0 0 auto;
+        --custom-icon-color: var(--app-accent);
+        --custom-icon-size: 19px;
       }
 
       @media (max-width: 620px) {
@@ -372,6 +403,7 @@ export class TimelineView extends LiteElement {
             <span>${this.formatTime(entry.checkin)} – ${this.formatTime(entry.checkout)}</span>
             ${job?.place?.formattedAddress ? html`<span>${job.place.formattedAddress}</span>` : ''}
           </div>
+          <span class="source-badge">${entry.source === 'offline-sync' ? 'Offline geregistreerd' : entry.source === 'admin' ? 'Door admin ingevoerd' : entry.source === 'legacy' ? 'Oude registratie' : 'Manueel gestart'}</span>
           ${entry.checkinLocation || entry.checkoutLocation
             ? html`
                 <div class="location-links">
@@ -409,9 +441,9 @@ export class TimelineView extends LiteElement {
     const job = event.jobId ? this.jobs?.[event.jobId] : undefined
     const placeName = event.place?.name || job?.name || 'Onbekende locatie'
     const labels = {
-      departure: `Vertrokken van ${placeName}`,
-      arrival: `Aangekomen bij ${placeName}`,
-      return: `Terug op ${placeName}`
+      departure: `Locatie verlaten: ${placeName}`,
+      arrival: `Locatiebezoek: ${placeName}`,
+      return: `Terug bij locatie: ${placeName}`
     }
     return html`
       <article class="entry">
@@ -426,7 +458,7 @@ export class TimelineView extends LiteElement {
             ${this.renderLocationChip('Locatie', 'location_on', event.location, event.place)}
           </div>
         </div>
-        <span class="duration">${event.type === 'arrival' ? 'Stop' : event.type === 'return' ? 'Terug' : 'Vertrek'}</span>
+        <span class="duration">${event.type === 'arrival' ? 'Bezoek' : event.type === 'return' ? 'Terug' : 'Vertrek'}</span>
       </article>
     `
   }
@@ -449,8 +481,15 @@ export class TimelineView extends LiteElement {
       <section class="header">
         <span class="eyebrow">Laatste 30 dagen</span>
         <h1>Mijn tijdlijn</h1>
-        <p class="muted">Je geregistreerde jobs, uren en betekenisvolle vertrekken en aankomsten.</p>
+        <p class="muted">Bevestigde werkuren en, wanneer je dat inschakelt, betekenisvolle locatiebezoeken.</p>
       </section>
+
+      ${this.locationEvents.length
+        ? html`<aside class="timeline-explanation">
+            <custom-icon icon="info"></custom-icon>
+            <span><strong>Locatiegeschiedenis is geen werkregistratie.</strong> GPS kan alleen een voorstel sturen. Een werkstart of -stop verschijnt pas nadat jij die bevestigt.</span>
+          </aside>`
+        : ''}
 
       ${this.loading
         ? html`<div class="empty"><p class="muted">Tijdlijn laden…</p></div>`
@@ -460,7 +499,7 @@ export class TimelineView extends LiteElement {
             ? html`
                 <div class="empty">
                   <h2>Nog geen werkmomenten</h2>
-                  <p class="muted">Start je eerste job; die verschijnt daarna automatisch hier.</p>
+                  <p class="muted">Start je eerste job; je bevestigde manuele start verschijnt daarna hier.</p>
                   <a href="#!/checkin">Werk starten</a>
                 </div>
               `
@@ -468,7 +507,7 @@ export class TimelineView extends LiteElement {
                 ${Object.entries(this.groupedLocationEvents).map(
                   ([label, events]) => html`
                     <section class="day">
-                      <h2 class="day-title">${label} · Verplaatsingen</h2>
+                      <h2 class="day-title">${label} · Locatiegeschiedenis (geen werkuren)</h2>
                       ${events.map((event) => this.renderLocationEvent(event))}
                     </section>
                   `

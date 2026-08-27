@@ -3,6 +3,7 @@ import { jobs, jobsStore, hours, hoursStore, users, usersStore } from './../data
 import { Prestation, WorkLocation } from '../../types/index.js'
 import { verifyJobLocation } from '../helpers/geo.js'
 import { findNearbyPlace, findPlaceLocation } from '../helpers/places.js'
+import { findOpenPrestationId } from '../helpers/work-sessions.js'
 
 const router = new Router({
   prefix: '/api/hours'
@@ -12,12 +13,27 @@ type CheckinBody = {
   job?: string
   checkin?: number | string
   location?: WorkLocation
+  source?: Prestation['source']
+  clientRequestId?: string
 }
 
 type CheckoutBody = {
   job?: string
   checkout?: number | string
   location?: WorkLocation
+  prestationId?: string
+  clientRequestId?: string
+}
+
+const allowedSources: NonNullable<Prestation['source']>[] = ['manual', 'offline-sync', 'admin']
+
+const getOpenPrestationId = (userId: string, jobId: string): string | undefined => {
+  return findOpenPrestationId(
+    users[userId]?.currentPrestationId,
+    jobId,
+    jobs[jobId]?.hours?.[userId] || [],
+    hours[userId] || {}
+  )
 }
 
 const toLocation = (value: WorkLocation | undefined): WorkLocation | undefined => {
@@ -87,8 +103,8 @@ router.get('/job/:id', async (ctx) => {
   for (const [userId, prestationIds] of Object.entries(jobHoursByUser)) {
     const userHours = hours[userId] || {}
     jobHours[userId] = prestationIds
-      .map((id) => userHours[id])
-      .filter((prestation): prestation is Prestation => {
+      .map((id) => userHours[id] ? ({ id, ...userHours[id] }) : undefined)
+      .filter((prestation): prestation is Prestation & { id: string } => {
         if (!prestation) return false
         if (!billableOnly) return true
         const hasCheckout = typeof prestation.checkout === 'number' && Number.isFinite(prestation.checkout)
@@ -101,6 +117,53 @@ router.get('/job/:id', async (ctx) => {
   ctx.set('Content-Type', 'application/json')
   ctx.body = jobHours
   return
+})
+
+router.patch('/job/:jobId/:userId/:prestationId', async (ctx) => {
+  const actor = users[ctx.state.userid]
+  if (!actor?.roles?.includes('admin')) {
+    ctx.status = 403
+    ctx.body = { error: 'Alleen admins kunnen uren corrigeren.' }
+    return
+  }
+  const { jobId, userId, prestationId } = ctx.params
+  const prestation = hours[userId]?.[prestationId]
+  if (!jobs[jobId] || !prestation || !jobs[jobId].hours?.[userId]?.includes(prestationId)) {
+    ctx.status = 404
+    ctx.body = { error: 'Urenregistratie niet gevonden.' }
+    return
+  }
+  if (prestation.invoiceId || prestation.invoicedAt) {
+    ctx.status = 409
+    ctx.body = { error: 'Gefactureerde uren kunnen niet meer gewijzigd worden.' }
+    return
+  }
+  const body = (ctx.request.body || {}) as { checkin?: number | string; checkout?: number | string; reason?: string }
+  const checkin = toTimestamp(body.checkin)
+  const checkout = body.checkout === undefined || body.checkout === '' ? undefined : toTimestamp(body.checkout)
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+  if (!Number.isFinite(checkin) || (checkout !== undefined && (!Number.isFinite(checkout) || checkout < checkin))) {
+    ctx.status = 400
+    ctx.body = { error: 'Controleer de begin- en eindtijd.' }
+    return
+  }
+  if (reason.length < 3 || reason.length > 500) {
+    ctx.status = 400
+    ctx.body = { error: 'Geef een reden van minstens 3 en maximaal 500 tekens.' }
+    return
+  }
+  const before = { checkin: prestation.checkin, checkout: prestation.checkout }
+  prestation.checkin = checkin
+  prestation.checkout = checkout
+  prestation.duration = checkout === undefined ? 0 : checkout - checkin
+  prestation.source = 'admin'
+  prestation.corrections = [...(prestation.corrections || []), {
+    id: crypto.randomUUID(), actorId: ctx.state.userid, correctedAt: new Date().toISOString(), reason,
+    before, after: { checkin, checkout }
+  }]
+  jobs[jobId].updatedAt = new Date().toISOString()
+  await Promise.all([hoursStore.put(hours), jobsStore.put(jobs)])
+  ctx.body = { id: prestationId, ...prestation }
 })
 
 router.get('/me', async (ctx) => {
@@ -177,6 +240,19 @@ router.post('/checkin', async (ctx) => {
     ctx.body = { error: 'Job not found' }
     return
   }
+  if (jobs[job].status === 'completed' || jobs[job].archivedAt) {
+    ctx.status = 409
+    ctx.body = { error: 'Deze job is niet meer actief.' }
+    return
+  }
+  const clientRequestId = typeof body.clientRequestId === 'string' ? body.clientRequestId.slice(0, 120) : undefined
+  if (clientRequestId) {
+    const existing = Object.entries(hours[userId] || {}).find(([, item]) => item.clientRequestId === clientRequestId)
+    if (existing) {
+      ctx.body = { id: existing[0], ...prestationForRoles(existing[1], users[userId]?.roles) }
+      return
+    }
+  }
   if (users[userId].currentJob) {
     ctx.status = 400
     ctx.body = {
@@ -205,6 +281,8 @@ router.post('/checkin', async (ctx) => {
     duration: 0,
     checkin: checkinTs,
     serverCheckin: Date.now(),
+    source: allowedSources.includes(body.source as NonNullable<Prestation['source']>) ? body.source : 'manual',
+    clientRequestId,
     jobId: job,
     checkinLocation,
     checkinPlace,
@@ -218,6 +296,7 @@ router.post('/checkin', async (ctx) => {
   }
 
   users[userId].currentJob = job
+  users[userId].currentPrestationId = prestationId
 
   jobs[job].hours = jobs[job].hours || {}
   jobs[job].hours[userId] = jobs[job].hours[userId] || []
@@ -227,7 +306,7 @@ router.post('/checkin', async (ctx) => {
     await Promise.all([jobsStore.put(jobs), hoursStore.put(hours), usersStore.put(users)])
     ctx.status = 200
     ctx.set('Content-Type', 'application/json')
-    ctx.body = prestationForRoles(prestation, users[userId]?.roles)
+    ctx.body = { id: prestationId, ...prestationForRoles(prestation, users[userId]?.roles) }
     return
   } catch (err) {
     console.error('failed to persist checkin', err)
@@ -241,6 +320,11 @@ router.post('/checkout', async (ctx) => {
   const body = (ctx.request.body || {}) as CheckoutBody
   const { job, checkout } = body
   const userId = ctx.state.userid
+  const checkoutClientRequestId = typeof body.clientRequestId === 'string' ? body.clientRequestId.slice(0, 120) : undefined
+  if (checkoutClientRequestId) {
+    const existing = Object.entries(hours[userId] || {}).find(([, item]) => item.checkoutClientRequestId === checkoutClientRequestId)
+    if (existing) { ctx.body = { id: existing[0], ...prestationForRoles(existing[1], users[userId]?.roles) }; return }
+  }
   if (!job) {
     ctx.status = 400
     ctx.body = { error: 'job is required' }
@@ -272,7 +356,14 @@ router.post('/checkout', async (ctx) => {
     return
   }
 
-  const prestationId = prestations[prestations.length - 1]
+  const requestedPrestationId = typeof body.prestationId === 'string' ? body.prestationId : undefined
+  const prestationId = requestedPrestationId || getOpenPrestationId(userId, job)
+
+  if (!prestationId || !prestations.includes(prestationId)) {
+    ctx.status = 404
+    ctx.body = { error: 'Active prestation not found' }
+    return
+  }
 
   const prestation = hours[userId]?.[prestationId]
   if (!prestation) {
@@ -303,6 +394,7 @@ router.post('/checkout', async (ctx) => {
 
   prestation.checkout = checkoutTs
   prestation.serverCheckout = Date.now()
+  prestation.checkoutClientRequestId = checkoutClientRequestId
   prestation.checkoutLocation = toLocation(body.location)
   const [checkoutPlace, jobLocation] = await Promise.all([
     prestation.checkoutLocation ? findNearbyPlace(prestation.checkoutLocation) : Promise.resolve(undefined),
@@ -315,13 +407,14 @@ router.post('/checkout', async (ctx) => {
   }
 
   users[userId].currentJob = undefined
+  users[userId].currentPrestationId = undefined
 
   try {
     const promises: Promise<unknown>[] = [jobsStore.put(jobs), hoursStore.put(hours), usersStore.put(users)]
     await Promise.all(promises)
     ctx.status = 200
     ctx.set('Content-Type', 'application/json')
-    ctx.body = prestationForRoles(prestation, users[userId]?.roles)
+    ctx.body = { id: prestationId, ...prestationForRoles(prestation, users[userId]?.roles) }
     return
   } catch (err) {
     console.error('failed to persist checkout', err)

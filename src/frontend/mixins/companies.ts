@@ -1,6 +1,8 @@
 import { LiteElement, html, css, query, property } from '@vandeurenglenn/lite'
 import { DataFlow } from '../flows/data.js'
 import { api } from '../api/client.js'
+import { showToast } from '../helpers/toast.js'
+import { confirmAction } from '../helpers/confirmation.js'
 import '../flows/data.js'
 import '../flows/data-input.js'
 
@@ -100,22 +102,23 @@ export const CompaniesMixin = (base: typeof LiteElement) =>
         console.error('Error creating company:', error)
         this.creatingCompany = false
         document.body.removeChild(dataFlow)
-        alert(`De ${relation} kon niet aangemaakt worden.`)
+        showToast(`De ${relation} kon niet aangemaakt worden.`)
       }
     }
 
     _deleteCompany = async (uuid, relationshipType: 'customer' | 'supplier' = 'customer') => {
       const relation = relationshipType === 'supplier' ? 'leverancier' : 'klant'
-      const answer = confirm(`Ben je zeker dat je deze ${relation} wilt verwijderen?`)
+      const answer = await confirmAction({ title: `${relation === 'klant' ? 'Klant' : 'Leverancier'} verwijderen?`, message: `De ${relation} en gekoppelde contactgegevens worden definitief verwijderd.`, confirmLabel: `${relation === 'klant' ? 'Klant' : 'Leverancier'} verwijderen` })
       if (!answer) return
 
       try {
         await api.deleteCompany(uuid)
         delete this.companies[uuid]
         this.requestRender()
+        showToast(`${relation === 'klant' ? 'Klant' : 'Leverancier'} verwijderd.`)
       } catch (error) {
         console.error('Error deleting company:', error)
-        alert(`De ${relation} kon niet verwijderd worden.`)
+        showToast(`De ${relation} kon niet verwijderd worden.`)
       }
     }
 

@@ -17,15 +17,15 @@ export class ChipField extends LiteElement {
         flex-direction: column;
         gap: 10px;
         width: 100%;
-        margin: 12px 0;
+        margin: 8px 0;
         pointer-events: none;
       }
 
       h4 {
         margin: 0;
-        font-size: 0.92rem;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
+        font-size: 0.8rem;
+        font-weight: 500;
+        letter-spacing: 0;
         color: var(--md-sys-color-on-surface-variant);
       }
 
@@ -34,15 +34,11 @@ export class ChipField extends LiteElement {
         flex-flow: row wrap;
         gap: 0.5rem;
         width: 100%;
-        padding: 12px;
-        border-radius: 18px;
+        padding: 10px;
+        border-radius: var(--app-radius-control);
         border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent 18%);
-        background: linear-gradient(
-          180deg,
-          color-mix(in srgb, var(--app-panel-strong) 95%, white 5%),
-          var(--app-panel-strong)
-        );
-        box-shadow: var(--app-shadow-soft);
+        background: var(--app-panel);
+        box-shadow: none;
         box-sizing: border-box;
         pointer-events: auto;
       }
@@ -55,7 +51,7 @@ export class ChipField extends LiteElement {
       @media (max-width: 720px) {
         .row {
           padding: 10px;
-          border-radius: 16px;
+          border-radius: var(--app-radius-control);
         }
 
         custom-icon-button {

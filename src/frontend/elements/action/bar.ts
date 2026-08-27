@@ -18,14 +18,15 @@ export class ActionBar extends LiteElement {
         gap: 10px;
         flex-wrap: wrap;
         align-items: center;
-        padding: 14px 16px;
-        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 96%, white 4%), var(--app-panel));
+        padding: 10px 0;
+        background: transparent;
         color: var(--md-sys-color-on-surface);
-        box-shadow: var(--app-shadow-soft);
-        border-radius: 20px;
-        border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent 18%);
+        box-shadow: none;
+        border-radius: 0;
+        border: 0;
+        border-bottom: 1px solid var(--app-border);
         width: 100%;
-        min-height: 64px;
+        min-height: 52px;
         box-sizing: border-box;
       }
 
@@ -40,8 +41,8 @@ export class ActionBar extends LiteElement {
 
       @media (max-width: 720px) {
         :host {
-          padding: 12px;
-          border-radius: 18px;
+          padding: 8px 0 12px;
+          border-radius: 0;
         }
 
         ::slotted(*) {

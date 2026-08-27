@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto'
-import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const DATABASE_DIR = resolve('.database')
 const CACHE_DIR = resolve(DATABASE_DIR, 'manufacturer-cache')
+const PRODUCT_IMAGE_DIR = resolve(DATABASE_DIR, 'product-images')
 const DEFAULT_DELAY_MS = 5000
 const DEFAULT_DAILY_LIMIT = 100
 
@@ -52,7 +53,11 @@ export const detectManufacturer = (item) => {
 const productSkuFor = (item) =>
   String(item.technicalData?.['Artikelcode leverancier'] || item.manufacturerData?.MPN || item.productNumber || '').trim()
 
-const hasUsableImageValue = (item) => /^https?:\/\/\S+$/i.test(String(item.image || '').trim())
+export const hasUsableImageValue = (item) => /^(?:https?:\/\/|\/(?:cache|catalog-assets)\/)\S+$/i
+  .test(String(item.image || '').trim())
+
+const productImageCacheFile = (imageUrl, variant) =>
+  `${createHash('sha256').update(`v2:${variant}:${imageUrl}`).digest('hex')}.webp`
 
 const firstMatch = (html, expression) => decodeHtml(html.match(expression)?.[1] || '')
 
@@ -499,6 +504,7 @@ const parseArgs = (argv) => {
     apply: argv.includes('--apply'),
     publishImages: argv.includes('--publish-images'),
     repairImages: argv.includes('--repair-images'),
+    missingImages: argv.includes('--missing-images'),
     reprocess: argv.includes('--reprocess'),
     resetIcecatCircuit: argv.includes('--reset-icecat-circuit'),
     refresh: argv.includes('--refresh'),
@@ -617,7 +623,7 @@ const mergeEnrichment = (item, result, brand, pageUrl, fetchedAt, publishImages 
 }
 
 const usage = () => {
-  console.log('Gebruik: npm run enrich:manufacturers -- [--catalog=desco|alelek] [--brands=bosch,icecat,geberit,viega,solerpalau,fischer,gree,panasonic,etherma] [--sku=MPN] [--max=10] [--delay-ms=5000] [--daily-limit=100] [--apply] [--publish-images] [--repair-images] [--reprocess] [--refresh] [--reset-icecat-circuit]')
+  console.log('Gebruik: npm run enrich:manufacturers -- [--catalog=desco|alelek] [--brands=bosch,icecat,geberit,viega,solerpalau,fischer,gree,panasonic,etherma] [--sku=MPN] [--max=10] [--delay-ms=5000] [--daily-limit=100] [--apply] [--publish-images] [--repair-images] [--missing-images] [--reprocess] [--refresh] [--reset-icecat-circuit]')
   console.log('Zonder --apply wordt niets aan catalogus of metadata gewijzigd.')
 }
 
@@ -627,6 +633,7 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
   if (!['desco', 'alelek'].includes(options.catalog)) throw new Error('--catalog moet desco of alelek zijn')
   const catalogPath = resolve(DATABASE_DIR, `${options.catalog}-materials.json`)
   const metadataPath = resolve(DATABASE_DIR, `${options.catalog}-materials.metadata.json`)
+  const overridesPath = resolve(DATABASE_DIR, `${options.catalog}-manufacturer-overrides.json`)
   const statePath = resolve(DATABASE_DIR, `manufacturer-enrichment-state-${options.catalog}.json`)
   const serverConfig = await readJson(resolve('server.config.json'), {})
   options.icecatUsername ||= String(serverConfig.icecat?.username || '').trim()
@@ -643,6 +650,10 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
   const catalog = await readJson(catalogPath, { items: [] })
   const metadata = await readJson(metadataPath, { source: `${options.catalog}-metadata`, items: [] })
   const state = await readJson(statePath, { version: 1, domains: {}, products: {} })
+  const overrides = await readJson(overridesPath, { version: 1, updatedAt: '', items: {} })
+  const cachedProductImages = options.missingImages
+    ? new Set(await readdir(PRODUCT_IMAGE_DIR).catch(() => []))
+    : new Set()
   if (options.resetIcecatCircuit && state.domains?.['live.icecat.biz']?.blockedStatus === 403) {
     delete state.domains['live.icecat.biz'].blockedAt
     delete state.domains['live.icecat.biz'].blockedStatus
@@ -672,9 +683,12 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
 
   for (const brand of options.brands) {
     const adapter = adapters[brand]
+    const hasCompleteLocalImage = (item) => Boolean(item.image) && ['card', 'detail'].every((variant) =>
+      cachedProductImages.has(productImageCacheFile(item.image, variant)))
     const candidates = catalog.items.filter(
       (item) =>
         adapter.matches(item) &&
+        (!options.missingImages || !hasCompleteLocalImage(item)) &&
         (!options.sku || normalizeSku(productSkuFor(item)) === options.sku)
     )
     for (const catalogItem of candidates) {
@@ -717,6 +731,14 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
           options.publishImages,
           options.repairImages
         )
+        const enrichedCatalogItem = catalog.items[catalogIndex]
+        overrides.items[itemKey(catalogItem)] = {
+          image: enrichedCatalogItem.image,
+          manufacturerData: enrichedCatalogItem.manufacturerData,
+          dataSources: enrichedCatalogItem.dataSources,
+          imageCandidates: enrichedCatalogItem.imageCandidates,
+          enrichedAt: enrichedCatalogItem.enrichedAt
+        }
         const existingMetadata = metadataByArticle.get(itemKey(catalogItem)) || catalogItem
         const enrichedMetadata = mergeEnrichment(
           existingMetadata,
@@ -752,9 +774,11 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
     }
     catalog.updatedAt = timestamp
     metadata.updatedAt = timestamp
+    overrides.updatedAt = timestamp
     metadata.items = catalog.items.map((item) => metadataByArticle.get(itemKey(item)) || item)
     await writeJsonAtomic(catalogPath, catalog)
     await writeJsonAtomic(metadataPath, metadata)
+    await writeJsonAtomic(overridesPath, overrides)
   }
 
   console.log(`Klaar: ${attempted} gecontroleerd, ${matched} exacte matches, ${sanitized} ongeldige beeldwaarden verwijderd, ${cacheHits} uit cache, modus=${options.apply ? 'toegepast' : 'dry-run'}.`)

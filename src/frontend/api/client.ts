@@ -1,10 +1,12 @@
 import {
   Job,
+  JobCompletionCheck,
   Invoice,
   User,
   Company,
   Prestation,
   WorkLocation,
+  WorkReport,
   TimelineLocationEvent,
   MaterialLine,
   ShopProduct,
@@ -15,6 +17,8 @@ import {
   AppNotification,
   Quote,
   Quotes,
+  BackupSummary,
+  KeepitBackup,
   jobId,
   userId,
   invoiceId
@@ -74,17 +78,33 @@ class ApiClient {
   }
 
   // Hours API
-  async checkIn(job: jobId, checkin: number, location?: WorkLocation): Promise<Prestation> {
-    return this.request('POST', '/hours/checkin', { job, checkin, location })
+  async checkIn(
+    job: jobId,
+    checkin: number,
+    location?: WorkLocation,
+    options: { source?: Prestation['source']; clientRequestId?: string } = {}
+  ): Promise<Prestation & { id: string }> {
+    return this.request('POST', '/hours/checkin', { job, checkin, location, ...options })
   }
 
-  async checkOut(job: jobId, checkout: number, location?: WorkLocation): Promise<Prestation> {
-    return this.request('POST', '/hours/checkout', { job, checkout, location })
+  async checkOut(
+    job: jobId,
+    checkout: number,
+    location?: WorkLocation,
+    options: { prestationId?: string; clientRequestId?: string } = {}
+  ): Promise<Prestation & { id: string }> {
+    return this.request('POST', '/hours/checkout', { job, checkout, location, ...options })
+  }
+
+  async correctHours(jobId: string, userId: string, prestationId: string, input: { checkin: number; checkout?: number; reason: string }): Promise<Prestation> {
+    return this.request('PATCH', `/hours/job/${jobId}/${userId}/${prestationId}`, input)
   }
 
   async getMyTimeline(days = 14): Promise<Array<Prestation & { id: string }>> {
     return this.request('GET', `/hours/me?days=${days}`)
   }
+
+  async getHoursReport(from:string,to:string):Promise<WorkReport>{const params=new URLSearchParams({from,to});return this.request('GET',`/reports/hours?${params}`)}
 
   async getJobHours(jobId: jobId, billableOnly = false): Promise<Record<string, Prestation[]>> {
     const query = billableOnly ? '?billableOnly=true' : ''
@@ -107,6 +127,10 @@ class ApiClient {
 
   async getJob(jobId: jobId): Promise<Job> {
     return this.request('GET', `/job/${jobId}`)
+  }
+
+  async getJobCompletionCheck(jobId: jobId): Promise<JobCompletionCheck> {
+    return this.request('GET', `/job/${jobId}/completion-check`)
   }
 
   async updateJob(jobId: jobId, updates: Partial<Job>): Promise<Job> {
@@ -232,11 +256,17 @@ class ApiClient {
     return this.request('PATCH', '/users/me/preferences', { continuousTimelineLocation: enabled })
   }
 
+  async updateUserPreferences(preferences: NonNullable<User['preferences']>): Promise<NonNullable<User['preferences']>> {
+    return this.request('PATCH', '/users/me/preferences', preferences)
+  }
+
   async submitTimelinePosition(location: WorkLocation): Promise<{
     accepted: boolean
     events?: TimelineLocationEvent[]
     shouldNotifyCheckout?: boolean
     currentJob?: { id: string; name: string }
+    shouldSuggestCheckin?: boolean
+    suggestedJob?: { id: string; name: string }
   }> {
     return this.request('POST', '/timeline/position', { location })
   }
@@ -369,6 +399,36 @@ class ApiClient {
 
   async addToHistory(material: MaterialLine): Promise<void> {
     return this.request('POST', '/invoices/preferences/history', material)
+  }
+
+  // Backups API (admin only)
+  async getBackups(): Promise<{ backups: BackupSummary[]; automaticRetention: number }> {
+    return this.request('GET', '/backups')
+  }
+
+  async createBackup(): Promise<BackupSummary> {
+    return this.request('POST', '/backups')
+  }
+
+  async restoreBackup(backup: KeepitBackup, confirmation: string): Promise<{ ok: boolean; restoredAt: string }> {
+    return this.request('POST', '/backups/restore', { backup, confirmation })
+  }
+
+  async downloadBackup(id: string): Promise<Blob> {
+    const token = this.getAuthToken()
+    const response = await fetch(`${this.baseUrl}/backups/${encodeURIComponent(id)}`, {
+      headers: token ? { Authorization: token } : undefined
+    })
+    if (!response.ok) throw new Error(`Download mislukt (${response.status})`)
+    return response.blob()
+  }
+
+  async globalSearch(query: string): Promise<{ results: Array<{ id: string; type: string; title: string; subtitle?: string; href: string; icon: string }> }> {
+    return this.request('GET', `/search?q=${encodeURIComponent(query)}`)
+  }
+
+  async getControlCenter(): Promise<{ summary: { activeJobs: number; todayPlanning: number; draftQuotes: number; invoices: number }; alerts: Array<{ id: string; kind: string; title: string; detail: string; href: string; severity: 'warning'|'critical' }> }> {
+    return this.request('GET','/control')
   }
 }
 

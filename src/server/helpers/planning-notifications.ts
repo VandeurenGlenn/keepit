@@ -126,7 +126,7 @@ export const notifyPlanningUsers = async (
   recipients = entry.userIds,
   previous?: PlanningEntry
 ) => {
-  const uniqueRecipients = [...new Set(recipients)].filter((id) => users[id])
+  const uniqueRecipients = [...new Set(recipients)].filter((id) => users[id] && users[id].preferences?.planningNotifications !== false)
   if (!uniqueRecipients.length) return
 
   const { title, message } = copyFor(change, entry, previous)
@@ -151,7 +151,7 @@ export const notifyPlanningUsers = async (
   for (const notification of created) {
     pubsub.publish(`notifications.${notification.userId}`, notification)
     const email = users[notification.userId]?.email
-    if (!email) continue
+    if (!email || users[notification.userId]?.preferences?.planningEmailNotifications === false) continue
     void sendMail(
       'keepit@dimac.be',
       email,

@@ -17,15 +17,15 @@ export class ChipElement extends LiteElement {
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 0.65rem 1rem;
-        border-radius: 999px;
-        font-size: 0.95rem;
-        font-weight: 600;
-        box-shadow: var(--app-shadow-soft);
+        min-height: 38px;
+        padding: 0 12px;
+        border-radius: 9px;
+        font-size: 0.88rem;
+        font-weight: 500;
+        box-shadow: none;
         transition:
           background-color 0.3s,
           color 0.3s,
-          transform 0.18s ease,
           border-color 0.18s ease,
           box-shadow 0.18s ease;
         cursor: pointer;
@@ -40,16 +40,16 @@ export class ChipElement extends LiteElement {
         box-sizing: border-box;
         outline: none;
         border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent 18%);
-        background: linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 95%, white 5%), var(--app-panel));
+        background: var(--app-panel);
         color: var(--md-sys-color-on-surface);
         pointer-events: auto;
         cursor: pointer;
       }
 
       :host(:hover) {
-        transform: translateY(-1px);
+        background: var(--app-panel-strong);
         border-color: color-mix(in srgb, var(--app-accent) 34%, var(--app-border) 66%);
-        box-shadow: var(--app-shadow-strong);
+        box-shadow: none;
       }
 
       :host([hidden]) {
@@ -60,19 +60,15 @@ export class ChipElement extends LiteElement {
         opacity: 0.5;
       }
       :host([selected]) {
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--app-accent) 88%, white 12%),
-          var(--app-accent-strong)
-        );
-        border-color: color-mix(in srgb, var(--app-accent) 78%, white 22%);
-        color: var(--md-sys-color-on-tertiary);
+        background: var(--md-sys-color-primary-container);
+        border-color: color-mix(in srgb, var(--app-accent) 28%, transparent 72%);
+        color: var(--md-sys-color-on-primary-container);
       }
       :host([selected]):hover {
-        color: var(--md-sys-color-on-tertiary);
+        color: var(--md-sys-color-on-primary-container);
       }
       :host([selected]):active {
-        color: var(--md-sys-color-on-tertiary);
+        color: var(--md-sys-color-on-primary-container);
       }
       :host([disabled]) .chip {
         background-color: var(--md-sys-color-surface);

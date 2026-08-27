@@ -9,9 +9,14 @@ import '@vandeurenglenn/lite-elements/divider.js'
 import './elements/user/account-bar.js'
 import './views/loading-view.js'
 import './elements/build-info.js'
+import './elements/global-search.js'
 import { api } from './api/client.js'
 import { TimelineTracker } from './helpers/timeline-tracker.js'
 import type { AppNotification } from '../types/index.js'
+import { flushOfflineActions, getPendingWorkState, initializeOfflineSync } from './helpers/offline-actions.js'
+import type { ConfirmationOptions } from './helpers/confirmation.js'
+import { confirmAction } from './helpers/confirmation.js'
+import { clearUnsavedChanges, hasUnsavedChanges } from './helpers/unsaved-changes.js'
 
 import './animations/error.js'
 
@@ -19,6 +24,8 @@ import icons from './icons.js'
 import styles from './shell.css' with { type: 'css' }
 
 globalThis.exports = {}
+
+type ConfirmationRequest = ConfirmationOptions & { resolve: (confirmed: boolean) => void }
 
 export class AppShell extends LiteElement {
   @property({ type: Boolean, provides: true, attribute: 'is-narrow', reflect: true }) accessor isNarrow
@@ -46,6 +53,9 @@ export class AppShell extends LiteElement {
   @property({ type: Boolean, attribute: 'is-menu-open', reflect: true }) accessor isMenuOpen = false
   @property({ type: Boolean, attribute: 'auth-resolving' }) accessor authResolving = false
   @property({ type: Object }) accessor appNotification: AppNotification | undefined
+  @property({ type: Number }) accessor syncPending = 0
+  @property({ type: Object }) accessor toast: {message:string;actionLabel?:string;action?:()=>void}|undefined
+  @property({ type: Object }) accessor confirmation: ConfirmationRequest | undefined
 
   googleScriptLoaded = false
   googleScriptPromise: Promise<void> | null = null
@@ -55,6 +65,14 @@ export class AppShell extends LiteElement {
   timelinePreferenceListenerBound = false
   serviceWorkerRegistered = false
   notificationListenerBound = false
+  offlineSyncInitialized = false
+  offlineListenerBound = false
+  toastListenerBound = false
+  confirmationListenerBound = false
+  toastTimeout?: ReturnType<typeof setTimeout>
+  subscribedDataTypes = new Set<string>()
+  lastRouteHash = ''
+  routeGuardBypass = false
 
   capturePendingInvite() {
     const query = location.hash.split('?')[1]
@@ -97,6 +115,7 @@ export class AppShell extends LiteElement {
   }
 
   syncTimelineTracker() {
+    this.timelineTracker.suggestionsEnabled = this.user?.preferences?.locationSuggestionNotifications !== false
     if (this.userSignedIn && this.user?.preferences?.continuousTimelineLocation) {
       this.timelineTracker.start()
     } else {
@@ -129,6 +148,16 @@ export class AppShell extends LiteElement {
 
   _onhashchange = async () => {
     const hash = location.hash
+    if (this.routeGuardBypass) this.routeGuardBypass = false
+    else if (this.lastRouteHash && hash !== this.lastRouteHash && hasUnsavedChanges()) {
+      history.replaceState(null, '', this.lastRouteHash)
+      if (await confirmAction({ title: 'Wijzigingen niet opgeslagen', message: 'Als je doorgaat, gaan de wijzigingen op deze pagina verloren.', confirmLabel: 'Wijzigingen negeren' })) {
+        clearUnsavedChanges()
+        this.routeGuardBypass = true
+        location.hash = hash
+      }
+      return
+    }
     const path = (hash.split('!/')[1] || 'home').split('?')[0]
 
     if (path === 'media' || path === 'projects') {
@@ -150,7 +179,7 @@ export class AppShell extends LiteElement {
         ) || {}
 
     if (params.error) {
-      this.error = params.error
+      this.error = { message: params.error, label: 'Terug naar home', href: '#!/home' }
       this.requestRender()
       return
     } else {
@@ -179,8 +208,14 @@ export class AppShell extends LiteElement {
       if (!this.jobs) promises.push(this._load('jobs'))
       if (!this.users) promises.push(this._load('users'))
     }
+
+    if (path === 'backups' && !this.user?.roles?.includes('admin')) {
+      location.hash = '#!/home'
+      return
+    }
     if (path === 'quote') {
       if (!this.jobs) promises.push(this._load('jobs'))
+      if (!this.companies) promises.push(this._load('companies'))
       if (params.selected) {
         promises.push(
           api.getQuote(params.selected).then((quote) => {
@@ -194,9 +229,10 @@ export class AppShell extends LiteElement {
     if (path === 'quotes') {
       promises.push(this._load('quotes'))
       if (!this.jobs) promises.push(this._load('jobs'))
+      if (!this.companies) promises.push(this._load('companies'))
     }
     if (path === 'job') {
-      if (!this.job) promises.push(this._load('job', params.selected))
+      promises.push(this._load('job', params.selected))
     }
     if (path === 'companies') {
       if (!this.companies) promises.push(this._load('companies'))
@@ -204,10 +240,11 @@ export class AppShell extends LiteElement {
     if (path === 'suppliers') {
       if (!this.companies) promises.push(this._load('companies'))
     }
-    if (path === 'users') {
+    if (path === 'users' || path === 'reports') {
       if (!this.users) promises.push(this._load('users'))
+      if (path === 'reports' && !this.jobs) promises.push(this._load('jobs'))
     }
-    if (path === 'home' || path === 'timeline') {
+    if (path === 'home' || path === 'timeline' || path === 'sync') {
       if (!this.jobs) promises.push(this._load('jobs'))
     }
     if (path === 'checkin') {
@@ -220,10 +257,15 @@ export class AppShell extends LiteElement {
     await Promise.all(promises)
 
     this.selected = path
+    this.lastRouteHash = hash
   }
 
   beforeRender(): void {
     this.registerServiceWorker()
+    if(!this.offlineSyncInitialized){this.offlineSyncInitialized=true;initializeOfflineSync()}
+    if(!this.offlineListenerBound){this.offlineListenerBound=true;this.syncPending=getPendingWorkState().pending;window.addEventListener('keepit-sync-status',(event:Event)=>{this.syncPending=(event as CustomEvent).detail?.pending||0})}
+    if(!this.toastListenerBound){this.toastListenerBound=true;window.addEventListener('keepit-toast',(event:Event)=>{this.toast=(event as CustomEvent).detail;if(this.toastTimeout)clearTimeout(this.toastTimeout);this.toastTimeout=setTimeout(()=>{this.toast=undefined},6000)})}
+    if(!this.confirmationListenerBound){this.confirmationListenerBound=true;window.addEventListener('keepit-confirm',(event:Event)=>{this.confirmation?.resolve(false);this.confirmation=(event as CustomEvent<ConfirmationRequest>).detail;requestAnimationFrame(()=>this.shadowRoot?.querySelector<HTMLButtonElement>('.confirm-cancel')?.focus())})}
     if (!this.timelinePreferenceListenerBound) {
       window.addEventListener('keepit-timeline-preference', () => this.syncTimelineTracker())
       this.timelinePreferenceListenerBound = true
@@ -523,7 +565,14 @@ export class AppShell extends LiteElement {
         }
       }
     }
-    void api.markNotificationRead(notification.id).catch(() => undefined)
+  }
+
+  async dismissAppNotification(navigate = false) {
+    const notification = this.appNotification
+    if (!notification) return
+    this.appNotification = undefined
+    await api.markNotificationRead(notification.id).catch(() => undefined)
+    if (navigate) location.hash = notification.url
   }
 
   async enableAppNotifications() {
@@ -566,9 +615,12 @@ export class AppShell extends LiteElement {
 
       const userData = await api.getUser(user.id)
       const mergedUser = { ...user, ...userData }
+      const pendingWork=getPendingWorkState()
+      if(pendingWork.currentJob){mergedUser.currentJob=pendingWork.currentJob;mergedUser.currentPrestationId=pendingWork.currentPrestationId}
       mergedUser.picture = (await this.cacheProfilePicture(mergedUser.picture)) || mergedUser.picture
       this.user = mergedUser
       this.userSignedIn = true
+      void flushOfflineActions()
       this.authResolving = false
       this.syncTimelineTracker()
       void this.loadUnreadNotifications()
@@ -595,6 +647,7 @@ export class AppShell extends LiteElement {
   static styles = [styles]
 
   async _load(type, uuid?: string) {
+    if (uuid) this[type] = undefined
     const response = await fetch(uuid ? `/api/${type}/${uuid}` : `/api/${type}`, {
       method: 'GET',
       headers: {
@@ -607,13 +660,21 @@ export class AppShell extends LiteElement {
         return
       }
       console.error('Error fetching data:', response.statusText)
+      this.error = {
+        message: `${type === 'job' ? 'De job' : 'De gegevens'} kon niet geladen worden.`,
+        label: type === 'job' ? 'Terug naar jobs' : 'Terug naar home',
+        href: type === 'job' ? '#!/jobs' : '#!/home'
+      }
       return
     }
     const data = await response.json()
     console.log({ data })
-    pubsub.subscribe(`${type}.changed`, (value) => {
-      this[type] = value
-    })
+    if (!this.subscribedDataTypes.has(type)) {
+      pubsub.subscribe(`${type}.changed`, (value) => {
+        this[type] = value
+      })
+      this.subscribedDataTypes.add(type)
+    }
     this[type] = data
   }
 
@@ -669,12 +730,12 @@ export class AppShell extends LiteElement {
 
             <div class="signed-out-highlights">
               <div class="signed-out-highlight">
-                <strong>Operations workspace</strong>
-                <span>Beheer jobs, users, companies en planning vanuit een vaste flow.</span>
+                <strong>Werkbeheer</strong>
+                <span>Beheer jobs, medewerkers, klanten en planning vanuit één vaste flow.</span>
               </div>
               <div class="signed-out-highlight">
-                <strong>Finance workspace</strong>
-                <span>Werk checkins, checkouts en invoices bij op een centrale plek.</span>
+                <strong>Uren en facturen</strong>
+                <span>Beheer check-ins, check-outs en facturen op één centrale plek.</span>
               </div>
             </div>
 
@@ -780,6 +841,14 @@ export class AppShell extends LiteElement {
       return html` <planning-view></planning-view> `
     }
 
+    if (path === 'backups') {
+      if (!this.user?.roles?.includes('admin')) return html` <home-view></home-view> `
+      return html` <backups-view></backups-view> `
+    }
+
+    if (path === 'sync') return html` <sync-view></sync-view> `
+    if (path === 'reports') return this.user?.roles?.includes('admin') ? html`<reports-view></reports-view>` : html`<home-view></home-view>`
+
     if (path === 'job') {
       if (!this.job) {
         return html` <loading-view type="loading"></loading-view> `
@@ -796,10 +865,37 @@ export class AppShell extends LiteElement {
     this.isMenuOpen = false
   }
 
+  resolveConfirmation(confirmed: boolean) {
+    const request = this.confirmation
+    this.confirmation = undefined
+    request?.resolve(confirmed)
+  }
+
+  handleConfirmationKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      this.resolveConfirmation(false)
+      return
+    }
+    if (event.key !== 'Tab') return
+    const buttons = Array.from(this.shadowRoot?.querySelectorAll<HTMLButtonElement>('.confirm-dialog button') || [])
+    if (!buttons.length) return
+    const first = buttons[0]
+    const last = buttons[buttons.length - 1]
+    if (event.shiftKey && this.shadowRoot?.activeElement === first) {
+      event.preventDefault(); last.focus()
+    } else if (!event.shiftKey && this.shadowRoot?.activeElement === last) {
+      event.preventDefault(); first.focus()
+    }
+  }
+
   render() {
     return html`
       <!-- @build-info -->
       ${icons}
+      <global-search></global-search>
+      ${this.toast?html`<section class="app-toast" role="status"><span>${this.toast.message}</span>${this.toast.action?html`<button @click=${async()=>{await this.toast?.action?.();this.toast=undefined}}>${this.toast.actionLabel||'Ongedaan maken'}</button>`:''}<button class="toast-close" aria-label="Melding sluiten" @click=${()=>this.toast=undefined}><custom-icon icon="close"></custom-icon></button></section>`:''}
+      ${this.confirmation?html`<div class="confirm-layer" @keydown=${(event:KeyboardEvent)=>this.handleConfirmationKeydown(event)}><button class="confirm-backdrop" aria-label="Annuleren" tabindex="-1" @click=${()=>this.resolveConfirmation(false)}></button><section class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message"><span class="confirm-icon"><custom-icon icon="warning"></custom-icon></span><div class="confirm-copy"><h2 id="confirm-title">${this.confirmation.title}</h2><p id="confirm-message">${this.confirmation.message}</p></div><div class="confirm-actions"><button class="confirm-cancel" @click=${()=>this.resolveConfirmation(false)}>${this.confirmation.cancelLabel||'Annuleren'}</button><button class="confirm-primary" @click=${()=>this.resolveConfirmation(true)}>${this.confirmation.confirmLabel||'Verwijderen'}</button></div></section></div>`:''}
       ${this.userSignedIn && this.appNotification
         ? html`<section
             class="notification-toast"
@@ -810,10 +906,7 @@ export class AppShell extends LiteElement {
               <span>${this.appNotification.message}</span>
               <div class="notification-actions">
                 <button
-                  @click=${() => {
-                    location.hash = this.appNotification.url
-                    this.appNotification = undefined
-                  }}>
+                  @click=${() => this.dismissAppNotification(true)}>
                   Bekijk planning
                 </button>
                 ${'Notification' in window && Notification.permission === 'default'
@@ -828,7 +921,7 @@ export class AppShell extends LiteElement {
             <button
               class="notification-close"
               aria-label="Melding sluiten"
-              @click=${() => (this.appNotification = undefined)}>
+              @click=${() => this.dismissAppNotification()}>
               <custom-icon icon="close"></custom-icon>
             </button>
           </section>`
@@ -841,8 +934,10 @@ export class AppShell extends LiteElement {
       ${this.userSignedIn
         ? html`<custom-icon-button
             class="menu-toggle"
-            icon=${this.isMenuOpen ? 'close' : 'menu'}
-            aria-label=${this.isMenuOpen ? 'Menu sluiten' : 'Menu openen'}
+            icon="menu"
+            aria-label="Menu openen"
+            aria-controls="app-navigation"
+            aria-expanded=${this.isMenuOpen ? 'true' : 'false'}
             @click=${() => this._toggleMenu()}></custom-icon-button>`
         : ''}
       ${this.userSignedIn
@@ -850,76 +945,122 @@ export class AppShell extends LiteElement {
               class="drawer-backdrop"
               aria-label="Menu sluiten"
               @click=${() => this._closeMenu()}></button>
-            <aside>
+            <aside
+              id="app-navigation"
+              aria-label="Hoofdnavigatie"
+              aria-hidden=${this.isNarrow && !this.isMenuOpen ? 'true' : 'false'}
+              @keydown=${(event: KeyboardEvent) => {
+                if (event.key === 'Escape') this._closeMenu()
+              }}>
               <div class="logo-area">
-                <img
-                  class="logo"
-                  loading="lazy"
-                  src="https://dimac.be/assets/dimac.svg"
-                  alt="Dimac" />
+                <custom-icon-button
+                  class="drawer-close"
+                  icon="close"
+                  aria-label="Menu sluiten"
+                  @click=${() => this._closeMenu()}></custom-icon-button>
               </div>
-              <div
+              <nav
                 class="nav-container"
+                aria-label="Hoofdnavigatie"
                 @click=${() => this._closeMenu()}>
-                <a
-                  href="#!/home"
-                  class=${this.selected === 'home' ? 'nav-item active' : 'nav-item'}
-                  ><custom-icon icon="home"></custom-icon>Home</a
-                >
-                <a
-                  href="#!/timeline"
-                  class=${this.selected === 'timeline' ? 'nav-item active' : 'nav-item'}
-                  ><custom-icon icon="timeline"></custom-icon>Mijn tijdlijn</a
-                >
-                <a
-                  href="#!/quotes"
-                  class=${this.selected === 'quotes' ? 'nav-item active' : 'nav-item'}
-                  ><custom-icon icon="request_quote"></custom-icon>Offertes</a
-                >
-                <a
-                  href="#!/jobs"
-                  class=${this.selected === 'jobs' ? 'nav-item active' : 'nav-item'}
-                  ><custom-icon icon="inventory2"></custom-icon>Jobs</a
-                >
-                <a
-                  href="#!/planning"
-                  class=${this.selected === 'planning' ? 'nav-item active' : 'nav-item'}
-                  ><custom-icon icon="calendar_month"></custom-icon>Planning</a
-                >
-                <a
-                  href="#!/companies"
-                  class=${this.selected === 'companies' ? 'nav-item active' : 'nav-item'}
-                  ><custom-icon icon="source_environment"></custom-icon>Klanten</a
-                >
-                <a
-                  href="#!/suppliers"
-                  class=${this.selected === 'suppliers' ? 'nav-item active' : 'nav-item'}
-                  ><custom-icon icon="local_shipping"></custom-icon>Leveranciers</a
-                >
-                <a
-                  href="#!/invoices"
-                  class=${this.selected === 'invoices' ? 'nav-item active' : 'nav-item'}
-                  ><custom-icon icon="receipt"></custom-icon>Facturen</a
-                >
-                <span class="nav-section-label">Materiaal</span>
-                <a
-                  href="#!/shop"
-                  class=${this.selected === 'shop' ? 'nav-item active' : 'nav-item'}
-                  ><custom-icon icon="storefront"></custom-icon>Shop</a
-                >
-                <a
-                  href="#!/users"
-                  class=${this.selected === 'users' ? 'nav-item active' : 'nav-item'}
-                  ><custom-icon icon="group"></custom-icon>Team</a
-                >
-              </div>
-              <div class="drawer-bottom"><build-info></build-info></div>
+                <section
+                  class="nav-section"
+                  aria-labelledby="nav-overview">
+                  <h2
+                    id="nav-overview"
+                    class="nav-section-label">
+                    Overzicht
+                  </h2>
+                  <a
+                    href="#!/home"
+                    aria-current=${this.selected === 'home' ? 'page' : undefined}
+                    class=${this.selected === 'home' ? 'nav-item active' : 'nav-item'}
+                    ><custom-icon icon="home"></custom-icon>Home</a
+                  >
+                  <a
+                    href="#!/timeline"
+                    aria-current=${this.selected === 'timeline' ? 'page' : undefined}
+                    class=${this.selected === 'timeline' ? 'nav-item active' : 'nav-item'}
+                    ><custom-icon icon="timeline"></custom-icon>Mijn tijdlijn</a
+                  >
+                </section>
+                <section
+                  class="nav-section"
+                  aria-labelledby="nav-work">
+                  <h2
+                    id="nav-work"
+                    class="nav-section-label">
+                    Werk
+                  </h2>
+                  ${this.user?.roles?.includes('admin')
+                    ? html`<a href="#!/quotes" aria-current=${this.selected === 'quotes' ? 'page' : undefined} class=${this.selected === 'quotes' ? 'nav-item active' : 'nav-item'}><custom-icon icon="request_quote"></custom-icon>Offertes</a>`
+                    : ''}
+                  <a
+                    href="#!/jobs"
+                    aria-current=${this.selected === 'jobs' ? 'page' : undefined}
+                    class=${this.selected === 'jobs' ? 'nav-item active' : 'nav-item'}
+                    ><custom-icon icon="inventory2"></custom-icon>Jobs</a
+                  >
+                  <a
+                    href="#!/planning"
+                    aria-current=${this.selected === 'planning' ? 'page' : undefined}
+                    class=${this.selected === 'planning' ? 'nav-item active' : 'nav-item'}
+                    ><custom-icon icon="calendar_month"></custom-icon>Planning</a
+                  >
+                </section>
+                ${this.user?.roles?.includes('admin') ? html`<section
+                  class="nav-section"
+                  aria-labelledby="nav-organization">
+                  <h2
+                    id="nav-organization"
+                    class="nav-section-label">
+                    Organisatie
+                  </h2>
+                  <a
+                    href="#!/companies"
+                    aria-current=${this.selected === 'companies' ? 'page' : undefined}
+                    class=${this.selected === 'companies' ? 'nav-item active' : 'nav-item'}
+                    ><custom-icon icon="source_environment"></custom-icon>Klanten</a
+                  >
+                  <a
+                    href="#!/suppliers"
+                    aria-current=${this.selected === 'suppliers' ? 'page' : undefined}
+                    class=${this.selected === 'suppliers' ? 'nav-item active' : 'nav-item'}
+                    ><custom-icon icon="local_shipping"></custom-icon>Leveranciers</a
+                  >
+                  <a
+                    href="#!/invoices"
+                    aria-current=${this.selected === 'invoices' ? 'page' : undefined}
+                    class=${this.selected === 'invoices' ? 'nav-item active' : 'nav-item'}
+                    ><custom-icon icon="receipt"></custom-icon>Facturen</a
+                  >
+                  <a
+                    href="#!/shop"
+                    aria-current=${this.selected === 'shop' ? 'page' : undefined}
+                    class=${this.selected === 'shop' ? 'nav-item active' : 'nav-item'}
+                    ><custom-icon icon="storefront"></custom-icon>Shop</a
+                  >
+                  <a
+                    href="#!/users"
+                    aria-current=${this.selected === 'users' ? 'page' : undefined}
+                    class=${this.selected === 'users' ? 'nav-item active' : 'nav-item'}
+                    ><custom-icon icon="group"></custom-icon>Team</a
+                  >
+                  <a href="#!/backups" aria-current=${this.selected === 'backups' ? 'page' : undefined} class=${this.selected === 'backups' ? 'nav-item active' : 'nav-item'}><custom-icon icon="backup"></custom-icon>Back-ups</a>
+                  <a href="#!/reports" aria-current=${this.selected === 'reports' ? 'page' : undefined} class=${this.selected === 'reports' ? 'nav-item active' : 'nav-item'}><custom-icon icon="analytics"></custom-icon>Rapporten</a>
+                </section>` : ''}
+              </nav>
+              <div class="drawer-bottom"><div class="drawer-profile">${this.user?.picture?html`<img src=${this.user.picture} alt="" referrerpolicy="no-referrer" />`:html`<span class="drawer-avatar">${this.user?.name?.trim().charAt(0).toUpperCase()||'U'}</span>`}<div class="drawer-profile-copy"><strong>${this.user?.name||'Gebruiker'}</strong><span>${this.user?.roles?.includes('admin')?'Administrator':'Medewerker'}</span></div></div><build-info></build-info></div>
             </aside>`
         : ''}
 
+      ${this.userSignedIn ? html`<nav class="mobile-bottom-nav" aria-label="Snelle navigatie"><a href="#!/home" class=${this.selected==='home'?'active':''}><custom-icon icon="home"></custom-icon><span>Home</span></a><a href="#!/planning" class=${this.selected==='planning'?'active':''}><custom-icon icon="calendar_month"></custom-icon><span>Planning</span></a><a class="work-action" href=${this.user?.currentJob?'#!/checkout':'#!/checkin'}><custom-icon icon=${this.user?.currentJob?'stop_circle':'play_arrow'}></custom-icon><span>${this.user?.currentJob?'Stop':'Start'}</span></a><a href="#!/timeline" class=${this.selected==='timeline'?'active':''}><custom-icon icon="timeline"></custom-icon><span>Tijdlijn</span></a><button @click=${()=>window.dispatchEvent(new Event('keepit-open-search'))}><custom-icon icon="search"></custom-icon><span>Zoek</span></button></nav>` : ''}
+
       <main>
         ${this.userSignedIn
-          ? html`<header>
+        ? html`<header>
+              ${this.syncPending?html`<a class="offline-status" href="#!/sync"><custom-icon icon="cloud_upload"></custom-icon>${this.syncPending} wacht${this.syncPending===1?'':'en'} op synchronisatie</a>`:''}
+              <button class="global-search-trigger" @click=${()=>window.dispatchEvent(new Event('keepit-open-search'))}><custom-icon icon="search"></custom-icon><span>Zoeken</span><kbd>⌘ K</kbd></button>
               <account-bar></account-bar>
             </header>`
           : ''}

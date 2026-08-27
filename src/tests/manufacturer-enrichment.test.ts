@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   detectManufacturer,
+  hasUsableImageValue,
   normalizeSku,
   parseBoschProductPage,
   parseEthermaProductPage,
@@ -77,6 +78,14 @@ test('fabrikant wordt conservatief uit de productnaam bepaald', () => {
   assert.equal(detectManufacturer({ name: 'ROZET CHROOM GEBERIT', description: '' }), 'Geberit')
   assert.equal(detectManufacturer({ name: 'EC-9N', technicalData: { Merk: 'SOLER&PALAU' } }), 'SOLER&PALAU')
   assert.equal(detectManufacturer({ name: 'Merkloze koppeling', description: '' }), undefined)
+})
+
+test('beeldreparatie behoudt ondersteunde lokale beeldbronnen', () => {
+  assert.equal(hasUsableImageValue({ image: '/cache/desco/product.jpg' }), true)
+  assert.equal(hasUsableImageValue({ image: '/catalog-assets/sieportal/product.png' }), true)
+  assert.equal(hasUsableImageValue({ image: 'https://manufacturer.example/product.jpg' }), true)
+  assert.equal(hasUsableImageValue({ image: '0' }), false)
+  assert.equal(hasUsableImageValue({ image: 'los-bestand.jpg' }), false)
 })
 
 test('Soler & Palau adapter koppelt alleen gekende fabrikantcodes aan officiële beelden', () => {

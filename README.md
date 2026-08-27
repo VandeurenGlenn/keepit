@@ -84,6 +84,8 @@ Officiële fabrikantpagina's kunnen productgegevens aanvullen. De verrijker werk
 - ontbrekende beelden source-linked publiceren: `npm run enrich:manufacturers -- --brands=bosch --max=10 --apply --publish-images`
 - Alelek-beelden via exacte merk + fabrikantcode uit Open Icecat herstellen:
   `npm run enrich:manufacturers -- --catalog=alelek --brands=icecat --max=25 --apply --publish-images --repair-images`
+
+Voeg `--missing-images` toe om uitsluitend producten zonder volledige lokale card- en detail-WebP te controleren; dit voorkomt onnodige fabrikant- of Icecat-requests.
 - Alelek-beelden rechtstreeks bij ondersteunde fabrikanten herstellen:
   `npm run enrich:manufacturers -- --catalog=alelek --brands=fischer,gree,panasonic,etherma --max=50 --apply --publish-images --repair-images`
 - Gekende Soler & Palau-beelden rechtstreeks uit de officiële productcatalogus herstellen:
@@ -227,6 +229,20 @@ Bestellingen kunnen de volgende statussen hebben:
 
 Bestellingen worden opgeslagen in `.database/shopOrders.json`.
 
+## Operationele back-ups
+
+Keepit maakt automatisch een consistente JSON-back-up van de unieke bedrijfsgegevens: uren, jobs, planning, klanten en leveranciers, offertes, factuurgegevens, gebruikers, bestellingen, meldingen en tijdlijngegevens. Na wijzigingen wordt een snapshot met korte vertraging gemaakt en bij het opstarten minstens eenmaal per 24 uur. Standaard blijven de laatste 30 automatische en 10 handmatige back-ups bewaard.
+
+Admins kunnen via **Organisatie → Back-ups** een snapshot maken, downloaden of een eerder gedownload bestand herstellen. Vóór ieder herstel maakt Keepit eerst een extra veiligheidskopie.
+
+Standaard staan snapshots in `.database/backups`. Gebruik in productie bij voorkeur een gemount extern volume of NAS:
+
+```sh
+KEEPIT_BACKUP_DIR=/mnt/keepit-backups KEEPIT_BACKUP_RETENTION=60 npm start
+```
+
+De grote, opnieuw opbouwbare shopcatalogus en binaire productafbeeldingen zijn niet inbegrepen in deze operationele snapshots. Daarvoor blijft `npm run catalog:zip` beschikbaar.
+
 ## CLI
 
 Je kan catalog sync ook uitvoeren via CLI.
@@ -240,6 +256,15 @@ Commands:
 - `npm run keepit -- images all`
 - `npm run keepit -- images alelek --concurrency=2`
 - `npm run images:cache -- all`
+- `npm run images:siemens-audit -- --apply` controleert onvolledige Siemens-producten via hun exacte openbare Industry Mall-pagina, bewaart lifecycle-data en vult officiële beelden aan. De controle gebruikt twee gelijktijdige requests met vertraging en schrijft `.database/exports/siemens-mall-audit.json`.
+- `npm run images:siemens-cleanup` toont welke geïmporteerde Siemens-ZIP's en originele beelden kunnen worden opgeruimd. Met `-- --apply` worden de ZIP's verwijderd en alleen originelen waarvoor geldige card- én detail-WebP's bestaan.
+- `npm run catalog:cleanup` toont veilig verwijderbare catalogusdata voor Alelek en Desco: verweesde WebP's, gedekte Desco-originelen, verouderde beeldfouten, back-ups ouder dan de nieuwste snapshot en oudere snapshots. Pas toe met `npm run catalog:cleanup -- --apply`.
+- `npm run sync:finish` — genereert ontbrekende WebP-varianten voor Techlink-bronnen; onbereikbare fabrikant-URL's worden geregistreerd en bij een volgende run overgeslagen
+- `npm run images:repair` — herprobeert uitsluitend automatisch herstelbare URL-, 403-, certificaat- en pixellimietfouten
+- `npm run images:import -- installdata /pad/naar/export.zip` — controleert een InstallData BMEcat/INSBOU-export zonder wijzigingen
+- `npm run images:import -- techlink /pad/naar/export.zip` — controleert een Techlink Data Portal XML/CSV/Excel-export zonder wijzigingen
+- `npm run images:import -- sieportal /pad/naar/export.zip` — controleert een Siemens SiePortal productmaster/beeldexport zonder wijzigingen
+- `npm run images:siemens-list` — maakt invoerbatches voor Siemens CAx van artikelen zonder volledige lokale beeldcache
 - `npm run keepit -- enrich desco`
 - `npm run sync -- --force`
 
@@ -251,6 +276,33 @@ Globaal command (optioneel):
 - `keepit enrich desco`
 
 Opmerking: gebruik geen `npx keepit sync`, want `npx` kan een ander npm package met dezelfde naam ophalen.
+
+De beeldcache houdt mislukkingen bij in `.database/product-image-cache-state.json`. HTTP 404/410, corrupte HTML-responses en onondersteunde bestanden worden als permanent uitgesteld; tijdelijke netwerkfouten krijgen oplopende back-off. `images:repair` herstelt onder meer komma's in CDN-hosts/extensies, samengestelde URL-velden en Google Drive-deellinks en gebruikt browserheaders plus de systeemcertificaten. Gebruik alleen bij een bewuste volledige hercontrole `npm run images:cache -- alelek --retry-failures`. Met `--limit=1000` kan een gecontroleerde batch worden uitgevoerd.
+
+### Officiële beeldexports importeren
+
+Gebruik voor 403-bronnen bij voorkeur een officiële export met de bijbehorende beeldbestanden. De importer accepteert een map of ZIP:
+
+- InstallData: INSBOU/BMEcat XML en de bestanden waarnaar `MIME_SOURCE` verwijst.
+- Techlink Data Portal: BMEcat XML of CSV/XLS/XLSX met EAN/GTIN, merk, fabrikantnummer en een beeldverwijzing, plus de bijbehorende beeldbestanden.
+- Siemens SiePortal: CSV/XLS/XLSX productmaster met kolommen zoals `Order Number`, `GTIN` en `Product Image`, plus de gedownloade beeldmap.
+
+Elke import is standaard een dry-run en koppelt alleen op exact EAN/GTIN, exact merk + MPN, of een catalogusbreed unieke exacte MPN. Controleer eerst het aantal matches en pas daarna toe:
+
+```sh
+npm run images:import -- installdata /pad/naar/installdata-export.zip
+npm run images:import -- installdata /pad/naar/installdata-export.zip --apply
+
+npm run images:import -- techlink /pad/naar/techlink-export.zip
+npm run images:import -- techlink /pad/naar/techlink-export.zip --apply
+
+npm run images:import -- sieportal /pad/naar/sieportal-export.zip
+npm run images:import -- sieportal /pad/naar/sieportal-export.zip --apply
+
+npm run sync:finish
+```
+
+De originele aangeleverde beelden worden inhoudsgebaseerd opgeslagen in `.database/catalog-assets/`; de shop gebruikt daarna de gegenereerde WebP-varianten uit `.database/product-images/`. Vóór `--apply` wordt een catalogusback-up gemaakt en de koppelingen worden ook in `alelek-manufacturer-overrides.json` bewaard, zodat een latere leverancierssync ze niet wist.
 
 ## Catalog Snapshot
 
@@ -272,6 +324,9 @@ Dit maakt een zip in `catalog-snapshots/` met:
 - `.database/desco-materials.metadata.json`
 - `.database/alelek-materials.json`
 - `.database/alelek-materials.metadata.json` (indien aanwezig)
+- `.database/alelek-manufacturer-overrides.json` (geverifieerde fabrikantverrijking)
+- `.database/product-image-cache-state.json` (indien aanwezig; hervatbare fout/back-offstatus)
 - `.database/product-images` (lokale kaart- en detail-WebP's)
+- `.database/catalog-assets` (originele officiële InstallData/SiePortal-beelden)
 - `www/cache/desco` (indien aanwezig)
 - `www/cache/alelek` (indien aanwezig)

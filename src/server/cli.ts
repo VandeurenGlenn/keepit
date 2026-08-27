@@ -48,7 +48,9 @@ const parseOptions = (argv: string[]): CliOptions => {
 const printUsage = (): void => {
   console.log('Usage: keepit sync [all|desco|alelek] [--force] [--no-scraper]')
   console.log('       keepit enrich [desco]')
-  console.log('       keepit images [all|desco|alelek] [--concurrency=2]')
+  console.log(
+    '       keepit images [all|desco|alelek] [--concurrency=2] [--limit=1000] [--provider=techlink] [--allow-failures] [--repair-failures|--retry-failures]'
+  )
   console.log('Examples:')
   console.log('  keepit sync')
   console.log('  keepit sync desco --force')
@@ -180,22 +182,39 @@ const runImageCache = async (args: string[]): Promise<void> => {
   const source: ProductImageSource = sourceArg === 'desco' || sourceArg === 'alelek' ? sourceArg : 'all'
   const concurrencyArgument = args.find((argument) => argument.startsWith('--concurrency='))
   const concurrency = Math.max(1, Math.min(6, Number(concurrencyArgument?.split('=')[1]) || 2))
+  const limitArgument = args.find((argument) => argument.startsWith('--limit='))
+  const parsedLimit = Number(limitArgument?.split('=')[1])
+  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : undefined
+  const retryFailures = args.includes('--retry-failures')
+  const repairFailures = args.includes('--repair-failures')
+  const providerArgument = args.find((argument) => argument.startsWith('--provider='))
+  const provider = providerArgument?.split('=')[1]?.trim() || undefined
+  const allowFailures = args.includes('--allow-failures')
   let lastPrinted = 0
 
-  console.log(`Productbeelden voorbereiden: ${source}, ${concurrency} gelijktijdige downloads…`)
-  const report = await cacheCatalogImages(source, concurrency, (progress) => {
-    if (progress.completed === progress.total || progress.completed - lastPrinted >= 25) {
-      lastPrinted = progress.completed
-      console.log(`  ${progress.completed}/${progress.total} verwerkt · ${progress.failed.length} mislukt`)
-    }
-  })
+  console.log(
+    `Productbeelden voorbereiden: ${source}${provider ? `, provider ${provider}` : ''}, ${concurrency} gelijktijdige downloads${limit ? `, maximaal ${limit}` : ''}…`
+  )
+  const report = await cacheCatalogImages(
+    source,
+    concurrency,
+    (progress) => {
+      if (progress.completed === progress.total || progress.completed - lastPrinted >= 100) {
+        lastPrinted = progress.completed
+        console.log(`  ${progress.completed}/${progress.total} verwerkt · ${progress.failed.length} mislukt`)
+      }
+    },
+    { limit, retryFailures, repairFailures, provider }
+  )
 
-  console.log(`✓ ${report.completed - report.failed.length}/${report.total} productbeelden volledig gecachet`)
+  console.log(`  ${report.alreadyCached}/${report.catalogTotal} bronnen waren al volledig lokaal gecachet`)
+  if (report.deferred) console.log(`  ${report.deferred} gekende defecte bronnen voorlopig overgeslagen`)
+  console.log(`✓ ${report.completed - report.failed.length}/${report.total} ontbrekende bronnen succesvol verwerkt`)
   if (report.failed.length) {
     console.warn(`⚠ ${report.failed.length} bronbeelden konden niet verwerkt worden:`)
     report.failed.slice(0, 20).forEach(({ url, error }) => console.warn(`  ${url} — ${error}`))
     if (report.failed.length > 20) console.warn(`  … en nog ${report.failed.length - 20}`)
-    process.exitCode = 1
+    if (!allowFailures) process.exitCode = 1
   }
 }
 

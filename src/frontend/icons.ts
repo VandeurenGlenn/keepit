@@ -4,11 +4,21 @@ export default html` <custom-icon-set>
   <template>
     <span name="photo_camera">@symbol-photo_camera</span>
     <span name="add">@symbol-add</span>
+    <span name="add_task">@symbol-add_task</span>
     <span name="arrow-back">@symbol-arrow_back</span>
     <span name="arrow_back">@symbol-arrow_back</span>
     <span name="arrow-forward">@symbol-arrow_forward</span>
     <span name="arrow_upward">@symbol-arrow_upward</span>
     <span name="arrow_downward">@symbol-arrow_downward</span>
+    <span name="analytics">@symbol-analytics</span>
+    <span name="archive">@symbol-archive</span>
+    <span name="backup">@symbol-backup</span>
+    <span name="shield">@symbol-shield</span>
+    <span name="upload_file">@symbol-upload_file</span>
+    <span name="download">@symbol-download</span>
+    <span name="notes">@symbol-notes</span>
+    <span name="restore">@symbol-restore</span>
+
     <span name="cameraswitch">@symbol-cameraswitch</span>
 
     <span name="menu">@symbol-menu</span>

@@ -7,27 +7,29 @@ export class BuildInfo extends LiteElement {
       :host {
         display: flex;
         flex-direction: column;
-        font-size: 0.8em;
+        font-size: 1em;
         color: var(--md-sys-color-on-surface-variant);
-        margin: 16px;
+        margin: 0;
       }
       span {
         display: flex;
         flex-direction: row;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
         justify-content: space-between;
+        white-space: nowrap;
       }
       small {
         color: var(--md-sys-color-on-surface-variant);
+        font-size: inherit;
+        opacity: 0.72;
       }
     `
   ]
 
   render() {
     return html` <span
-      >version: ${globalThis.__keepit__.build.version}
-      <small>build: ${globalThis.__keepit__.build.current} </small></span
+      >Versie ${globalThis.__keepit__.build.version} <small>Build ${globalThis.__keepit__.build.current}</small></span
     >`
   }
 }

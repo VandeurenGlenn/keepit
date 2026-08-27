@@ -1,6 +1,7 @@
 import { Router } from '@koa/router'
 import { jobs, jobsStore } from './../database/database.js'
 import { Place } from '../../types/index.js'
+import { hasRole } from '../helpers/roles.js'
 
 const router = new Router({
   prefix: '/api/jobs'
@@ -13,6 +14,7 @@ router.get('/', async (ctx) => {
 })
 
 router.post('/', async (ctx) => {
+  if (!hasRole(ctx.state.userid, 'admin')) { ctx.status = 403; ctx.body = { error: 'Alleen admins kunnen jobs aanmaken' }; return }
   const body = (ctx.request.body || {}) as {
     name?: string
     description?: string
@@ -49,15 +51,19 @@ router.post('/', async (ctx) => {
 })
 
 router.delete('/:uuid', async (ctx) => {
+  if (!hasRole(ctx.state.userid, 'admin')) { ctx.status = 403; ctx.body = { error: 'Alleen admins kunnen jobs archiveren' }; return }
   const uuid = ctx.params.uuid
   if (!uuid) {
     ctx.status = 400
     ctx.body = { error: 'UUID is required' }
     return
   }
-  delete jobs[uuid]
+  if (!jobs[uuid]) { ctx.status = 404; ctx.body = { error: 'Job not found' }; return }
+  jobs[uuid].status = 'completed'
+  jobs[uuid].archivedAt = new Date().toISOString()
+  jobs[uuid].updatedAt = new Date().toISOString()
   await jobsStore.put(jobs)
-  ctx.status = 204
+  ctx.body = jobs[uuid]
 })
 
 export default router.routes()
