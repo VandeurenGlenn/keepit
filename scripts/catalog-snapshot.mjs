@@ -7,18 +7,29 @@ import { spawnSync } from 'child_process'
 const rootDir = process.cwd()
 const outputDir = resolve(rootDir, 'catalog-snapshots')
 
-const candidates = [
+const catalogCandidates = [
   '.database/desco-materials.json',
   '.database/desco-materials.metadata.json',
   '.database/alelek-materials.json',
   '.database/alelek-materials.metadata.json',
   '.database/alelek-manufacturer-overrides.json',
+  '.database/exports/siemens-mall-audit.json'
+]
+
+const cacheCandidates = [
   '.database/product-image-cache-state.json',
-  '.database/exports/siemens-mall-audit.json',
   '.database/product-images',
   '.database/catalog-assets',
   'www/cache/desco',
   'www/cache/alelek'
+]
+
+const adapterCandidates = [
+  '.database/alelek-manufacturer-overrides.json',
+  '.database/desco-manufacturer-overrides.json',
+  '.database/manufacturer-enrichment-state-desco.json',
+  '.database/manufacturer-enrichment-state-alelek.json',
+  '.database/manufacturer-cache'
 ]
 
 const exists = async (path) => {
@@ -35,8 +46,23 @@ const formatTimestamp = (date) => {
 }
 
 const main = async () => {
-  const requestedName = process.argv[2]?.trim()
-  const snapshotName = requestedName && requestedName.length > 0 ? requestedName : 'catalog-snapshot'
+  const args = process.argv.slice(2)
+  const cacheOnly = args.includes('--cache-only')
+  const adaptersOnly = args.includes('--adapters-only')
+  if (cacheOnly && adaptersOnly) throw new Error('--cache-only en --adapters-only kunnen niet samen gebruikt worden')
+  const requestedName = args.find((arg) => !arg.startsWith('--'))?.trim()
+  const snapshotName = requestedName && requestedName.length > 0
+    ? requestedName
+    : adaptersOnly
+      ? 'adapter-snapshot'
+      : cacheOnly
+        ? 'cache-snapshot'
+        : 'catalog-snapshot'
+  const candidates = adaptersOnly
+    ? adapterCandidates
+    : cacheOnly
+      ? cacheCandidates
+      : [...new Set([...catalogCandidates, ...cacheCandidates, ...adapterCandidates])]
 
   const existingEntries = []
   for (const candidate of candidates) {
@@ -44,7 +70,7 @@ const main = async () => {
   }
 
   if (existingEntries.length === 0) {
-    console.error('No catalog/cache files found to include in snapshot.')
+    console.error(`No ${adaptersOnly ? 'adapter' : cacheOnly ? 'cache' : 'catalog/cache'} files found to include in snapshot.`)
     process.exit(1)
     return
   }
@@ -54,9 +80,9 @@ const main = async () => {
   const zipFileName = `${snapshotName}-${formatTimestamp(new Date())}.zip`
   const zipPath = resolve(outputDir, zipFileName)
 
-  const args = ['-q', '-r', zipPath, ...existingEntries.map((entry) => relative(rootDir, resolve(rootDir, entry)))]
+  const zipArgs = ['-q', '-r', zipPath, ...existingEntries.map((entry) => relative(rootDir, resolve(rootDir, entry)))]
 
-  const result = spawnSync('zip', args, {
+  const result = spawnSync('zip', zipArgs, {
     cwd: rootDir,
     stdio: 'inherit'
   })

@@ -11,6 +11,7 @@ import '../animations/success.js'
 import '../animations/error.js'
 import { captureWorkLocation } from '../helpers/work-location.js'
 import { enqueueOfflineAction, isNetworkFailure } from '../helpers/offline-actions.js'
+import styles from './styles/checkin-view.css' with { type: 'css' }
 
 export class CheckinView extends JobsMixin(LiteElement) {
   @property({ type: Object, consumes: true }) accessor user
@@ -34,124 +35,7 @@ export class CheckinView extends JobsMixin(LiteElement) {
   @query('input[type="time"]') accessor timeInput: HTMLInputElement
   @query('select') accessor select: HTMLSelectElement
 
-  static styles = [
-    css`
-      :host {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        max-width: 820px;
-        width: 100%;
-        padding: 16px;
-        box-sizing: border-box;
-        gap: 18px;
-      }
-
-      .form-panel {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        width: 100%;
-        padding: 18px;
-        border-radius: var(--app-radius-panel);
-        background: var(--app-panel);
-        border: 1px solid var(--app-border);
-        box-shadow: var(--app-shadow-soft);
-        box-sizing: border-box;
-      }
-
-      .field{display:flex;flex-direction:column;gap:7px;color:var(--md-sys-color-on-surface-variant);font-size:.75rem;font-weight:700}.field select{width:100%;height:48px;padding:0 12px;border:1px solid var(--app-border);border-radius:var(--app-radius-control);background:var(--app-panel-strong);color:var(--md-sys-color-on-surface);font:inherit}
-
-      .field-shell {
-        display: flex;
-        align-items: center;
-        padding: 10px 14px;
-        width: 100%;
-        justify-content: space-between;
-        box-sizing: border-box;
-        border-radius: var(--app-radius-control);
-        border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
-        background: var(--app-panel-strong);
-        cursor: pointer;
-      }
-
-      .field-shell h3,
-      .form-heading,
-      .form-description {
-        margin: 0;
-      }
-
-      .form-heading {
-        font-size: 1.3rem;
-        font-weight: 600;
-      }
-
-      .form-description {
-        color: var(--md-sys-color-on-surface-variant);
-        line-height: 1.5;
-      }
-
-      input[type='date'],
-      input[type='time'] {
-        padding: 12px;
-        box-sizing: border-box;
-        background: transparent;
-        border: none;
-        color: var(--md-sys-color-on-background);
-        outline: none;
-      }
-      ::-webkit-calendar-picker-indicator {
-        filter: invert(1);
-      }
-
-      ::-webkit-calendar-picker {
-        color: var(--md-sys-color-on-background);
-        background-color: var(--md-sys-color-surface);
-      }
-
-      button.primary {
-        border: 1px solid color-mix(in srgb, var(--app-accent) 82%, white 18%);
-        background: var(--app-accent);
-        color: var(--md-sys-color-on-primary);
-        border-radius: var(--app-radius-control);
-        padding: 12px 18px;
-        font: inherit;
-        cursor: pointer;
-      }
-
-      button.primary[disabled] {
-        opacity: 0.62;
-        cursor: wait;
-      }
-
-      .error {
-        margin: 0;
-        color: var(--md-sys-color-error);
-        font-weight: 650;
-      }
-
-      @media (max-width: 720px) {
-        :host {
-          padding: 12px;
-        }
-
-        .form-panel {
-          padding: 16px;
-          border-radius: var(--app-radius-panel);
-        }
-
-        .field-shell {
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 8px;
-        }
-
-        button.primary {
-          width: 100%;
-        }
-      }
-    `
-  ]
+  static styles = styles
 
   async _addCheckin() {
     if (!this.user?.id) {
@@ -172,7 +56,7 @@ export class CheckinView extends JobsMixin(LiteElement) {
     this.submitting = true
     try {
       const workLocation = await captureWorkLocation()
-      const requestId=crypto.randomUUID()
+      const requestId = crypto.randomUUID()
       const prestation = await api.checkIn(this.select.value, checkin, workLocation, {
         source: 'manual',
         clientRequestId: requestId
@@ -184,10 +68,21 @@ export class CheckinView extends JobsMixin(LiteElement) {
         location.href = '#!/home'
       }, 1200)
     } catch (error) {
-      if(isNetworkFailure(error)){
-        const requestId=enqueueOfflineAction({type:'checkin',job:this.select.value,timestamp:checkin,location:await captureWorkLocation()})
-        this.user.currentJob=this.select.value;this.user.currentPrestationId=`pending:${requestId}`;this.queued=true;this.success=true
-        setTimeout(()=>{location.href='#!/home'},1500);return
+      if (isNetworkFailure(error)) {
+        const requestId = enqueueOfflineAction({
+          type: 'checkin',
+          job: this.select.value,
+          timestamp: checkin,
+          location: await captureWorkLocation()
+        })
+        this.user.currentJob = this.select.value
+        this.user.currentPrestationId = `pending:${requestId}`
+        this.queued = true
+        this.success = true
+        setTimeout(() => {
+          location.href = '#!/home'
+        }, 1500)
+        return
       }
       console.error('Checkin failed:', error)
       this.error = error instanceof Error ? error.message : 'Check-in mislukt'
@@ -198,7 +93,10 @@ export class CheckinView extends JobsMixin(LiteElement) {
 
   render() {
     if (this.success) {
-      return html` <success-animation message=${this.queued?'Offline bewaard · synchroniseert zodra internet terug is':'Je werkdag is gestart'}></success-animation>`
+      return html` <success-animation
+        message=${this.queued
+          ? 'Offline bewaard · synchroniseert zodra internet terug is'
+          : 'Je werkdag is gestart'}></success-animation>`
     }
     if (this.user?.currentJob) {
       return html`
@@ -219,27 +117,42 @@ export class CheckinView extends JobsMixin(LiteElement) {
           Kies datum, tijd en job. De check-in wordt meteen gekoppeld aan je huidige sessie.
         </p>
 
-        <label class="field">Datum
-          <span class="field-shell" @click=${() => this.dateInput.showPicker()}>
-          <input
-            type="date"
-            required
-            value=${this.date} />
-          </span></label>
+        <label class="field"
+          >Datum
+          <span
+            class="field-shell"
+            @click=${() => this.dateInput.showPicker()}>
+            <input
+              type="date"
+              required
+              value=${this.date} /> </span
+        ></label>
 
-        <label class="field">Starttijd
-          <span class="field-shell" @click=${() => this.timeInput.showPicker()}>
-          <input
-            type="time"
-            required
-            value=${this.time} />
-          </span></label>
+        <label class="field"
+          >Starttijd
+          <span
+            class="field-shell"
+            @click=${() => this.timeInput.showPicker()}>
+            <input
+              type="time"
+              required
+              value=${this.time} /> </span
+        ></label>
 
-        <label class="field">Job<select .value=${new URLSearchParams(location.hash.split('?')[1] || '').get('job') || ''} required><option value="" disabled>Kies een job</option>
-          ${(Object.entries(this.jobs || {}) as Array<[string, any]>).filter(([, data]) => data.status !== 'completed' && !data.archivedAt).map(
-            ([uuid, data]) => html`<option value=${uuid}>${data.name}</option>`
-          )}
-        </select></label>
+        <label class="field"
+          >Job<select
+            .value=${new URLSearchParams(location.hash.split('?')[1] || '').get('job') || ''}
+            required>
+            <option
+              value=""
+              disabled>
+              Kies een job
+            </option>
+            ${(Object.entries(this.jobs || {}) as Array<[string, any]>)
+              .filter(([, data]) => data.status !== 'completed' && !data.archivedAt)
+              .map(([uuid, data]) => html`<option value=${uuid}>${data.name}</option>`)}
+          </select></label
+        >
 
         ${this.error ? html`<p class="error">${this.error}</p>` : ''}
         <button

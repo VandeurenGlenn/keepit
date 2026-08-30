@@ -89,16 +89,18 @@ const main = async () => {
   }
 
   const snapshots = await Promise.all((await readdir(snapshotsDirectory).catch(() => []))
-    .filter((name) => name.endsWith('.zip'))
+    .filter((name) => /^(?:catalog|cache|adapter)-snapshot-.*\.zip$/i.test(name))
     .map((name) => fileRecord(snapshotsDirectory, name)))
-  snapshots.sort((left, right) => right.modifiedAt - left.modifiedAt)
-  const retainedSnapshot = snapshots[0]
-  const oldSnapshots = snapshots.slice(1)
+  const snapshotGroups = ['catalog-snapshot-', 'cache-snapshot-', 'adapter-snapshot-'].map((prefix) =>
+    snapshots.filter((snapshot) => snapshot.name.startsWith(prefix)).sort((left, right) => right.modifiedAt - left.modifiedAt))
+  const retainedSnapshots = snapshotGroups.map((group) => group[0]).filter(Boolean)
+  const retainedCatalogSnapshot = snapshotGroups[0][0]
+  const oldSnapshots = snapshotGroups.flatMap((group) => group.slice(1))
 
   const backupNames = await readdir(backupsDirectory).catch(() => [])
-  const oldBackups = retainedSnapshot
+  const oldBackups = retainedCatalogSnapshot
     ? (await Promise.all(backupNames.map((name) => fileRecord(backupsDirectory, name))))
-      .filter((record) => record.modifiedAt <= retainedSnapshot.modifiedAt)
+      .filter((record) => record.modifiedAt <= retainedCatalogSnapshot.modifiedAt)
     : []
 
   const imageState = await readJson(imageStatePath, { version: 1, updatedAt: '', failures: {} })
@@ -109,7 +111,8 @@ const main = async () => {
   const report = {
     generatedAt: new Date().toISOString(),
     applied: apply,
-    retainedSnapshot: retainedSnapshot?.name || '',
+    retainedSnapshot: retainedCatalogSnapshot?.name || '',
+    retainedSnapshots: retainedSnapshots.map((snapshot) => snapshot.name),
     orphanWebps: webpRecords.length,
     orphanWebpBytes: sumBytes(webpRecords),
     coveredDescoOriginals: descoRecords.length,
@@ -138,7 +141,7 @@ const main = async () => {
   console.log(`${prefix} ${staleFailures} verouderde beeldfouten.`)
   console.log(`${prefix} ${oldBackups.length} tussentijdse back-ups (${megabytes(report.oldBackupBytes)}).`)
   console.log(`${prefix} ${oldSnapshots.length} oude snapshots (${megabytes(report.oldSnapshotBytes)}).`)
-  console.log(`Behouden snapshot: ${retainedSnapshot?.name || 'geen'}`)
+  console.log(`Behouden snapshots: ${retainedSnapshots.map((snapshot) => snapshot.name).join(', ') || 'geen'}`)
   if (!apply) console.log('Voeg --apply toe om deze veilige selectie te verwijderen.')
   console.log(`Rapport: ${reportPath}`)
 }

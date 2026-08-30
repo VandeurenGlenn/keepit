@@ -16,13 +16,15 @@ const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.ti
 const PROVIDER_PAGES = {
   installdata: 'https://www.installdata.be/',
   techlink: 'https://techlinkportal.be/',
-  sieportal: 'https://mall.industry.siemens.com/'
+  sieportal: 'https://mall.industry.siemens.com/',
+  lithoss: 'https://www.lithoss.com/en/etim'
 }
 
 const PROVIDER_LABELS = {
   installdata: 'InstallData ETIM/BMEcat',
   techlink: 'Techlink Data Portal export',
-  sieportal: 'Siemens SiePortal productmaster'
+  sieportal: 'Siemens SiePortal productmaster',
+  lithoss: 'Lithoss officiële BMEcat'
 }
 
 const normalizeId = (value = '') =>
@@ -319,8 +321,8 @@ const writeJsonAtomic = async (path, value) => {
 const parseArgs = (argv) => {
   const provider = String(argv[0] || '').toLowerCase()
   const input = argv[1]
-  if (!['installdata', 'techlink', 'sieportal'].includes(provider) || !input) {
-    throw new Error('Gebruik: npm run images:import -- installdata|techlink|sieportal /pad/naar/export.zip [--apply]')
+  if (!['installdata', 'techlink', 'sieportal', 'lithoss'].includes(provider) || !input) {
+    throw new Error('Gebruik: npm run images:import -- installdata|techlink|sieportal|lithoss /pad/naar/export.zip [--apply]')
   }
   return { provider, input, apply: argv.includes('--apply') }
 }

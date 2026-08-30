@@ -28,10 +28,16 @@
     "catalog:cleanup": "node ./scripts/catalog-cleanup.mjs",
     "catalog:zip": "node ./scripts/catalog-snapshot.mjs",
     "catalog:unzip": "node ./scripts/catalog-restore.mjs",
+    "cache:zip": "node ./scripts/catalog-snapshot.mjs --cache-only",
+    "cache:unzip": "node ./scripts/catalog-restore.mjs --cache-only",
+    "adapters:zip": "node ./scripts/catalog-snapshot.mjs --adapters-only",
+    "adapters:unzip": "node ./scripts/catalog-restore.mjs --adapters-only",
     "catalog:publish": "node ./scripts/catalog-publish.mjs",
     "catalog:latest": "node ./scripts/catalog-latest.mjs",
     "catalog:recover-desco-cache": "node ./scripts/recover-desco-cache.mjs",
-    "enrich:manufacturers": "node ./scripts/manufacturer-enrichment.mjs"
+    "enrich:manufacturers": "node ./scripts/manufacturer-enrichment.mjs",
+    "enrich:weverducre": "node ./scripts/weverducre-browser-enrichment.mjs",
+    "enrich:all": "node ./scripts/all-manufacturer-enrichment.mjs"
   },
   "keywords": [],
   "author": "",

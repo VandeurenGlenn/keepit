@@ -5,14 +5,21 @@ import {
   hasUsableImageValue,
   normalizeSku,
   parseBoschProductPage,
+  parseEatonProductPage,
+  parseExterusProductPage,
   parseEthermaProductPage,
   parseFischerProductPage,
   parseGeberitProductPage,
   parseGreeProductPage,
   parseIcecatProduct,
+  parseLedlinesProductPage,
+  parseLedlinesSitemap,
   parsePanasonicProductPage,
+  parseRittalProductPage,
+  parseRittalSitemap,
   parseSolerPalauProductPage,
-  parseViegaProductPage
+  parseViegaProductPage,
+  parseWeverDucreProductPage
 } from '../../scripts/manufacturer-enrichment.mjs'
 
 const PAGE_URL = 'https://www.bosch-homecomfort.com/web-etk/be/bosch/be/nl/sparepart/7735502304'
@@ -72,6 +79,87 @@ test('Icecat parser vereist exact merk en MPN', () => {
   assert.equal(result.rightsStatus, 'licensed')
   assert.equal(parseIcecatProduct(response, '240468212', 'Geberit'), null)
   assert.equal(parseIcecatProduct(response, '240468211', 'Viega'), null)
+})
+
+test('Eaton parser vereist de exacte officiële productSku', () => {
+  const html = `
+    <script>window.data = { "productSku": "301803" }</script>
+    <meta property="og:image" content="https://www.eaton.com/mdmfiles/contentId/301803_L/1000x1000_300dpi">
+    <h1 class="module-product-detail-card-v2__title">301803 <div>PFIM-63/2/003-XG/B</div></h1>
+    <span class="specification-value-secondary">9010238143913</span>
+  `
+  const pageUrl = 'https://www.eaton.com/be/nl-nl/skuPage.301803.html'
+  const result = parseEatonProductPage(html, '301803', pageUrl)
+  assert.ok(result)
+  assert.equal(result.technicalData.MPN, '301803')
+  assert.equal(result.technicalData.GTIN, '9010238143913')
+  assert.equal(parseEatonProductPage(html, '301752', pageUrl), null)
+})
+
+test('Rittal sitemap en productparser koppelen uitsluitend dezelfde variantId', () => {
+  const pageUrl = 'https://www.rittal.com/nl-nl/products/PRO42049?variantId=9677810'
+  const pages = parseRittalSitemap(`<url><loc>${pageUrl.replace('&', '&amp;')}</loc></url>`)
+  assert.equal(pages.get('9677810'), pageUrl)
+  const html = `
+    <meta property="og:title" content="Stroomtransformator 9677810">
+    <meta property="og:image" content="https://www.rittal.com/imf/x1200/2_43831/">
+    <h1>Stroomtransformator</h1><p>Bestelnr. SV 9677810</p>
+  `
+  const result = parseRittalProductPage(html, '9677810', pageUrl)
+  assert.ok(result)
+  assert.equal(result.technicalData.MPN, '9677810')
+  assert.equal(parseRittalProductPage(html, '9677811', pageUrl), null)
+})
+
+test('Ledlines sitemap en familiepagina vereisen een exact datasheet-MPN', () => {
+  const pageUrl = 'https://ledlines.be/producten/swift-pro/'
+  const pages = parseLedlinesSitemap(`
+    <url><loc>${pageUrl}</loc></url>
+    <url><loc>https://ledlines.be/fr/produits/swift-pro/</loc></url>
+  `)
+  assert.deepEqual(pages, [pageUrl])
+  const html = `
+    <meta property="og:title" content="SWIFT - Ledlines.be">
+    <meta property="og:image" content="https://ledlines.be/wp-content/uploads/ledlines/productfotos/swift.png">
+    <a href="/datasheets/nl/SWF15K4-nl.pdf">Datasheet</a>
+  `
+  const result = parseLedlinesProductPage(html, 'SWF15K4', pageUrl)
+  assert.ok(result)
+  assert.equal(result.technicalData.MPN, 'SWF15K4')
+  assert.equal(result.technicalData.Beeldtype, 'Officieel productfamiliebeeld')
+  assert.equal(parseLedlinesProductPage(html, 'SWF15K4DA', pageUrl), null)
+})
+
+test('Exterus adapter verwijdert leveranciersprefix en vereist een exacte officiële referentie', () => {
+  const pageUrl = 'https://www.exterus.be/nl/producten/common-series:common2'
+  const html = `
+    <meta property="og:title" content="Common">
+    <section><h2>Referenties</h2><div>A2027</div><div>A2015</div></section>
+    <footer>Exterus</footer>
+  `
+  const result = parseExterusProductPage(html, 'EXTA2027', pageUrl, {
+    name: 'Common', thumbnail: '/storage/pictures/thumbnail/common_2.jpg'
+  })
+  assert.ok(result)
+  assert.equal(result.technicalData.MPN, 'A2027')
+  assert.equal(result.technicalData.Beeldtype, 'Officieel productfamiliebeeld')
+  assert.equal(result.imageUrl, 'https://www.exterus.be/storage/pictures/thumbnail/common_2.jpg')
+  assert.equal(parseExterusProductPage(html, 'EXTA2028', pageUrl, { thumbnail: '/common.jpg' }), null)
+})
+
+test('Wever & Ducré adapter vereist exact artikelnummer en gebruikt een officieel PIM-beeld', () => {
+  const pageUrl = 'https://www.weverducre.com/en/products/p/deep-1.0-par16~22104'
+  const html = `
+    <h1>DEEP 1.0 PAR16</h1><div>112120W0</div>
+    <img data-srcset="/pim/DEEP/1970/image-thumb__1970__product-detail-img-small/black.webp 1x">
+    <img data-srcset="/pim/DEEP/395/image-thumb__395__product-detail-img-small/white.webp 1x">
+    <img data-srcset="/pim/DEEP/1970/image-thumb__1970__product-detail-img-small/black.webp 1x">
+  `
+  const result = parseWeverDucreProductPage(html, '112120W0', pageUrl)
+  assert.ok(result)
+  assert.equal(result.technicalData.MPN, '112120W0')
+  assert.equal(result.imageUrl, 'https://www.weverducre.com/pim/DEEP/1970/image-thumb__1970__product-detail-img-small/black.webp')
+  assert.equal(parseWeverDucreProductPage(html, '112120B0', pageUrl), null)
 })
 
 test('fabrikant wordt conservatief uit de productnaam bepaald', () => {

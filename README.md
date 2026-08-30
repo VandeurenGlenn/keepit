@@ -85,7 +85,9 @@ Officiële fabrikantpagina's kunnen productgegevens aanvullen. De verrijker werk
 - Alelek-beelden via exacte merk + fabrikantcode uit Open Icecat herstellen:
   `npm run enrich:manufacturers -- --catalog=alelek --brands=icecat --max=25 --apply --publish-images --repair-images`
 
-Voeg `--missing-images` toe om uitsluitend producten zonder volledige lokale card- en detail-WebP te controleren; dit voorkomt onnodige fabrikant- of Icecat-requests.
+Voeg `--missing-images` toe om uitsluitend producten zonder volledige lokale card- en detail-WebP te controleren; dit voorkomt onnodige fabrikant- of Icecat-requests. Met `--cached-only` kunnen eerder opgehaalde resultaten zonder nieuwe netwerkrequests opnieuw worden toegepast. Eaton/Moeller gebruikt directe officiële SKU-pagina's; Rittal bouwt zijn exacte MPN-index uit de officiële Nederlandse sitemap. Ledlines koppelt productfamiliepagina's uit de officiële sitemap en accepteert een beeld alleen wanneer het exacte MPN bij de datasheets staat.
+
+Een openbare Lithoss BMEcat-export kan rechtstreeks worden ingelezen met `npm run images:import -- lithoss /pad/naar/lithoss-bmecat.zip --apply`. Alleen exacte EAN/GTIN- of merk+MPN-matches worden toegepast.
 - Alelek-beelden rechtstreeks bij ondersteunde fabrikanten herstellen:
   `npm run enrich:manufacturers -- --catalog=alelek --brands=fischer,gree,panasonic,etherma --max=50 --apply --publish-images --repair-images`
 - Gekende Soler & Palau-beelden rechtstreeks uit de officiële productcatalogus herstellen:
@@ -326,7 +328,23 @@ Dit maakt een zip in `catalog-snapshots/` met:
 - `.database/alelek-materials.metadata.json` (indien aanwezig)
 - `.database/alelek-manufacturer-overrides.json` (geverifieerde fabrikantverrijking)
 - `.database/product-image-cache-state.json` (indien aanwezig; hervatbare fout/back-offstatus)
+- `.database/manufacturer-enrichment-state-*.json` (reeds gecontroleerde MPN's en daglimieten)
+- `.database/manufacturer-cache` (gecachete officiële fabrikantpagina's en indexen)
 - `.database/product-images` (lokale kaart- en detail-WebP's)
 - `.database/catalog-assets` (originele officiële InstallData/SiePortal-beelden)
 - `www/cache/desco` (indien aanwezig)
 - `www/cache/alelek` (indien aanwezig)
+
+Voor een aparte snapshot van uitsluitend de herbruikbare caches:
+
+- `npm run cache:zip`
+- `npm run cache:unzip` herstelt de nieuwste `cache-snapshot-*.zip`
+- `npm run cache:unzip -- catalog-snapshots/cache-snapshot-2026-08-29_12-00-00-000.zip` herstelt een specifiek bestand
+
+De cache-snapshot bevat de WebP's, originele catalog assets, beeldfoutstatus en de Alelek/Desco webcaches. De productcatalogus-JSON zelf blijft uitsluitend onderdeel van `catalog:zip`.
+
+De veel kleinere adapter-snapshot bewaart uitsluitend de officiële fabrikantpagina's/indexen, reeds gecontroleerde MPN's, daglimietstatus en fabrikant-overrides:
+
+- `npm run adapters:zip`
+- `npm run adapters:unzip` herstelt de nieuwste `adapter-snapshot-*.zip`
+- `npm run adapters:unzip -- catalog-snapshots/adapter-snapshot-2026-08-29_12-00-00-000.zip` herstelt een specifiek bestand

@@ -1,0 +1,45 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 820px;
+  width: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+  gap: 18px;
+}
+
+.form-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  padding: 18px;
+  border-radius: var(--app-radius-panel);
+  background: var(--app-panel);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow-soft);
+  box-sizing: border-box;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.field-shell {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  width: 100%;
+  justify-content: space-between;
+  box-sizing: border-box;
+  border-radius: var(--app-radius-control);
+  border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
+  background: var(--app-panel-strong);
+  cursor: pointer;
+}

@@ -8,14 +8,19 @@ const rootDir = process.cwd()
 const snapshotDir = resolve(rootDir, 'catalog-snapshots')
 
 const findArchive = async () => {
-  const requestedArchive = process.argv[2]?.trim()
+  const args = process.argv.slice(2)
+  const cacheOnly = args.includes('--cache-only')
+  const adaptersOnly = args.includes('--adapters-only')
+  if (cacheOnly && adaptersOnly) throw new Error('--cache-only en --adapters-only kunnen niet samen gebruikt worden')
+  const requestedArchive = args.find((arg) => !arg.startsWith('--'))?.trim()
   if (requestedArchive) return resolve(rootDir, requestedArchive)
 
+  const prefix = adaptersOnly ? 'adapter' : cacheOnly ? 'cache' : 'catalog'
   const snapshots = (await readdir(snapshotDir))
-    .filter((name) => /^catalog-snapshot-.*\.zip$/i.test(name))
+    .filter((name) => new RegExp(`^${prefix}-snapshot-.*\\.zip$`, 'i').test(name))
     .sort((left, right) => right.localeCompare(left))
 
-  if (!snapshots[0]) throw new Error(`No catalog snapshots found in ${snapshotDir}.`)
+  if (!snapshots[0]) throw new Error(`No ${prefix} snapshots found in ${snapshotDir}.`)
   return resolve(snapshotDir, snapshots[0])
 }
 
@@ -41,7 +46,7 @@ const main = async () => {
   if (result.error) throw result.error
   if (result.status !== 0) process.exit(result.status ?? 1)
 
-  console.log(`Catalog restored from ${basename(archivePath)}.`)
+  console.log(`Snapshot restored from ${basename(archivePath)}.`)
 }
 
 main().catch((error) => {

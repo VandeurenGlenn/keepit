@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto'
-import { copyFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import http from 'node:http'
+import https from 'node:https'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -165,6 +167,125 @@ export const parseIcecatProduct = (raw, expectedSku, expectedBrand) => {
     imageUrl: mainImage?.Pic || mainImage?.Pic500x500 || mainImage?.LowPic,
     rightsStatus: 'licensed',
     icecatId: general.IcecatId || payload.data.GeneralInfo?.IcecatId
+  }
+}
+
+export const parseEatonProductPage = (html, expectedSku, pageUrl) => {
+  const evidence = html.match(/["']productSku["']\s*:\s*["']([^"']+)["']/i)?.[1] || ''
+  if (normalizeSku(evidence) !== normalizeSku(expectedSku)) return null
+  const imageUrl = metaContent(html, 'property', 'og:image')
+  if (!imageUrl) return null
+  const title = firstMatch(html, /<h1[^>]*class=["'][^"']*module-product-detail-card-v2__title[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i)
+  const ean = html.match(/specification-value-secondary["'][^>]*>\s*(\d{8,14})\s*</i)?.[1] || ''
+  return {
+    title,
+    technicalData: { Merk: 'Eaton', MPN: String(evidence), ...(ean ? { GTIN: ean } : {}) },
+    imageUrl: new URL(imageUrl, pageUrl).href,
+    publishableImage: true,
+    rightsStatus: 'permission-required'
+  }
+}
+
+export const parseRittalSitemap = (xml) => {
+  const pages = new Map()
+  for (const match of xml.matchAll(/<loc>([^<]+[?&]variantId=([^<&]+)[^<]*)<\/loc>/gi)) {
+    const pageUrl = decodeHtml(match[1])
+    const sku = decodeHtml(match[2])
+    if (sku) pages.set(normalizeSku(sku), pageUrl)
+  }
+  return pages
+}
+
+export const parseRittalProductPage = (html, expectedSku, pageUrl) => {
+  const pageSku = new URL(pageUrl).searchParams.get('variantId') || ''
+  if (normalizeSku(pageSku) !== normalizeSku(expectedSku)) return null
+  return officialPageResult(html, expectedSku, {
+    brand: 'Rittal',
+    pageUrl,
+    title: metaContent(html, 'property', 'og:title'),
+    imageUrl: metaContent(html, 'property', 'og:image')
+  })
+}
+
+export const parseLedlinesSitemap = (xml) => [...xml.matchAll(/<loc>([^<]+)<\/loc>/gi)]
+  .map((match) => decodeHtml(match[1]))
+  .filter((pageUrl) => /^https:\/\/ledlines\.be\/producten\/[^/]+\/?$/i.test(pageUrl))
+
+const ledlinesPageFor = (pages, item) => {
+  const productName = normalizeSku(item.name || '')
+  return pages
+    .map((pageUrl) => {
+      const slug = new URL(pageUrl).pathname.split('/').filter(Boolean).at(-1) || ''
+      const familyKey = normalizeSku(slug)
+      return { pageUrl, familyKey }
+    })
+    .filter(({ familyKey }) => familyKey.length >= 4 && productName.includes(familyKey))
+    .sort((left, right) => right.familyKey.length - left.familyKey.length)[0]?.pageUrl
+}
+
+export const parseLedlinesProductPage = (html, expectedSku, pageUrl) => {
+  const normalizedSku = normalizeSku(expectedSku)
+  const listedSkus = [...html.matchAll(/\/datasheets\/nl\/([^/"'?]+)-nl\.pdf/gi)]
+    .map((match) => normalizeSku(decodeHtml(match[1])))
+  if (!normalizedSku || !listedSkus.includes(normalizedSku)) return null
+  const imageUrl = metaContent(html, 'property', 'og:image')
+  if (!imageUrl) return null
+  return {
+    title: metaContent(html, 'property', 'og:title').replace(/\s*-\s*Ledlines\.be\s*$/i, ''),
+    technicalData: { Merk: 'Ledlines', MPN: String(expectedSku), Beeldtype: 'Officieel productfamiliebeeld' },
+    imageUrl: new URL(imageUrl, pageUrl).href,
+    publishableImage: true,
+    rightsStatus: 'permission-required'
+  }
+}
+
+export const parseExterusProductPage = (html, expectedSku, pageUrl, searchResult = {}) => {
+  const manufacturerSku = stripSupplierPrefix(expectedSku, 'EXT')
+  const normalizedSku = normalizeSku(manufacturerSku)
+  if (!normalizedSku) return null
+  const referenceValues = [...html.matchAll(/(?:^|[>\s"'])(([A-Z]+\d|\d+[A-Z])[A-Z0-9./_-]{2,})(?=[<\s"']|$)/gi)]
+    .map((match) => normalizeSku(decodeHtml(match[1])))
+  if (!referenceValues.includes(normalizedSku)) return null
+  const imageUrl = searchResult.thumbnail || metaContent(html, 'property', 'og:image')
+  if (!imageUrl) return null
+  return {
+    title: searchResult.name || metaContent(html, 'property', 'og:title') || firstMatch(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i),
+    technicalData: { Merk: 'Exterus', MPN: manufacturerSku, Beeldtype: 'Officieel productfamiliebeeld' },
+    imageUrl: new URL(imageUrl, pageUrl).href,
+    publishableImage: true,
+    rightsStatus: 'permission-required'
+  }
+}
+
+export const parseWeverDucreProductPage = (html, expectedSku, pageUrl) => {
+  const normalizedSku = normalizeSku(expectedSku)
+  if (!normalizedSku) return null
+  const exactCodes = [...decodeHtml(html).matchAll(/(?:^|\s)([A-Z0-9][A-Z0-9./_-]{5,})(?=\s|$)/gi)]
+    .map((match) => normalizeSku(match[1]))
+  if (!exactCodes.includes(normalizedSku)) return null
+
+  const productImages = [...html.matchAll(/(?:data-srcset|srcset)=["']([^"']*\/pim\/[^"']+)["']/gi)]
+    .flatMap((match) => decodeHtml(match[1]).split(',').map((entry) => entry.trim().split(/\s+/, 1)[0]))
+    .filter((url) => /product-detail-img-(?:small|large)/i.test(url) && !/drawing/i.test(url))
+  const imageFrequency = new Map()
+  for (const image of productImages) imageFrequency.set(image, Number(imageFrequency.get(image) || 0) + 1)
+  const exactImage = productImages.find((image) => normalizeSku(image).includes(normalizedSku))
+  const repeatedImage = [...imageFrequency]
+    .filter(([, count]) => count > 1)
+    .sort((left, right) => right[1] - left[1] || Number(/@2x/i.test(right[0])) - Number(/@2x/i.test(left[0])))[0]?.[0]
+  const imageUrl = exactImage || repeatedImage || productImages.at(-1)
+  if (!imageUrl) return null
+
+  return {
+    title: firstMatch(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i),
+    technicalData: {
+      Merk: 'Wever & Ducré',
+      MPN: String(expectedSku),
+      Beeldtype: 'Officieel productfamiliebeeld'
+    },
+    imageUrl: new URL(imageUrl, pageUrl).href,
+    publishableImage: true,
+    rightsStatus: 'permission-required'
   }
 }
 
@@ -421,6 +542,103 @@ const adapters = {
         : `https://icecat.biz/nl/search?keyword=${query}`
     }
   },
+  eaton: {
+    label: 'Eaton productcatalogus',
+    domain: 'www.eaton.com',
+    matches: (item) => /^(?:moeller|eaton)$/i.test(String(detectManufacturer(item) || '').trim()) && Boolean(productSkuFor(item)),
+    url: (sku) => `https://www.eaton.com/be/nl-nl/skuPage.${encodeURIComponent(sku)}.html`,
+    parse: parseEatonProductPage,
+    publicUrl: (_item, _result, requestUrl) => requestUrl
+  },
+  rittal: {
+    label: 'Rittal productcatalogus',
+    domain: 'www.rittal.com',
+    indexDomain: 'api.rittal.com',
+    indexUrl: 'https://api.rittal.com/v1/sitemaps/nl-nl/sitemap.xml',
+    pages: new Map(),
+    prepare(xml) { this.pages = parseRittalSitemap(xml) },
+    matches(item) {
+      return /^rittal$/i.test(String(detectManufacturer(item) || '').trim()) && this.pages.has(normalizeSku(productSkuFor(item)))
+    },
+    url(sku) { return this.pages.get(normalizeSku(sku)) },
+    parse: parseRittalProductPage,
+    publicUrl: (_item, _result, requestUrl) => requestUrl
+  },
+  ledlines: {
+    label: 'Ledlines productcatalogus',
+    domain: 'ledlines.be',
+    indexUrl: 'https://ledlines.be/products-sitemap.xml',
+    pages: [],
+    prepare(xml) { this.pages = parseLedlinesSitemap(xml) },
+    matches(item) {
+      return /^ledlines$/i.test(String(detectManufacturer(item) || '').trim()) && Boolean(ledlinesPageFor(this.pages, item))
+    },
+    url(_sku, item) { return ledlinesPageFor(this.pages, item) },
+    parse: parseLedlinesProductPage,
+    publicUrl: (_item, _result, requestUrl) => requestUrl
+  },
+  exterus: {
+    label: 'Exterus productcatalogus',
+    domain: 'www.exterus.be',
+    indexUrl: 'https://www.exterus.be/nl/producten/interior',
+    session: {},
+    prepare(html, response) {
+      this.session.csrf = metaContent(html, 'name', 'csrf_token') || metaContent(html, 'name', 'csrf-token')
+      const cookies = response?.headers?.get('set-cookie') || []
+      this.session.cookie = (Array.isArray(cookies) ? cookies : [cookies])
+        .map((cookie) => String(cookie).split(';', 1)[0]).filter(Boolean).join('; ')
+    },
+    matches(item) {
+      return /^exterus$/i.test(String(detectManufacturer(item) || '').trim()) && Boolean(productSkuFor(item))
+    },
+    async lookup(sku, _item, options, state, statePath) {
+      const manufacturerSku = stripSupplierPrefix(sku, 'EXT')
+      if (!this.session.csrf || !this.session.cookie) {
+        return { response: { html: '', status: 401, cached: false }, result: null, pageUrl: this.indexUrl }
+      }
+      const searchUrl = `https://www.exterus.be/catalog?keepit-sku=${encodeURIComponent(normalizeSku(manufacturerSku))}`
+      const searchResponse = await fetchControlled({
+        brand: 'exterus', url: searchUrl, options, state, statePath,
+        request: {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json', 'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': this.session.csrf,
+            Cookie: this.session.cookie
+          },
+          body: JSON.stringify({
+            locale: 'nl', collection: 'producten', category: 21, location: null, application: null,
+            mounting: null, lamp_type: null, ip_rating: null, dimming_type: null, keyword: manufacturerSku
+          })
+        }
+      })
+      if (!searchResponse.html) return { response: searchResponse, result: null, pageUrl: this.indexUrl }
+      let searchResults = []
+      try { searchResults = JSON.parse(searchResponse.html) } catch { /* Invalid catalog response. */ }
+      for (const searchResult of searchResults.slice(0, 5)) {
+        if (!searchResult?.url) continue
+        const pageUrl = new URL(searchResult.url, 'https://www.exterus.be/nl/').href
+        const pageResponse = await fetchControlled({ brand: 'exterus', url: pageUrl, options, state, statePath })
+        const result = pageResponse.html ? parseExterusProductPage(pageResponse.html, sku, pageUrl, searchResult) : null
+        if (result) return {
+          response: { ...pageResponse, cached: Boolean(searchResponse.cached && pageResponse.cached) }, result, pageUrl
+        }
+      }
+      return { response: searchResponse, result: null, pageUrl: this.indexUrl }
+    }
+  },
+  weverducre: {
+    label: 'Wever & Ducré productcatalogus',
+    domain: 'www.weverducre.com',
+    matches(item) {
+      return /^wever\s*&?\s*ducr[eé]$/i.test(String(detectManufacturer(item) || '').trim()) && Boolean(productSkuFor(item))
+    },
+    url(sku) {
+      return `https://www.weverducre.com/en/action/search/detail?q=${encodeURIComponent(sku)}`
+    },
+    parse: parseWeverDucreProductPage,
+    publicUrl: (_item, _result, requestUrl) => requestUrl
+  },
   geberit: {
     label: 'Geberit productcatalogus',
     domain: 'catalog.geberit.be',
@@ -505,6 +723,7 @@ const parseArgs = (argv) => {
     publishImages: argv.includes('--publish-images'),
     repairImages: argv.includes('--repair-images'),
     missingImages: argv.includes('--missing-images'),
+    cachedOnly: argv.includes('--cached-only'),
     reprocess: argv.includes('--reprocess'),
     resetIcecatCircuit: argv.includes('--reset-icecat-circuit'),
     refresh: argv.includes('--refresh'),
@@ -531,23 +750,66 @@ const today = () => new Date().toISOString().slice(0, 10)
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
 const cachePathFor = (brand, url) => resolve(CACHE_DIR, brand, `${createHash('sha256').update(url).digest('hex')}.html`)
 
-const fetchControlled = async ({ brand, url, options, state, statePath }) => {
+const requestText = (url, requestOptions = {}, redirectsLeft = 5) => new Promise((resolvePromise, rejectPromise) => {
+  const transport = new URL(url).protocol === 'http:' ? http : https
+  let settled = false
+  const finish = (callback, value) => {
+    if (settled) return
+    settled = true
+    clearTimeout(deadline)
+    callback(value)
+  }
+  const request = transport.request(url, {
+    method: requestOptions.method || 'GET',
+    headers: {
+      Accept: 'text/html,application/xhtml+xml',
+      'User-Agent': 'KeepitCatalogEnrichment/1.0 (rate-limited product verification)',
+      ...requestOptions.headers
+    }
+  }, (response) => {
+    const status = Number(response.statusCode || 0)
+    const location = response.headers.location
+    if (location && status >= 300 && status < 400) {
+      response.resume()
+      if (redirectsLeft <= 0) return finish(rejectPromise, new Error(`Te veel redirects voor ${url}`))
+      return finish(resolvePromise, requestText(new URL(location, url).href, requestOptions, redirectsLeft - 1))
+    }
+
+    const chunks = []
+    response.on('data', (chunk) => chunks.push(chunk))
+    response.on('error', (error) => finish(rejectPromise, error))
+    response.on('end', () => finish(resolvePromise, {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: (name) => response.headers[String(name).toLowerCase()] || null },
+      text: Buffer.concat(chunks).toString('utf8')
+    }))
+  })
+  const deadline = setTimeout(() => request.destroy(new Error(`Totale timeout bij ${url}`)), 30_000)
+  request.setTimeout(20_000, () => request.destroy(new Error(`Timeout bij ${url}`)))
+  request.on('error', (error) => finish(rejectPromise, error))
+  if (requestOptions.body) request.write(requestOptions.body)
+  request.end()
+})
+
+const fetchControlled = async ({ brand, url, options, state, statePath, request, forceNetwork = false }) => {
   const adapter = adapters[brand]
   const domainState = state.domains[adapter.domain] || { date: today(), requests: 0 }
   if (domainState.date !== today()) Object.assign(domainState, { date: today(), requests: 0, blockedAt: undefined })
   state.domains[adapter.domain] = domainState
 
-  if (domainState.blockedAt) throw new Error(`${adapter.domain} circuit breaker staat open sinds ${domainState.blockedAt}`)
-  if (domainState.requests >= options.dailyLimit) throw new Error(`${adapter.domain} daglimiet (${options.dailyLimit}) bereikt`)
-
   const cachePath = cachePathFor(brand, url)
-  if (!options.refresh) {
+  if (!options.refresh && !forceNetwork) {
     try {
       return { html: await readFile(cachePath, 'utf8'), cached: true }
     } catch {
       // Cache miss.
     }
   }
+
+  if (options.cachedOnly) return { html: '', status: 0, cached: false, cacheMiss: true }
+  if (domainState.blockedAt) throw new Error(`${adapter.domain} circuit breaker staat open sinds ${domainState.blockedAt}`)
+  if (domainState.requests >= options.dailyLimit) throw new Error(`${adapter.domain} daglimiet (${options.dailyLimit}) bereikt`)
 
   const elapsed = Date.now() - Number(domainState.lastRequestAt || 0)
   if (elapsed < options.delayMs) await sleep(options.delayMs - elapsed)
@@ -556,13 +818,12 @@ const fetchControlled = async ({ brand, url, options, state, statePath }) => {
   domainState.requests += 1
   await writeJsonAtomic(statePath, state)
 
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'text/html,application/xhtml+xml',
-      'User-Agent': 'KeepitCatalogEnrichment/1.0 (rate-limited product verification)'
-    },
-    redirect: 'follow'
-  })
+  let response
+  try {
+    response = await requestText(url, request)
+  } catch (error) {
+    return { html: '', status: 0, cached: false, transientError: error?.message || String(error) }
+  }
 
   if (response.status === 403 && brand === 'icecat') {
     domainState.consecutiveRestricted = Number(domainState.consecutiveRestricted || 0) + 1
@@ -583,10 +844,10 @@ const fetchControlled = async ({ brand, url, options, state, statePath }) => {
   }
   if (!response.ok) return { html: '', status: response.status, cached: false }
 
-  const html = await response.text()
+  const html = response.text
   await mkdir(resolve(CACHE_DIR, brand), { recursive: true })
   await writeFile(cachePath, html, 'utf8')
-  return { html, status: response.status, cached: false }
+  return { html, status: response.status, headers: response.headers, cached: false }
 }
 
 const uniqueBy = (items, keyFor) => [...new Map(items.map((item) => [keyFor(item), item])).values()]
@@ -623,7 +884,7 @@ const mergeEnrichment = (item, result, brand, pageUrl, fetchedAt, publishImages 
 }
 
 const usage = () => {
-  console.log('Gebruik: npm run enrich:manufacturers -- [--catalog=desco|alelek] [--brands=bosch,icecat,geberit,viega,solerpalau,fischer,gree,panasonic,etherma] [--sku=MPN] [--max=10] [--delay-ms=5000] [--daily-limit=100] [--apply] [--publish-images] [--repair-images] [--missing-images] [--reprocess] [--refresh] [--reset-icecat-circuit]')
+  console.log('Gebruik: npm run enrich:manufacturers -- [--catalog=desco|alelek] [--brands=bosch,icecat,eaton,rittal,ledlines,exterus,weverducre,geberit,viega,solerpalau,fischer,gree,panasonic,etherma] [--sku=MPN] [--max=10] [--delay-ms=5000] [--daily-limit=100] [--apply] [--publish-images] [--repair-images] [--missing-images] [--cached-only] [--reprocess] [--refresh] [--reset-icecat-circuit]')
   console.log('Zonder --apply wordt niets aan catalogus of metadata gewijzigd.')
 }
 
@@ -671,6 +932,8 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
   let matched = 0
   let cacheHits = 0
   let sanitized = 0
+  let eligibleCandidates = 0
+  let alreadyChecked = 0
 
   if (options.apply && options.repairImages) {
     for (const item of catalog.items) {
@@ -683,13 +946,39 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
 
   for (const brand of options.brands) {
     const adapter = adapters[brand]
+    if (adapter.indexUrl && adapter.prepare) {
+      const indexAdapter = { ...adapter, domain: adapter.indexDomain || adapter.domain }
+      const originalAdapter = adapters[brand]
+      adapters[brand] = indexAdapter
+      try {
+        const indexResponse = await fetchControlled({
+          brand, url: adapter.indexUrl, options, state, statePath, forceNetwork: Boolean(adapter.session)
+        })
+        if (!indexResponse.html) throw new Error(`${adapter.label}: officiële productindex niet beschikbaar`)
+        originalAdapter.prepare(indexResponse.html, indexResponse)
+        if (indexResponse.cached) cacheHits += 1
+      } finally {
+        adapters[brand] = originalAdapter
+      }
+    }
     const hasCompleteLocalImage = (item) => Boolean(item.image) && ['card', 'detail'].every((variant) =>
       cachedProductImages.has(productImageCacheFile(item.image, variant)))
-    const candidates = catalog.items.filter(
+    const matchingItems = catalog.items.filter(
       (item) =>
         adapter.matches(item) &&
-        (!options.missingImages || !hasCompleteLocalImage(item)) &&
         (!options.sku || normalizeSku(productSkuFor(item)) === options.sku)
+    )
+    const candidates = matchingItems.filter((item) => !options.missingImages || !hasCompleteLocalImage(item))
+    const skipKnown = !options.refresh && !options.reprocess && !options.repairImages
+    const checkedForBrand = skipKnown
+      ? candidates.filter((item) => state.products[`${options.catalog}:${brand}:${normalizeSku(productSkuFor(item))}`]?.status).length
+      : 0
+    const newForBrand = candidates.length - checkedForBrand
+    eligibleCandidates += newForBrand
+    alreadyChecked += checkedForBrand
+    console.log(
+      `${adapter.label}: ${matchingItems.length} ondersteund, ` +
+      `${matchingItems.length - candidates.length} lokaal compleet, ${checkedForBrand} al gecontroleerd, ${newForBrand} nieuw.`
     )
     for (const catalogItem of candidates) {
       if (attempted >= options.max) break
@@ -697,13 +986,35 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
       const stateKey = `${options.catalog}:${brand}:${normalizeSku(sku)}`
       if (!options.refresh && !options.reprocess && !options.repairImages && state.products[stateKey]?.status) continue
 
+      // In cache-only mode, do not let thousands of uncached catalog items consume --max.
+      // This makes browser-fed adapters deterministic: --max limits actual cached pages.
+      if (options.cachedOnly) {
+        const cachedRequestUrl = adapter.url(sku, catalogItem, options)
+        try {
+          await access(cachePathFor(brand, cachedRequestUrl))
+        } catch {
+          continue
+        }
+      }
+
       attempted += 1
-      const requestUrl = adapter.url(sku, catalogItem, options)
-      const response = await fetchControlled({ brand, url: requestUrl, options, state, statePath })
+      const lookup = adapter.lookup ? await adapter.lookup(sku, catalogItem, options, state, statePath) : null
+      const requestUrl = lookup?.pageUrl || adapter.url(sku, catalogItem, options)
+      const response = lookup?.response || await fetchControlled({ brand, url: requestUrl, options, state, statePath })
+      if (response.cacheMiss) {
+        console.log(`- ${adapter.label} ${sku}: niet in lokale cache`)
+        continue
+      }
+      if (response.transientError) {
+        console.warn(`! ${adapter.label} ${sku}: tijdelijke netwerkfout (${response.transientError}); blijft beschikbaar voor een volgende run`)
+        continue
+      }
       if (response.cached) cacheHits += 1
-      const result = response.html ? adapter.parse(response.html, sku, requestUrl, catalogItem) : null
+      const result = lookup ? lookup.result : response.html ? adapter.parse(response.html, sku, requestUrl, catalogItem) : null
       const fetchedAt = new Date().toISOString()
-      const pageUrl = result ? adapter.publicUrl(catalogItem, result, requestUrl) : adapter.publicUrl(catalogItem, {}, requestUrl)
+      const pageUrl = adapter.publicUrl
+        ? result ? adapter.publicUrl(catalogItem, result, requestUrl) : adapter.publicUrl(catalogItem, {}, requestUrl)
+        : requestUrl
       state.products[stateKey] = {
         brand,
         sku,
@@ -729,7 +1040,7 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
           pageUrl,
           fetchedAt,
           options.publishImages,
-          options.repairImages
+          options.repairImages || options.missingImages
         )
         const enrichedCatalogItem = catalog.items[catalogIndex]
         overrides.items[itemKey(catalogItem)] = {
@@ -747,7 +1058,7 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
           pageUrl,
           fetchedAt,
           options.publishImages,
-          options.repairImages
+          options.repairImages || options.missingImages
         )
         metadataByArticle.set(itemKey(catalogItem), enrichedMetadata)
         console.log(`✓ ${adapter.label} ${sku}: exacte match${response.cached ? ' (cache)' : ''}`)
@@ -781,6 +1092,9 @@ export const runManufacturerEnrichment = async (argv = process.argv.slice(2)) =>
     await writeJsonAtomic(overridesPath, overrides)
   }
 
+  if (attempted === 0 && eligibleCandidates === 0) {
+    console.log(`Geen nieuwe kandidaten: ${alreadyChecked} onvolledige producten zijn eerder al gecontroleerd.`)
+  }
   console.log(`Klaar: ${attempted} gecontroleerd, ${matched} exacte matches, ${sanitized} ongeldige beeldwaarden verwijderd, ${cacheHits} uit cache, modus=${options.apply ? 'toegepast' : 'dry-run'}.`)
 }
 
