@@ -70,6 +70,11 @@ export class TimelineTracker {
       if (this.suggestionsEnabled && result.shouldSuggestCheckin && result.suggestedJob) {
         await this.showCheckinNotification(result.suggestedJob)
       }
+      if (this.suggestionsEnabled) {
+        for (const notification of result.movementNotifications || []) {
+          await this.showMovementNotification(notification)
+        }
+      }
       if (result.events?.length) {
         window.dispatchEvent(new CustomEvent('keepit-timeline-events', { detail: result.events }))
       }
@@ -129,6 +134,36 @@ export class TimelineTracker {
     }
     const notification = new Notification(title, options)
     notification.onclick = () => {
+      location.hash = target
+      window.focus()
+    }
+  }
+
+  private async showMovementNotification(notification: {
+    title: string
+    message: string
+    tag: string
+    url?: string
+  }) {
+    const target = notification.url || '#!/home'
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      this.showInAppSuggestion(notification.message, 'Bekijken', target)
+      return
+    }
+    const options: NotificationOptions = {
+      body: notification.message,
+      icon: '/assets/dimac.svg',
+      badge: '/assets/dimac.svg',
+      tag: notification.tag,
+      data: { url: target }
+    }
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.ready
+      await registration.showNotification(notification.title, options)
+      return
+    }
+    const browserNotification = new Notification(notification.title, options)
+    browserNotification.onclick = () => {
       location.hash = target
       window.focus()
     }

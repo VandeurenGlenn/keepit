@@ -13,6 +13,8 @@ const catalogCandidates = [
   '.database/alelek-materials.json',
   '.database/alelek-materials.metadata.json',
   '.database/alelek-manufacturer-overrides.json',
+  '.database/alelek-scraper-state.json',
+  '.database/sync-timestamps.json',
   '.database/exports/siemens-mall-audit.json'
 ]
 

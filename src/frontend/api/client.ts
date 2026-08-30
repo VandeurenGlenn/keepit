@@ -267,6 +267,13 @@ class ApiClient {
     currentJob?: { id: string; name: string }
     shouldSuggestCheckin?: boolean
     suggestedJob?: { id: string; name: string }
+    movementNotifications?: Array<{
+      kind: 'home-departure' | 'large-trip'
+      title: string
+      message: string
+      tag: string
+      url?: string
+    }>
   }> {
     return this.request('POST', '/timeline/position', { location })
   }

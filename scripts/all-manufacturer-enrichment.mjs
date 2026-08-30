@@ -16,6 +16,7 @@ const delayMs = number('--delay-ms', 2500, 1500)
 const dailyLimit = number('--daily-limit', 500)
 const skipImages = argv.includes('--skip-images')
 const skipWever = argv.includes('--skip-wever') || catalog !== 'alelek'
+const techlinkInput = valueAfter('--techlink')
 const requestedBrands = valueAfter('--brands')?.split(',').map((value) => value.trim().toLowerCase()).filter(Boolean)
 
 const adapters = [
@@ -49,6 +50,24 @@ if (!['alelek', 'desco'].includes(catalog)) {
 }
 
 const failures = []
+
+if (catalog === 'alelek' && techlinkInput) {
+  console.log('\n=== TECHLINK IMPORT ===')
+  const techlinkImport = await run(process.execPath, [
+    './scripts/product-data-images.mjs', 'techlink', techlinkInput, '--apply'
+  ])
+  if (!techlinkImport.ok) failures.push(`techlink-import: ${techlinkImport.error}`)
+}
+
+if (catalog === 'alelek' && !skipImages) {
+  console.log('\n=== TECHLINK BEELDEN ===')
+  const techlinkImages = await run(process.execPath, [
+    './server/cli.js', 'images', 'alelek', '--provider=techlink',
+    '--concurrency=6', '--allow-failures'
+  ])
+  if (!techlinkImages.ok) failures.push(`techlink-beelden: ${techlinkImages.error}`)
+}
+
 for (const [brand, provider] of adapters) {
   console.log(`\n=== ${brand.toUpperCase()} ===`)
   const enrichment = await run(process.execPath, [

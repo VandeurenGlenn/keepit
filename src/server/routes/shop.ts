@@ -59,7 +59,8 @@ const parseNonNegativeInteger = (value: unknown): number | undefined => {
 
 /**
  * GET /api/shop/image?url=<catalog image>&variant=card|detail
- * Returns a cached WebP sized and compressed for its actual shop view.
+ * Returns an already prepared WebP sized for its shop view.
+ * This endpoint never downloads or converts images during runtime.
  * Only URLs already present in our trusted product catalogs are accepted.
  */
 publicImageRouter.get('/image', async (ctx) => {
@@ -78,8 +79,7 @@ publicImageRouter.get('/image', async (ctx) => {
     ctx.set('Cache-Control', 'private, max-age=604800, immutable')
     ctx.set('Vary', 'Accept-Encoding')
   } catch (error) {
-    console.warn('Product image conversion failed:', error instanceof Error ? error.message : String(error))
-    ctx.status = 502
+    ctx.status = 404
     ctx.body = { error: 'Product image unavailable' }
   }
 })

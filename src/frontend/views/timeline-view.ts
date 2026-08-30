@@ -4,7 +4,6 @@ import { api } from '../api/client.js'
 import {
   LocationVerification,
   Prestation,
-  TimelineLocationEvent,
   TimelinePlace,
   User,
   WorkLocation
@@ -17,7 +16,6 @@ export class TimelineView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor jobs
   @property({ type: Object, consumes: true }) accessor user: User
   @property({ type: Array }) accessor entries: TimelineEntry[] = []
-  @property({ type: Array }) accessor locationEvents: TimelineLocationEvent[] = []
   @property({ type: Boolean }) accessor loading = true
   @property({ type: String }) accessor error = ''
 
@@ -279,27 +277,18 @@ export class TimelineView extends LiteElement {
 
   connectedCallback() {
     super.connectedCallback()
-    window.addEventListener('keepit-timeline-events', this.handleNewEvents)
     void this.loadTimeline()
   }
 
   disconnectedCallback() {
-    window.removeEventListener('keepit-timeline-events', this.handleNewEvents)
     super.disconnectedCallback()
-  }
-
-  handleNewEvents = (event: Event) => {
-    const timelineEvent = event as CustomEvent<TimelineLocationEvent[]>
-    this.locationEvents = [...timelineEvent.detail, ...this.locationEvents]
   }
 
   async loadTimeline() {
     this.loading = true
     this.error = ''
     try {
-      const [entries, locationEvents] = await Promise.all([api.getMyTimeline(30), api.getMyLocationTimeline(30)])
-      this.entries = entries
-      this.locationEvents = locationEvents
+      this.entries = await api.getMyTimeline(30)
     } catch (error) {
       this.error = error instanceof Error ? error.message : 'Tijdlijn laden mislukt'
     } finally {
@@ -437,65 +426,19 @@ export class TimelineView extends LiteElement {
     `
   }
 
-  renderLocationEvent(event: TimelineLocationEvent) {
-    const job = event.jobId ? this.jobs?.[event.jobId] : undefined
-    const placeName = event.place?.name || job?.name || 'Onbekende locatie'
-    const labels = {
-      departure: `Locatie verlaten: ${placeName}`,
-      arrival: `Locatiebezoek: ${placeName}`,
-      return: `Terug bij locatie: ${placeName}`
-    }
-    return html`
-      <article class="entry">
-        <span class="marker movement"></span>
-        <div class="entry-copy">
-          <h3>${labels[event.type]}</h3>
-          <div class="meta">
-            <span>${this.formatTime(event.occurredAt)}</span>
-            ${event.place?.formattedAddress ? html`<span>${event.place.formattedAddress}</span>` : ''}
-          </div>
-          <div class="location-links">
-            ${this.renderLocationChip('Locatie', 'location_on', event.location, event.place)}
-          </div>
-        </div>
-        <span class="duration">${event.type === 'arrival' ? 'Bezoek' : event.type === 'return' ? 'Terug' : 'Vertrek'}</span>
-      </article>
-    `
-  }
-
-  get groupedLocationEvents() {
-    const formatter = new Intl.DateTimeFormat('nl-BE', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long'
-    })
-    return this.locationEvents.reduce<Record<string, TimelineLocationEvent[]>>((groups, event) => {
-      const label = formatter.format(event.occurredAt)
-      ;(groups[label] ||= []).push(event)
-      return groups
-    }, {})
-  }
-
   render() {
     return html`
       <section class="header">
         <span class="eyebrow">Laatste 30 dagen</span>
         <h1>Mijn tijdlijn</h1>
-        <p class="muted">Bevestigde werkuren en, wanneer je dat inschakelt, betekenisvolle locatiebezoeken.</p>
+        <p class="muted">Je bevestigde werkuren, aankomsten en vertrekken.</p>
       </section>
-
-      ${this.locationEvents.length
-        ? html`<aside class="timeline-explanation">
-            <custom-icon icon="info"></custom-icon>
-            <span><strong>Locatiegeschiedenis is geen werkregistratie.</strong> GPS kan alleen een voorstel sturen. Een werkstart of -stop verschijnt pas nadat jij die bevestigt.</span>
-          </aside>`
-        : ''}
 
       ${this.loading
         ? html`<div class="empty"><p class="muted">Tijdlijn laden…</p></div>`
         : this.error
           ? html`<div class="empty"><p>${this.error}</p></div>`
-          : this.entries.length === 0 && this.locationEvents.length === 0
+          : this.entries.length === 0
             ? html`
                 <div class="empty">
                   <h2>Nog geen werkmomenten</h2>
@@ -504,14 +447,6 @@ export class TimelineView extends LiteElement {
                 </div>
               `
             : html`
-                ${Object.entries(this.groupedLocationEvents).map(
-                  ([label, events]) => html`
-                    <section class="day">
-                      <h2 class="day-title">${label} · Locatiegeschiedenis (geen werkuren)</h2>
-                      ${events.map((event) => this.renderLocationEvent(event))}
-                    </section>
-                  `
-                )}
                 ${Object.entries(this.groupedEntries).map(
                   ([label, entries]) => html`
                     <section class="day">

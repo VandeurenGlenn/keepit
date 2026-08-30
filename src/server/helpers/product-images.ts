@@ -232,10 +232,9 @@ export const cacheProductImage = async (imageUrl: string): Promise<void> => {
 export const getProductImage = async (imageUrl: string, variant: ProductImageVariant): Promise<Buffer> => {
   const cached = await readCached(imageUrl, variant)
   if (cached) return cached
-  await cacheProductImage(imageUrl)
-  const generated = await readCached(imageUrl, variant)
-  if (!generated) throw new Error(`Kon ${variant}-afbeelding niet genereren`)
-  return generated
+  // Runtime requests must remain read-only and cheap. Downloading originals and
+  // invoking Sharp belongs exclusively to the explicit `keepit images` CLI.
+  throw new Error(`Voorbereide ${variant}-afbeelding ontbreekt`)
 }
 
 export type ProductImageCacheReport = {

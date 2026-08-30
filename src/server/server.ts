@@ -2,6 +2,8 @@ import pubsub from './helpers/pubsub.js'
 import Koa from 'koa'
 import http from 'http'
 import net from 'net'
+import { dirname, resolve } from 'path'
+import { fileURLToPath } from 'url'
 import { WebSocketServer } from 'ws'
 // external middleware
 import statickoa from 'koa-static'
@@ -39,6 +41,10 @@ import { readAlelekCatalog } from './helpers/alelek.js'
 import { warmShopSearchIndex } from './helpers/shop-search-index.js'
 
 const api = new Koa()
+// Resolve public files from the emitted server bundle, never from process.cwd().
+// Services such as systemd commonly start Node from / or another working directory.
+const applicationRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const publicRoot = resolve(applicationRoot, 'www')
 
 api.use(
   cors({
@@ -46,7 +52,21 @@ api.use(
   })
 )
 // static files server
-api.use(statickoa('www'))
+api.use(statickoa(publicRoot))
+
+// A missing production frontend used to fall through to authentication and
+// misleadingly return { error: 'Unauthorized' } for the public root URL.
+api.use(async (ctx, next) => {
+  if (ctx.method === 'GET' && ctx.path === '/') {
+    ctx.status = 503
+    ctx.body = {
+      error: 'Frontend build unavailable',
+      recovery: 'Start Keepit with npm start so the production build can be prepared.'
+    }
+    return
+  }
+  await next()
+})
 
 // middleware
 api.use(bodyParser({ jsonLimit: '25mb' }))

@@ -407,6 +407,7 @@ export type TimelineTrackingStates = {
     nearbyJobSamples?: number
     suggestedCheckinJobId?: jobId
     suggestedCheckinAt?: EpochTimeStamp
+    largeTripOriginCapturedAt?: EpochTimeStamp
   }
 }
 export type Invites = {

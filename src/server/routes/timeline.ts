@@ -24,6 +24,16 @@ const RESET_AFTER_MS = 30 * 60 * 1000
 const CHECKIN_SUGGESTION_RADIUS_METERS = 150
 const CHECKIN_SUGGESTION_SAMPLES = 2
 const CHECKIN_SUGGESTION_COOLDOWN_MS = 2 * 60 * 60 * 1000
+const HOME_RADIUS_METERS = 150
+const LARGE_TRIP_METERS = 2_000
+
+type MovementNotification = {
+  kind: 'home-departure' | 'large-trip'
+  title: string
+  message: string
+  tag: string
+  url?: string
+}
 
 const parseLocation = (value: unknown): WorkLocation | undefined => {
   if (!value || typeof value !== 'object') return undefined
@@ -113,6 +123,10 @@ router.post('/position', async (ctx) => {
 
   const activeJobId = user.currentJob
   let suggestedJob: { id: string; name: string } | undefined
+  const movementNotifications: MovementNotification[] = []
+  const homeLocation = user.place?.location
+    ? { ...user.place.location, capturedAt: location.capturedAt }
+    : undefined
 
   if (!activeJobId) {
     const nearbyJob = Object.entries(jobs)
@@ -152,14 +166,28 @@ router.post('/position', async (ctx) => {
 
   if (!state.lastPosition && !activeJobId) {
     state.lastPosition = location
-    state.lastPlaceLocation = location
+    if (homeLocation && distanceInMeters(homeLocation, location) <= HOME_RADIUS_METERS) {
+      state.anchor = {
+        location: homeLocation,
+        arrivedAt: location.capturedAt,
+        place: {
+          id: user.place?.id,
+          name: 'Thuis',
+          formattedAddress: user.place?.formattedAddress
+        }
+      }
+      state.lastPlaceLocation = homeLocation
+    } else {
+      state.lastPlaceLocation = location
+    }
     await timelineTrackingStatesStore.put(timelineTrackingStates)
     ctx.body = {
       accepted: true,
       events: [],
       shouldNotifyCheckout: false,
       shouldSuggestCheckin: Boolean(suggestedJob),
-      suggestedJob
+      suggestedJob,
+      movementNotifications
     }
     return
   }
@@ -190,6 +218,7 @@ router.post('/position', async (ctx) => {
     }
     state.lastPlaceLocation = activeJobLocation
     state.candidate = undefined
+    state.largeTripOriginCapturedAt = undefined
   } else if (!activeJobId) {
     state.activeJobId = undefined
     state.activeJobStartedAt = undefined
@@ -215,6 +244,7 @@ router.post('/position', async (ctx) => {
       }
       state.lastPlaceLocation = activeJobLocation
       state.candidate = undefined
+      state.largeTripOriginCapturedAt = undefined
     } else if (!state.departedJobId) {
       state.outsideSamples = distanceFromJob > DEPARTURE_METERS ? (state.outsideSamples || 0) + 1 : 0
       if ((state.outsideSamples || 0) >= 2) {
@@ -253,18 +283,47 @@ router.post('/position', async (ctx) => {
         }
         state.lastPlaceLocation = state.candidate.location
         state.candidate = undefined
+        state.largeTripOriginCapturedAt = undefined
       }
     }
   } else if (state.anchor && !state.anchor.jobId) {
     const distanceFromAnchor = distanceInMeters(state.anchor.location, location)
     state.outsideSamples = distanceFromAnchor > DEPARTURE_METERS ? (state.outsideSamples || 0) + 1 : 0
     if ((state.outsideSamples || 0) >= 2) {
+      const departedFromHome = Boolean(
+        homeLocation && distanceInMeters(state.anchor.location, homeLocation) <= HOME_RADIUS_METERS
+      )
       const event = createEvent(userId, 'departure', location, { place: state.anchor.place })
       createdEvents.push(event)
+      if (departedFromHome) {
+        movementNotifications.push({
+          kind: 'home-departure',
+          title: 'Vertrokken van thuis',
+          message: 'Je bent van thuis vertrokken.',
+          tag: `home-departure-${new Date(location.capturedAt).toISOString().slice(0, 10)}`,
+          url: '#!/home'
+        })
+      }
       state.lastPlaceLocation = state.anchor.location
       state.anchor = undefined
       state.candidate = { location, startedAt: location.capturedAt }
       state.outsideSamples = 0
+    }
+  }
+
+  if (!state.anchor && state.lastPlaceLocation) {
+    const tripDistance = distanceInMeters(state.lastPlaceLocation, location)
+    const originCapturedAt = state.lastPlaceLocation.capturedAt
+    if (tripDistance >= LARGE_TRIP_METERS && state.largeTripOriginCapturedAt !== originCapturedAt) {
+      const kilometres = Math.max(2, Math.round(tripDistance / 100) / 10)
+      movementNotifications.push({
+        kind: 'large-trip',
+        title: 'Grote verplaatsing gedetecteerd',
+        message: `Je hebt ongeveer ${kilometres} km afgelegd. Ben je materiaal gaan halen?`,
+        tag: `large-trip-${originCapturedAt}`,
+        url: activeJobId ? '#!/checkout' : '#!/home'
+      })
+      state.largeTripOriginCapturedAt = originCapturedAt
     }
   }
 
@@ -283,7 +342,8 @@ router.post('/position', async (ctx) => {
     shouldNotifyCheckout: Boolean(jobDeparture),
     currentJob: activeJobId ? { id: activeJobId, name: jobs[activeJobId]?.name || 'de werf' } : undefined,
     shouldSuggestCheckin: Boolean(suggestedJob),
-    suggestedJob
+    suggestedJob,
+    movementNotifications
   }
 })
 
