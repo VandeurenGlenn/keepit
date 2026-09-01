@@ -226,7 +226,7 @@ router.post('/cart-import', async (ctx) => {
  */
 router.get('/autocomplete', async (ctx) => {
   try {
-    const query = ((ctx.query.q as string) || '').toLowerCase().trim()
+    const query = ((ctx.query.q as string) || '').trim()
     if (!query) {
       ctx.body = { suggestions: [] }
       ctx.status = 200
@@ -234,47 +234,31 @@ router.get('/autocomplete', async (ctx) => {
     }
 
     const [descoCatalog, alekCatalog] = await Promise.all([readDescoCatalog(), readAlelekCatalog()])
-
-    const suggestions = new Map<string, { text: string; count: number }>()
-
-    // Collect suggestions from product names and article numbers
-    const addSuggestion = (text: string) => {
-      const normalized = text.toLowerCase().trim()
-      if (!normalized || !normalized.includes(query)) return
-
-      const key = normalized
-      const existing = suggestions.get(key)
-      suggestions.set(key, { text: normalized, count: (existing?.count ?? 0) + 1 })
+    const catalogs = [
+      { source: 'desco' as const, updatedAt: descoCatalog.updatedAt, items: descoCatalog.items },
+      { source: 'alelek' as const, updatedAt: alekCatalog.updatedAt, items: alekCatalog.items }
+    ]
+    const indexed = await searchShopIndex(catalogs, query, { source: 'all', category: 'all', price: 'all' }, 40, 0, false)
+    const normalizedQuery = query.toLowerCase()
+    const suggestions = new Map<string, string>()
+    const addSuggestion = (value: string | undefined, requireMatch = false) => {
+      const text = String(value || '').trim()
+      if (!text || (requireMatch && !text.toLowerCase().includes(normalizedQuery))) return
+      const key = text.toLowerCase()
+      if (!suggestions.has(key)) suggestions.set(key, text)
     }
 
-    // Process Desco items
-    descoCatalog.items.forEach((item) => {
+    for (const match of indexed.matches) {
+      const item = match.source === 'desco' ? descoCatalog.items[match.itemIndex] : alekCatalog.items[match.itemIndex]
+      if (!item) continue
+      addSuggestion(item.articleNumber, true)
+      addSuggestion(item.productNumber, true)
+      getShopProductBrands(item).forEach((brand) => addSuggestion(brand, true))
       addSuggestion(item.name)
-      if (item.articleNumber) addSuggestion(item.articleNumber)
-      if (item.productNumber) addSuggestion(item.productNumber)
-      getShopProductBrands(item).forEach(addSuggestion)
-    })
+      if (suggestions.size >= 10) break
+    }
 
-    // Process Alelek items
-    alekCatalog.items.forEach((item) => {
-      addSuggestion(item.name)
-      if (item.articleNumber) addSuggestion(item.articleNumber)
-      if (item.productNumber) addSuggestion(item.productNumber)
-      getShopProductBrands(item).forEach(addSuggestion)
-    })
-
-    // Sort by relevance: match position, then frequency
-    const sorted = Array.from(suggestions.values())
-      .sort((a, b) => {
-        const aPos = a.text.indexOf(query)
-        const bPos = b.text.indexOf(query)
-        if (aPos !== bPos) return aPos - bPos
-        return b.count - a.count
-      })
-      .slice(0, 10)
-      .map((s) => s.text)
-
-    ctx.body = { suggestions: sorted }
+    ctx.body = { suggestions: [...suggestions.values()].slice(0, 10) }
     ctx.status = 200
   } catch (error) {
     ctx.body = {

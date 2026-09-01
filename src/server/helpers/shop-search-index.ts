@@ -1,6 +1,5 @@
 import { rm, rename } from 'fs/promises'
 import { resolve } from 'path'
-import { createHash } from 'crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { MaterialLine } from '../../types/index.js'
 import { normalizeShopSearchText } from './shop-search.js'
@@ -49,15 +48,22 @@ const getCategory = (item: MaterialLine): string => {
 }
 
 const getSignature = (catalogs: CatalogInput[]): string => {
-  const hash = createHash('sha256')
-  for (const { source, updatedAt, items } of catalogs) {
-    hash.update(`${source}\0${updatedAt}\0${items.length}\0`)
-    for (const item of items) {
-      hash.update(JSON.stringify(item))
-      hash.update('\0')
+  // Catalog timestamps are updated whenever a sync or restore changes their
+  // contents. Keep this signature O(number of catalogs): hashing hundreds of
+  // thousands of complete records made every search request take seconds.
+  return `v4:${catalogs.map(({ source, updatedAt, items }) => `${source}:${updatedAt}:${items.length}`).join('|')}`
+}
+
+const getShortSearchTokens = (item: MaterialLine): string => {
+  const tokens = new Set<string>()
+  for (const value of [item.name, item.articleNumber, item.productNumber]) {
+    for (const word of normalizeShopSearchText(value).split(' ')) {
+      for (let index = 0; index < word.length - 1; index += 1) {
+        tokens.add(`zz${word.slice(index, index + 2)}zz`)
+      }
     }
   }
-  return hash.digest('hex')
+  return [...tokens].join(' ')
 }
 
 const openCurrentIndex = (signature: string): DatabaseSync | undefined => {
@@ -90,11 +96,12 @@ const buildIndex = async (catalogs: CatalogInput[], signature: string): Promise<
       product_number,
       description,
       metadata,
+      short_tokens,
       tokenize = 'trigram'
     );
   `)
 
-  const insert = nextDatabase.prepare('INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  const insert = nextDatabase.prepare('INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
   nextDatabase.exec('BEGIN')
   try {
     for (const catalog of catalogs) {
@@ -104,11 +111,12 @@ const buildIndex = async (catalogs: CatalogInput[], signature: string): Promise<
           itemIndex,
           item.unitPrice || 0,
           getCategory(item),
-          item.name,
-          item.articleNumber || '',
-          item.productNumber || '',
-          item.description || '',
-          JSON.stringify([item.manufacturerData || {}, item.technicalData || {}])
+          normalizeShopSearchText(item.name),
+          normalizeShopSearchText(item.articleNumber),
+          normalizeShopSearchText(item.productNumber),
+          normalizeShopSearchText(item.description),
+          normalizeShopSearchText(JSON.stringify([item.manufacturerData || {}, item.technicalData || {}])),
+          getShortSearchTokens(item)
         )
       })
     }
@@ -173,20 +181,34 @@ export const searchShopIndex = async (
   query: string,
   filters: SearchFilters,
   limit?: number,
-  offset = 0
+  offset = 0,
+  includeTotal = true
 ): Promise<SearchResult> => {
   const normalizedQuery = normalizeShopSearchText(query)
-  if (normalizedQuery.length < 3) return { matches: [], total: 0 }
+  if (normalizedQuery.length < 2) return { matches: [], total: 0 }
+
+  const terms = normalizedQuery.split(/\s+/).filter(Boolean)
+  const matchQuery = terms
+    .map((term) =>
+      term.length >= 3 ? `"${term.replaceAll('"', '""')}"` : `short_tokens : "zz${term.replaceAll('"', '""')}zz"`
+    )
+    .join(' AND ')
 
   const currentDatabase = await getDatabase(catalogs)
   const { clauses, values } = getFilterSql(filters)
   const where = ['products MATCH ?', ...clauses].join(' AND ')
-  const queryValues = [normalizedQuery, ...values]
-  const totalRow = currentDatabase.prepare(`SELECT count(*) AS total FROM products WHERE ${where}`).get(...queryValues) as {
-    total: number | bigint
-  }
+  const queryValues = [matchQuery, ...values]
+  const total = includeTotal
+    ? Number(
+        (
+          currentDatabase.prepare(`SELECT count(*) AS total FROM products WHERE ${where}`).get(...queryValues) as {
+            total: number | bigint
+          }
+        ).total
+      )
+    : 0
   const pageSql = `
-    SELECT source, item_index, bm25(products, 0, 0, 0, 0, 8, 5, 4, 1, 2) AS rank
+    SELECT source, item_index, bm25(products, 0, 0, 0, 0, 8, 5, 4, 1, 2, 3) AS rank
     FROM products
     WHERE ${where}
     ORDER BY rank
@@ -200,7 +222,7 @@ export const searchShopIndex = async (
   }>
 
   return {
-    total: Number(totalRow.total),
+    total,
     matches: rows.map((row) => ({
       source: row.source,
       itemIndex: Number(row.item_index),
