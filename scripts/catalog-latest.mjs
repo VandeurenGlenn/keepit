@@ -9,29 +9,33 @@ import { spawnSync } from 'node:child_process'
 const rootDir=process.cwd(),snapshotDir=resolve(rootDir,'catalog-snapshots')
 const run=(command,args,options={})=>{const result=spawnSync(command,args,{cwd:rootDir,stdio:'inherit',...options});if(result.error)throw result.error;if(result.status!==0)process.exit(result.status??1);return result}
 const digest=(path)=>new Promise((done,fail)=>{const hash=createHash('sha256'),stream=createReadStream(path);stream.on('data',(chunk)=>hash.update(chunk));stream.once('error',fail);stream.once('end',()=>done(hash.digest('hex')))})
-const releases=spawnSync('gh',['release','list','--limit','100','--json','tagName,isDraft'],{cwd:rootDir,encoding:'utf8'})
+const remote=spawnSync('git',['config','--get','remote.origin.url'],{cwd:rootDir,encoding:'utf8'})
+if(remote.error)throw remote.error
+if(remote.status!==0)throw new Error('Git remote origin niet leesbaar')
+const repository=process.env.GH_REPO||remote.stdout.trim().match(/github\.com[/:]([^/]+\/[^/.]+)(?:\.git)?$/i)?.[1]
+if(!repository)throw new Error('GitHub repository kon niet uit remote origin worden bepaald; stel GH_REPO in')
+const releases=spawnSync('gh',['api',`repos/${repository}/releases?per_page=100`],{cwd:rootDir,encoding:'utf8'})
 if(releases.error)throw releases.error
 if(releases.status!==0)throw new Error(releases.stderr.trim()||'GitHub Releases niet leesbaar')
-const releaseTag=JSON.parse(releases.stdout)
-  .filter((release)=>!release.isDraft&&/^catalog-snapshot-\d{4}-\d{2}-\d{2}[_-]/i.test(release.tagName))
-  .map((release)=>release.tagName)
-  .sort((a,b)=>b.localeCompare(a))[0]
+const release=JSON.parse(releases.stdout)
+  .filter((release)=>!release.draft&&/^catalog-snapshot-\d{4}-\d{2}-\d{2}[_-]/i.test(release.tag_name))
+  .sort((a,b)=>b.tag_name.localeCompare(a.tag_name))[0]
+const releaseTag=release?.tag_name
 if(!releaseTag)throw new Error('Geen afzonderlijke catalogus-snapshotrelease gevonden')
-const release=spawnSync('gh',['release','view',releaseTag,'--json','assets'],{cwd:rootDir,encoding:'utf8'})
-if(release.error)throw release.error
-if(release.status!==0)throw new Error(release.stderr.trim()||`GitHub Release ${releaseTag} niet leesbaar`)
-const names=JSON.parse(release.stdout).assets.map((asset)=>asset.name)
+const names=release.assets.map((asset)=>asset.name)
 const manifestName=names.filter((name)=>/^catalog-snapshot-.*\.zip\.manifest\.json$/i.test(name)).sort((a,b)=>b.localeCompare(a))[0]
 await mkdir(snapshotDir,{recursive:true})
 let archivePath
 if(manifestName){
-  run('gh',['release','download',releaseTag,'--pattern',manifestName,'--dir',snapshotDir,'--clobber'])
+  await rm(resolve(snapshotDir,manifestName),{force:true})
+  run('gh',['release','download',releaseTag,'--pattern',manifestName,'--dir',snapshotDir])
   const manifest=JSON.parse(await readFile(resolve(snapshotDir,manifestName),'utf8'))
   if(!manifest.archiveName||!Array.isArray(manifest.parts))throw new Error('Ongeldig snapshotmanifest')
   archivePath=resolve(snapshotDir,basename(manifest.archiveName));await rm(archivePath,{force:true})
   for(const part of manifest.parts){
     if(!names.includes(part.name))throw new Error(`Release-asset ontbreekt: ${part.name}`)
-    run('gh',['release','download',releaseTag,'--pattern',part.name,'--dir',snapshotDir,'--clobber'])
+    await rm(resolve(snapshotDir,basename(part.name)),{force:true})
+    run('gh',['release','download',releaseTag,'--pattern',part.name,'--dir',snapshotDir])
     const partPath=resolve(snapshotDir,basename(part.name))
     if((await stat(partPath)).size!==part.size||(await digest(partPath))!==part.sha256)throw new Error(`Controle mislukt voor ${part.name}`)
     await pipeline(createReadStream(partPath),createWriteStream(archivePath,{flags:'a'}))
