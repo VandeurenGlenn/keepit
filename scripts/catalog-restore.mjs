@@ -2,7 +2,7 @@
 
 import { readdir } from 'fs/promises'
 import { basename, isAbsolute, resolve } from 'path'
-import { spawnSync } from 'child_process'
+import { spawn, spawnSync } from 'child_process'
 
 const rootDir = process.cwd()
 const snapshotDir = resolve(rootDir, 'catalog-snapshots')
@@ -24,23 +24,48 @@ const findArchive = async () => {
   return resolve(snapshotDir, snapshots[0])
 }
 
-const runUnzip = (args) => {
-  const result = spawnSync('unzip', args, { cwd: rootDir, encoding: 'utf8' })
-  if (result.error) {
-    if (result.error.message.includes('ENOENT'))
-      throw new Error('unzip command not found. Install unzip and try again.')
-    throw result.error
-  }
-  if (result.status !== 0) throw new Error(result.stderr.trim() || `unzip exited with status ${result.status}.`)
-  return result.stdout
-}
+const validateArchiveEntries = (archivePath) =>
+  new Promise((done, fail) => {
+    const child = spawn('unzip', ['-Z1', archivePath], { cwd: rootDir, stdio: ['ignore', 'pipe', 'pipe'] })
+    let pending = ''
+    let stderr = ''
+    let rejectedEntry = ''
+
+    const inspect = (entry) => {
+      const normalized = entry.replaceAll('\\', '/')
+      if (isAbsolute(normalized) || normalized.split('/').includes('..')) rejectedEntry = entry
+    }
+
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      pending += chunk
+      const lines = pending.split('\n')
+      pending = lines.pop() ?? ''
+      for (const entry of lines) {
+        inspect(entry)
+        if (rejectedEntry) child.kill()
+      }
+    })
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk) => {
+      if (stderr.length < 16_384) stderr += chunk
+    })
+    child.once('error', (error) => {
+      if (error.message.includes('ENOENT')) fail(new Error('unzip command not found. Install unzip and try again.'))
+      else fail(error)
+    })
+    child.once('close', (code) => {
+      if (pending) inspect(pending)
+      if (rejectedEntry) fail(new Error(`Unsafe archive entry rejected: ${rejectedEntry}`))
+      else if (code !== 0) fail(new Error(stderr.trim() || `unzip exited with status ${code}.`))
+      else done()
+    })
+  })
 
 const main = async () => {
   const archivePath = await findArchive()
-  const entries = runUnzip(['-Z1', archivePath]).split('\n').filter(Boolean)
-
-  const unsafeEntry = entries.find((entry) => isAbsolute(entry) || entry.split('/').includes('..'))
-  if (unsafeEntry) throw new Error(`Unsafe archive entry rejected: ${unsafeEntry}`)
+  console.log('Snapshotinhoud controleren…')
+  await validateArchiveEntries(archivePath)
 
   const result = spawnSync('unzip', ['-o', archivePath, '-d', rootDir], { cwd: rootDir, stdio: 'inherit' })
   if (result.error) throw result.error
