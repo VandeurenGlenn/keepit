@@ -51,7 +51,7 @@ const getSignature = (catalogs: CatalogInput[]): string => {
   // Catalog timestamps are updated whenever a sync or restore changes their
   // contents. Keep this signature O(number of catalogs): hashing hundreds of
   // thousands of complete records made every search request take seconds.
-  return `v4:${catalogs.map(({ source, updatedAt, items }) => `${source}:${updatedAt}:${items.length}`).join('|')}`
+  return `v5:${catalogs.map(({ source, updatedAt, items }) => `${source}:${updatedAt}:${items.length}`).join('|')}`
 }
 
 const getShortSearchTokens = (item: MaterialLine): string => {

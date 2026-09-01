@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { getShopProductBrands, searchShopProducts } from '../server/helpers/shop-search.ts'
+import { getShopProductBrands, normalizeShopSearchText, searchShopProducts } from '../server/helpers/shop-search.ts'
 
 const products = [
   {
@@ -58,4 +58,17 @@ test('shop search preserves description and technical metadata matches', () => {
 test('shop search matches an explicit catalog source', () => {
   const searchable = [{ name: 'Schakelaar', source: 'niko' }]
   assert.equal(searchShopProducts(searchable, 'niko').length, 1)
+})
+
+test('shop search treats compact and spaced technical units as equivalent', () => {
+  const searchable = [
+    {
+      name: 'Resi9 Differentieelschakelaar 4P 40A Gevoeligheid=30 mA Ogenblikkelijk Type A',
+      articleNumber: 'R9R01440'
+    }
+  ]
+
+  assert.equal(normalizeShopSearchText('30 mA'), normalizeShopSearchText('30mA'))
+  assert.equal(normalizeShopSearchText('40 A'), normalizeShopSearchText('40A'))
+  assert.equal(searchShopProducts(searchable, 'resi9 30mA').length, 1)
 })

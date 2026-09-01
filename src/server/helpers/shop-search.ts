@@ -21,6 +21,10 @@ export const normalizeShopSearchText = (value: unknown): string =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
+    .replace(
+      /\b(\d+)\s+(ma|ka|a|mv|kv|v|mw|kw|w|mhz|khz|hz|mm|cm|km|m|ml|cl|dl|l|mbar|bar|mpa|kpa|pa|nm|lm|lux|db|kg|g)\b/g,
+      '$1$2'
+    )
     .trim()
 
 export const getShopProductBrands = (product: SearchableShopProduct): string[] => {
