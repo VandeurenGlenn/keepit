@@ -33,8 +33,10 @@ const prepareAssets=async(archivePath)=>{
 const archivePath=await resolveArchive(),assets=await prepareAssets(archivePath)
 const releaseTag=basename(archivePath,'.zip')
 const releaseTitle=releaseTag.replace('catalog-snapshot-','Catalog snapshot · ').replace('_',' ')
-const release=spawnSync('gh',['release','view',releaseTag,'--json','tagName'],{cwd:rootDir,stdio:'ignore'})
+const release=spawnSync('gh',['release','view',releaseTag,'--json','tagName,isDraft'],{cwd:rootDir,encoding:'utf8'})
 if(release.error)throw release.error
-if(release.status===0)run('gh',['release','upload',releaseTag,...assets,'--clobber'])
-else run('gh',['release','create',releaseTag,...assets,'--title',releaseTitle,'--notes',`Verified Keepit catalog backup: ${basename(archivePath)}`,'--latest=false'])
+if(release.status===0){
+  run('gh',['release','upload',releaseTag,...assets,'--clobber'])
+  if(JSON.parse(release.stdout).isDraft)run('gh',['release','edit',releaseTag,'--draft=false'])
+}else run('gh',['release','create',releaseTag,...assets,'--title',releaseTitle,'--notes',`Verified Keepit catalog backup: ${basename(archivePath)}`,'--latest=false'])
 console.log(`Published ${basename(archivePath)} as ${assets.length} GitHub Release asset(s).`)
