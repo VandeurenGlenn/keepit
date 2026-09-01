@@ -3,6 +3,7 @@ import { resolve } from 'path'
 import { MaterialLine } from '../../types/index.js'
 import { scrapeAlekCategories, type AlelekScraperProgress, type ScrapedProduct } from './alelek-scraper.js'
 import { clearSync, recordSync } from './sync-tracker.js'
+import { dedupeCatalogMaterials } from './catalog-dedupe.js'
 
 type JsonObject = Record<string, unknown>
 
@@ -344,42 +345,14 @@ const parseTabularMaterials = (raw: string): MaterialLine[] => {
   return materials
 }
 
-const dedupeMaterials = (items: MaterialLine[]): MaterialLine[] => {
-  const byName = new Map<string, MaterialLine>()
-
-  for (const item of items) {
-    const key = item.name.trim().toLowerCase()
-    if (!key) continue
-
-    const existing = byName.get(key)
-    if (!existing) {
-      byName.set(key, item)
-      continue
-    }
-
-    byName.set(key, {
-      ...existing,
-      unit: existing.unit || item.unit,
-      unitPrice: existing.unitPrice ?? item.unitPrice
-    })
-  }
-
-  return Array.from(byName.values()).sort((left, right) => {
-    const aNum = left.articleNumber || ''
-    const bNum = right.articleNumber || ''
-    if (aNum && bNum) return aNum.localeCompare(bNum)
-    if (aNum) return -1
-    if (bNum) return 1
-    return left.name.localeCompare(right.name)
-  })
-}
+export const dedupeAlelekMaterials = dedupeCatalogMaterials
 
 const parseAlelekMaterials = (raw: string, contentType: string): MaterialLine[] => {
   const payloadLooksLikeJson = contentType.includes('application/json') || /^[\[{]/.test(raw.trim())
 
   if (payloadLooksLikeJson) {
     try {
-      return dedupeMaterials(parseJsonMaterials(JSON.parse(raw) as unknown))
+      return dedupeAlelekMaterials(parseJsonMaterials(JSON.parse(raw) as unknown))
     } catch {
       // fall back to XML parser when payload is not valid JSON
     }
@@ -394,10 +367,10 @@ const parseAlelekMaterials = (raw: string, contentType: string): MaterialLine[] 
 
   if (looksTabular) {
     const tabular = parseTabularMaterials(raw)
-    if (tabular.length > 0) return dedupeMaterials(tabular)
+    if (tabular.length > 0) return dedupeAlelekMaterials(tabular)
   }
 
-  return dedupeMaterials(parseXmlMaterials(raw))
+  return dedupeAlelekMaterials(parseXmlMaterials(raw))
 }
 
 const applyManufacturerOverrides = async (items: MaterialLine[]): Promise<MaterialLine[]> => {
@@ -462,7 +435,7 @@ export const readAlelekCatalog = async (): Promise<AlelekCatalog> => {
       source: 'alelek',
       updatedAt: normalizeString(parsed.updatedAt),
       count: Number(parsed.count) || parsed.items.length,
-      items: dedupeMaterials(parsed.items)
+      items: dedupeAlelekMaterials(parsed.items)
     }
     alelekCatalogCache = { modifiedAt, catalog }
     return catalog

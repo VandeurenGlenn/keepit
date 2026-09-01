@@ -13,13 +13,14 @@ import { searchShopIndex } from '../helpers/shop-search-index.js'
 const router = new Router({ prefix: '/api/shop' })
 const publicImageRouter = new Router({ prefix: '/api/shop' })
 
-const generateProductId = (name: string, source: string): string => {
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+const generateProductId = (item: Pick<MaterialLine, 'name' | 'articleNumber' | 'productNumber'>, source: string): string => {
+  const identity = item.articleNumber || item.productNumber || item.name
+  const slug = identity.toLowerCase().replace(/[^a-z0-9]+/g, '-')
   return `${source}-${slug}`
 }
 
 const toShopProduct = (item: MaterialLine, source: 'desco' | 'alelek'): ShopProduct => ({
-  id: generateProductId(item.name, source),
+  id: generateProductId(item, source),
   name: item.name,
   price: item.unitPrice || 0,
   quantity: item.quantity,
@@ -199,14 +200,14 @@ router.post('/cart-import', async (ctx) => {
   const [descoCatalog, alelekCatalog] = await Promise.all([readDescoCatalog(), readAlelekCatalog()])
   const products: ShopProduct[] = [
     ...descoCatalog.items.map((item) => ({
-      id: generateProductId(item.name, 'desco'),
+      id: generateProductId(item, 'desco'),
       name: item.name,
       price: item.unitPrice || 0,
       source: 'desco' as const,
       ...item
     })),
     ...alelekCatalog.items.map((item) => ({
-      id: generateProductId(item.name, 'alelek'),
+      id: generateProductId(item, 'alelek'),
       name: item.name,
       price: item.unitPrice || 0,
       source: 'alelek' as const,
@@ -379,12 +380,12 @@ router.post('/orders', async (ctx) => {
     const allProducts: Map<string, { price: number; name: string }> = new Map()
 
     descoCatalog.items.forEach((item) => {
-      const id = generateProductId(item.name, 'desco')
+      const id = generateProductId(item, 'desco')
       allProducts.set(id, { price: item.unitPrice || 0, name: item.name })
     })
 
     alekCatalog.items.forEach((item) => {
-      const id = generateProductId(item.name, 'alelek')
+      const id = generateProductId(item, 'alelek')
       allProducts.set(id, { price: item.unitPrice || 0, name: item.name })
     })
 
