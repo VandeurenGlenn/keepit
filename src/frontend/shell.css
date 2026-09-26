@@ -2,6 +2,9 @@
   display: block;
   height: 100%;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   position: relative;
   overflow: hidden;
   --app-accent: #a85427;
@@ -100,7 +103,11 @@ main {
   left: 264px;
   bottom: 0;
   right: 0;
-  overflow: auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-x: none;
   background: var(--app-main-background);
   color: var(--md-sys-color-on-background);
   align-items: center;
@@ -372,11 +379,20 @@ img {
 
 flex-container {
   flex: 1;
+  min-width: 0;
+  max-width: 100%;
   min-height: 0;
   height: auto;
   width: 100%;
+  box-sizing: border-box;
   --flex-display-align-items: stretch;
   --flex-display-justify-content: flex-start;
+}
+
+flex-container > * {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 flex-wrap-around {
   gap: 12px;

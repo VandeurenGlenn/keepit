@@ -3,7 +3,7 @@ import { jobs, jobsStore, hours, hoursStore, users, usersStore } from './../data
 import { Prestation, WorkLocation } from '../../types/index.js'
 import { verifyJobLocation } from '../helpers/geo.js'
 import { findNearbyPlace, findPlaceLocation } from '../helpers/places.js'
-import { findOpenPrestationId } from '../helpers/work-sessions.js'
+import { findActiveWorkSession, findOpenPrestationId } from '../helpers/work-sessions.js'
 
 const router = new Router({
   prefix: '/api/hours'
@@ -34,6 +34,20 @@ const getOpenPrestationId = (userId: string, jobId: string): string | undefined 
     jobs[jobId]?.hours?.[userId] || [],
     hours[userId] || {}
   )
+}
+
+const reconcileUserWorkSession = (userId: string): boolean => {
+  const user = users[userId]
+  if (!user) return false
+
+  const active = findActiveWorkSession(user.currentPrestationId, hours[userId] || {})
+  const currentJob = active?.prestation.jobId
+  const currentPrestationId = active?.id
+  if (user.currentJob === currentJob && user.currentPrestationId === currentPrestationId) return false
+
+  user.currentJob = currentJob
+  user.currentPrestationId = currentPrestationId
+  return true
 }
 
 const toLocation = (value: WorkLocation | undefined): WorkLocation | undefined => {
@@ -164,7 +178,12 @@ router.patch('/job/:jobId/:userId/:prestationId', async (ctx) => {
     before, after: { checkin, checkout }
   }]
   jobs[jobId].updatedAt = new Date().toISOString()
-  await Promise.all([hoursStore.put(hours), jobsStore.put(jobs)])
+  const userSessionChanged = reconcileUserWorkSession(userId)
+  await Promise.all([
+    hoursStore.put(hours),
+    jobsStore.put(jobs),
+    userSessionChanged ? usersStore.put(users) : Promise.resolve()
+  ])
   ctx.body = { id: prestationId, ...prestation }
 })
 
@@ -255,6 +274,7 @@ router.post('/checkin', async (ctx) => {
       return
     }
   }
+  if (reconcileUserWorkSession(userId)) await usersStore.put(users)
   if (users[userId].currentJob) {
     ctx.status = 400
     ctx.body = {
@@ -375,8 +395,9 @@ router.post('/checkout', async (ctx) => {
   }
 
   if (prestation.checkout) {
-    ctx.status = 400
-    ctx.body = { error: 'This prestation is already checked out' }
+    if (reconcileUserWorkSession(userId)) await usersStore.put(users)
+    ctx.status = 200
+    ctx.body = { id: prestationId, ...prestationForRoles(prestation, users[userId]?.roles) }
     return
   }
 
@@ -408,8 +429,7 @@ router.post('/checkout', async (ctx) => {
     prestation.duration = Math.max(0, checkoutTs - checkinTs)
   }
 
-  users[userId].currentJob = undefined
-  users[userId].currentPrestationId = undefined
+  reconcileUserWorkSession(userId)
 
   try {
     const promises: Promise<unknown>[] = [jobsStore.put(jobs), hoursStore.put(hours), usersStore.put(users)]

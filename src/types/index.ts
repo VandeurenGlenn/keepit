@@ -117,6 +117,7 @@ export interface Job extends BaseInput {
     [userId: string]: string[]
   }
   materials?: MaterialLine[]
+  materialDiscountPercent?: number
   // Optional notes attached to the job
   notes?: {
     id: string

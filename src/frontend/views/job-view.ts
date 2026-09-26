@@ -83,6 +83,7 @@ export class JobView extends LiteElement {
   @property({ type: Boolean }) accessor openMaterials = false
   @property({ type: Array }) accessor materialSuggestions: MaterialLine[] = []
   @property({ type: Array }) accessor materials: MaterialDraft[] = []
+  @property({ type: Number }) accessor materialDiscountPercent = 0
   @property({ type: String }) accessor selectedJobId = ''
   @property({ type: Boolean }) accessor materialPickerOpen = false
   @property({ type: String }) accessor materialPickerQuery = ''
@@ -110,7 +111,8 @@ export class JobView extends LiteElement {
   private materialPickerSearchTimer: ReturnType<typeof setTimeout> | undefined
   materialBaseline='[]'
   detailBaseline=''
-  get jobDirty(){return JSON.stringify(this.sanitizedMaterials)!==this.materialBaseline||(this.editingDetails&&JSON.stringify([this.detailName.trim(),this.detailDescription.trim()])!==this.detailBaseline)}
+  get materialState(){return JSON.stringify({materials:this.sanitizedMaterials,discountPercent:this.normalizedMaterialDiscountPercent})}
+  get jobDirty(){return this.materialState!==this.materialBaseline||(this.editingDetails&&JSON.stringify([this.detailName.trim(),this.detailDescription.trim()])!==this.detailBaseline)}
   disconnectedCallback(){setUnsavedChanges('job',false);super.disconnectedCallback()}
 
   static styles = [
@@ -218,6 +220,53 @@ export class JobView extends LiteElement {
           var(--app-accent-strong)
         );
         color: var(--md-sys-color-on-primary);
+      }
+
+      .materials-pricing {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(120px, .55fr) minmax(150px, .7fr);
+        gap: 9px;
+        padding: 13px;
+        border: 1px solid color-mix(in srgb, var(--app-accent) 24%, var(--app-border));
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--app-accent) 6%, var(--app-panel-strong));
+      }
+
+      .materials-price-field {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .materials-price-field > span {
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: .68rem;
+        font-weight: 700;
+      }
+
+      .materials-subtotal strong {
+        font-size: 1rem;
+      }
+
+      .materials-price-field input {
+        width: 100%;
+        min-height: 40px;
+        padding: 0 10px;
+        box-sizing: border-box;
+        border: 1px solid var(--app-border);
+        border-radius: 10px;
+        background: var(--app-panel);
+        color: var(--md-sys-color-on-surface);
+        font: inherit;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .materials-discounted-total input {
+        border-color: color-mix(in srgb, var(--app-accent) 48%, var(--app-border));
+        color: var(--app-accent);
+        font-weight: 750;
       }
 
       .small-materials-control {
@@ -1160,6 +1209,14 @@ export class JobView extends LiteElement {
           grid-column: 1 / -1;
         }
 
+        .materials-pricing {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .materials-subtotal {
+          grid-column: 1 / -1;
+        }
+
         .materials-header {
           flex-direction: column;
           align-items: stretch;
@@ -1384,6 +1441,27 @@ export class JobView extends LiteElement {
           font-size: 13px;
         }
 
+        .materials-print-summary {
+          width: 260px;
+          margin: 18px 0 0 auto;
+          border-top: 1px solid #777;
+        }
+
+        .materials-print-summary-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 20px;
+          padding: 5px 2px;
+          font-size: 10px;
+        }
+
+        .materials-print-summary-row.total {
+          margin-top: 5px;
+          padding-top: 10px;
+          border-top: 2px solid #a85427;
+          font-size: 13px;
+        }
+
         .materials-print-footer {
           margin-top: 36px;
           padding-top: 9px;
@@ -1408,7 +1486,8 @@ export class JobView extends LiteElement {
       }
       this.selectedJobId = selected
       this.materials = this.normalizeMaterials(this.job?.materials)
-      this.materialBaseline=JSON.stringify(this.sanitizedMaterials)
+      this.materialDiscountPercent = this.clampMaterialDiscount(this.job?.materialDiscountPercent)
+      this.materialBaseline=this.materialState
       this.openMaterials = false
       const tab=params.get('tab')
       if(tab==='materials')this.openMaterials=true
@@ -1734,9 +1813,39 @@ export class JobView extends LiteElement {
     }, 0)
   }
 
+  clampMaterialDiscount(value: unknown): number {
+    const discount = Number(value)
+    if (!Number.isFinite(discount)) return 0
+    return Math.min(100, Math.max(0, discount))
+  }
+
+  get normalizedMaterialDiscountPercent(): number {
+    return Math.round(this.clampMaterialDiscount(this.materialDiscountPercent) * 10_000) / 10_000
+  }
+
+  get discountedMaterialsTotal(): number {
+    return this.materialsTotal * (1 - this.normalizedMaterialDiscountPercent / 100)
+  }
+
+  updateMaterialDiscountPercent(value: number) {
+    this.materialDiscountPercent = this.clampMaterialDiscount(value)
+  }
+
+  updateDiscountedMaterialsTotal(value: number) {
+    if (this.materialsTotal <= 0) {
+      this.materialDiscountPercent = 0
+      return
+    }
+    const discountedTotal = Math.min(this.materialsTotal, Math.max(0, Number.isFinite(value) ? value : 0))
+    this.materialDiscountPercent = ((this.materialsTotal - discountedTotal) / this.materialsTotal) * 100
+  }
+
   get materialsSummary(): string {
     const count = this.sanitizedMaterials.length
-    return `${count} ${count === 1 ? 'regel' : 'regels'} · ${currencyFormatter.format(this.materialsTotal)}`
+    const total = this.normalizedMaterialDiscountPercent > 0
+      ? `${currencyFormatter.format(this.materialsTotal)} → ${currencyFormatter.format(this.discountedMaterialsTotal)}`
+      : currencyFormatter.format(this.materialsTotal)
+    return `${count} ${count === 1 ? 'regel' : 'regels'} · ${total}`
   }
 
   getMaterialSuggestion(name: string): MaterialLine | undefined {
@@ -1822,9 +1931,12 @@ export class JobView extends LiteElement {
     if (!this.selectedJobId) return showToast('De job kon niet bepaald worden.')
 
     try {
-      const updated = await api.updateJob(this.selectedJobId, { materials: this.sanitizedMaterials })
+      const updated = await api.updateJob(this.selectedJobId, {
+        materials: this.sanitizedMaterials,
+        materialDiscountPercent: this.normalizedMaterialDiscountPercent
+      })
       this.job = updated
-      this.materialBaseline=JSON.stringify(this.sanitizedMaterials)
+      this.materialBaseline=this.materialState
       setUnsavedChanges('job',false)
       if (closePicker) this.closeMaterialPickerPanel()
       this.requestRender()
@@ -2195,9 +2307,21 @@ export class JobView extends LiteElement {
           </tbody>
         </table>
 
-        <div class="materials-print-total">
-          <span>Totaal</span>
-          <strong>${currencyFormatter.format(this.materialsTotal)}</strong>
+        <div class="materials-print-summary">
+          <div class="materials-print-summary-row">
+            <span>Subtotaal</span>
+            <strong>${currencyFormatter.format(this.materialsTotal)}</strong>
+          </div>
+          ${this.normalizedMaterialDiscountPercent > 0
+            ? html`<div class="materials-print-summary-row">
+                <span>Korting (${this.normalizedMaterialDiscountPercent.toLocaleString('nl-BE', { maximumFractionDigits: 2 })}%)</span>
+                <strong>− ${currencyFormatter.format(this.materialsTotal - this.discountedMaterialsTotal)}</strong>
+              </div>`
+            : null}
+          <div class="materials-print-summary-row total">
+            <span>Totaal na korting</span>
+            <strong>${currencyFormatter.format(this.discountedMaterialsTotal)}</strong>
+          </div>
         </div>
         <footer class="materials-print-footer">${materials.length} materiaalregels · ${this.job?.name || 'Job'}</footer>
       </article>
@@ -2531,6 +2655,36 @@ export class JobView extends LiteElement {
                   </div>
                 `
               )}
+
+              <div class="materials-pricing" aria-label="Materiaalkorting">
+                <div class="materials-price-field materials-subtotal">
+                  <span>Subtotaal materialen</span>
+                  <strong>${currencyFormatter.format(this.materialsTotal)}</strong>
+                </div>
+                <label class="materials-price-field">
+                  <span>Korting (%)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    .value=${String(Math.round(this.normalizedMaterialDiscountPercent * 100) / 100)}
+                    @change=${(event: Event) =>
+                      this.updateMaterialDiscountPercent(Number((event.target as HTMLInputElement).value || 0))} />
+                </label>
+                <label class="materials-price-field materials-discounted-total">
+                  <span>Totaal na korting</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max=${String(this.materialsTotal)}
+                    step="0.01"
+                    ?disabled=${this.materialsTotal <= 0}
+                    .value=${this.discountedMaterialsTotal.toFixed(2)}
+                    @change=${(event: Event) =>
+                      this.updateDiscountedMaterialsTotal(Number((event.target as HTMLInputElement).value || 0))} />
+                </label>
+              </div>
 
               <button
                 type="button"

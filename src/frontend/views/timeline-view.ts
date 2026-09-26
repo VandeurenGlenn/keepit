@@ -31,10 +31,12 @@ export class TimelineView extends LiteElement {
         display: flex;
         flex-direction: column;
         width: 100%;
+        min-width: 0;
         max-width: 860px;
         padding: 20px;
         box-sizing: border-box;
         gap: 20px;
+        overflow-x: clip;
       }
 
       h1,
@@ -73,6 +75,8 @@ export class TimelineView extends LiteElement {
         display: flex;
         flex-direction: column;
         gap: 10px;
+        min-width: 0;
+        max-width: 100%;
       }
 
       .day-title {
@@ -91,6 +95,9 @@ export class TimelineView extends LiteElement {
         border: 1px solid var(--app-border);
         background: var(--app-panel);
         box-shadow: var(--app-shadow-soft);
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
       }
 
       .marker {
@@ -122,6 +129,8 @@ export class TimelineView extends LiteElement {
         gap: 8px 14px;
         color: var(--md-sys-color-on-surface-variant);
         font-size: 0.9rem;
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
 
       .source-badge {
@@ -195,6 +204,9 @@ export class TimelineView extends LiteElement {
         color: var(--md-sys-color-error);
         font-size: 0.78rem;
         font-weight: 600;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow-wrap: anywhere;
       }
 
       .hours-warning {
@@ -209,6 +221,9 @@ export class TimelineView extends LiteElement {
         color: color-mix(in srgb, #f0a13a 82%, white);
         font-size: 0.78rem;
         font-weight: 600;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow-wrap: anywhere;
       }
 
       .warning-icon {

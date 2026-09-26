@@ -58,10 +58,19 @@ router.patch('/:uuid', async (ctx) => {
   }
 
   const allowed = hasRole(ctx.state.userid, 'admin')
-    ? ['name', 'description', 'place', 'images', 'materials', 'notes', 'status', 'archivedAt']
-    : ['materials', 'notes', 'images']
+    ? ['name', 'description', 'place', 'images', 'materials', 'materialDiscountPercent', 'notes', 'status', 'archivedAt']
+    : ['materials', 'materialDiscountPercent', 'notes', 'images']
   const updates = Object.fromEntries(Object.entries(payload).filter(([key]) => allowed.includes(key)))
   if (!Object.keys(updates).length) { ctx.status = 403; ctx.body = { error: 'Geen toegelaten wijzigingen' }; return }
+  if ('materialDiscountPercent' in updates) {
+    const discount = Number(updates.materialDiscountPercent)
+    if (!Number.isFinite(discount) || discount < 0 || discount > 100) {
+      ctx.status = 400
+      ctx.body = { error: 'De materiaalkorting moet tussen 0 en 100 procent liggen.' }
+      return
+    }
+    updates.materialDiscountPercent = discount
+  }
   jobs[uuid] = { ...jobs[uuid], ...updates, updatedAt: new Date().toISOString() }
 
   try {
