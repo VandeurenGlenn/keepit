@@ -125,6 +125,29 @@ for (const [userId, userHours] of Object.entries(hours)) {
 }
 if (workSessionMetadataMigrated) await Promise.all([hoursStore.put(hours), usersStore.put(users)])
 
+// `invited` describes a pending invitation in the team UI. Older registrations
+// kept this flag after activation, making fully registered employees look pending.
+let registrationStatusMigrated = false
+for (const user of Object.values(users)) {
+  if (user.invited !== true) continue
+  user.invited = false
+  registrationStatusMigrated = true
+}
+if (registrationStatusMigrated) await usersStore.put(users)
+
+const registeredEmails = new Set(
+  Object.values(users)
+    .map((user) => user.email?.trim().toLowerCase())
+    .filter((email): email is string => Boolean(email))
+)
+let staleInvitesRemoved = false
+for (const [inviteId, invite] of Object.entries(invites)) {
+  if (!registeredEmails.has(invite.email?.trim().toLowerCase())) continue
+  delete invites[inviteId]
+  staleInvitesRemoved = true
+}
+if (staleInvitesRemoved) await invitesStore.put(invites)
+
 const legacySupplierPattern = /^(facq|tecmine)(\s|$)/i
 let relationshipsMigrated = false
 for (const company of Object.values(companies)) {

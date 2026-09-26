@@ -52,7 +52,7 @@ router.post('/', async (ctx) => {
     createdAt: now,
     updatedAt: now,
     roles: invite?.roles?.length ? [...invite.roles] : undefined,
-    invited: Boolean(invite)
+    invited: false
   }
 
   const configuredOwnerEmail = getConfiguredOwnerEmail()

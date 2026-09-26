@@ -10,6 +10,12 @@ export class UsersView extends LiteElement {
   @property({ type: Object, provides: true }) accessor error: { label: string; href: string; message: string }
 
   invitedUsersLoaded = false
+  teamChangeTimer?: ReturnType<typeof setTimeout>
+  handleTeamChanged = () => {
+    if (!this.canManageRoles()) return
+    if (this.teamChangeTimer) clearTimeout(this.teamChangeTimer)
+    this.teamChangeTimer = setTimeout(() => void this.loadUsersIncludingInvited(), 80)
+  }
 
   static styles = [
     css`
@@ -244,6 +250,17 @@ export class UsersView extends LiteElement {
     return Object.entries(this.users || {})
   }
 
+  connectedCallback() {
+    super.connectedCallback()
+    window.addEventListener('keepit-team-changed', this.handleTeamChanged)
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener('keepit-team-changed', this.handleTeamChanged)
+    if (this.teamChangeTimer) clearTimeout(this.teamChangeTimer)
+    super.disconnectedCallback()
+  }
+
   renderPanelHeader(title: string, description: string, kicker: string, meta: unknown = '') {
     return html`
       <div class="workspace-head">
@@ -436,6 +453,7 @@ export class UsersView extends LiteElement {
     const workAddress = user.email?.trim() || ''
     const formattedAddress = user.place?.formattedAddress?.trim() || ''
     const avatarInitial = displayName.charAt(0).toUpperCase()
+    const isPendingInvitation = user.invited === true && !user.googleEmail
 
     return html`
       <article class="user-card">
@@ -466,7 +484,7 @@ export class UsersView extends LiteElement {
         </div>
 
         <div class="role-list">${this.renderRoleBadges(roles)}</div>
-        ${user.invited ? html`<span class="muted">Uitgenodigd - wacht op registratie</span>` : ''}
+        ${isPendingInvitation ? html`<span class="muted">Uitgenodigd - wacht op registratie</span>` : ''}
 
         <div class="user-actions">
           <button

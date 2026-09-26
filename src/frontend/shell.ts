@@ -502,19 +502,23 @@ export class AppShell extends LiteElement {
     globalThis.client = client
     client.addEventListener('open', () => {
       pubsub.subscribe(`users.changed`, (value) => {
-        if (Array.isArray(value) || !this.user?.id) return
-        const changedUser = value?.[this.user.id]
-        if (!changedUser) return
-        const user = { ...this.user, ...changedUser }
-        this.user = user
-        pubsub.publishVerbose(`user`, user)
+        if (Array.isArray(value) || !value) return
+        this.users = value
+        if (this.user?.id && value[this.user.id]) {
+          const user = { ...this.user, ...value[this.user.id] }
+          this.user = user
+          pubsub.publishVerbose(`user`, user)
+        }
+        window.dispatchEvent(new Event('keepit-team-changed'))
       })
+      pubsub.subscribe(`invites.changed`, () => window.dispatchEvent(new Event('keepit-team-changed')))
       if (!this.notificationListenerBound) {
         pubsub.subscribe(`notifications.${this.user.id}`, (notification) => this.handleAppNotification(notification))
         this.notificationListenerBound = true
       }
       setTimeout(() => {
         client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: 'users.changed' } }))
+        client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: 'invites.changed' } }))
         client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: `notifications.${this.user.id}` } }))
       }, 50)
     })
