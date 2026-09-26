@@ -10,9 +10,16 @@ import '../elements/view/header.js'
 import '@material/web/textfield/outlined-text-field.js'
 import '@material/web/fab/fab.js'
 import '../flows/data-input.js'
+import type { DataInput } from '../flows/data-input.js'
 
 export class RegisterView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor user: User
+
+  @property({ type: Boolean }) accessor submitting = false
+
+  @property({ type: String }) accessor registrationError = ''
+
+  @property({ type: String }) accessor registrationMessage = ''
 
   static styles = [
     css`
@@ -82,6 +89,31 @@ export class RegisterView extends LiteElement {
         cursor: pointer;
       }
 
+      .primary:disabled {
+        cursor: wait;
+        opacity: 0.65;
+      }
+
+      .form-message {
+        margin: 0;
+        padding: 12px 14px;
+        border-radius: var(--app-radius-control);
+        border: 1px solid color-mix(in srgb, var(--app-border) 76%, transparent 24%);
+        font-weight: 600;
+        line-height: 1.45;
+      }
+
+      .form-message.error {
+        color: var(--md-sys-color-error);
+        background: color-mix(in srgb, var(--md-sys-color-error) 10%, var(--app-panel) 90%);
+        border-color: color-mix(in srgb, var(--md-sys-color-error) 42%, var(--app-border) 58%);
+      }
+
+      .form-message.success {
+        color: var(--app-success, #35a76f);
+        background: color-mix(in srgb, var(--app-success, #35a76f) 10%, var(--app-panel) 90%);
+      }
+
       @media (max-width: 720px) {
         :host {
           padding: 12px;
@@ -114,16 +146,43 @@ export class RegisterView extends LiteElement {
   }
 
   async _registerUser() {
+    if (this.submitting) return
+
+    this.registrationError = ''
+    this.registrationMessage = ''
+
+    const telephoneInput = this.shadowRoot?.querySelector('data-input[label="telephone"]') as DataInput | null
+    const placeInput = this.shadowRoot?.querySelector('data-input[label="place"]') as DataInput | null
+    const invite = this.getPendingInvite()
+    const phone = String(telephoneInput?.value || '').trim()
+    const place = placeInput?.place
+
+    if (!invite.inviteId) {
+      this.registrationError = 'De uitnodigingscode ontbreekt. Open de persoonlijke uitnodigingslink opnieuw.'
+      return
+    }
+
+    if (!phone) {
+      this.registrationError = 'Vul eerst je telefoonnummer in.'
+      return
+    }
+
+    if (!place?.id) {
+      this.registrationError = 'Kies je werkadres uit de voorgestelde locaties.'
+      return
+    }
+
+    this.submitting = true
     try {
-      const invite = this.getPendingInvite()
       const userData = {
         name: this.user.name,
-        inviteId: invite.inviteId || undefined,
+        inviteId: invite.inviteId,
         picture: this.user.picture,
-        phone: (this.shadowRoot?.querySelector('data-input[label="telephone"]') as any).value,
-        place: (this.shadowRoot?.querySelector('data-input[label="place"]') as any).value
+        phone,
+        place
       }
       await api.registerUser(userData)
+      this.registrationMessage = 'Je account is geactiveerd. Even geduld terwijl Keepit herlaadt…'
       try {
         sessionStorage.removeItem('keepit.pendingInviteId')
         sessionStorage.removeItem('keepit.pendingInviteEmail')
@@ -134,7 +193,10 @@ export class RegisterView extends LiteElement {
       location.reload()
     } catch (error) {
       console.error('Error registering user:', error)
-      showToast(error instanceof Error ? error.message : 'Registratie mislukt')
+      this.registrationError = error instanceof Error ? error.message : 'Registratie mislukt. Probeer opnieuw.'
+      showToast(this.registrationError)
+    } finally {
+      this.submitting = false
     }
   }
 
@@ -164,9 +226,16 @@ export class RegisterView extends LiteElement {
           type="place"
           label="place"></data-input>
 
+        ${this.registrationError
+          ? html`<p class="form-message error" role="alert">${this.registrationError}</p>`
+          : this.registrationMessage
+            ? html`<p class="form-message success" role="status">${this.registrationMessage}</p>`
+            : ''}
+
         <button
           class="primary"
-          @click=${() => this._registerUser()}>Account activeren</button>
+          ?disabled=${this.submitting}
+          @click=${() => this._registerUser()}>${this.submitting ? 'Account activeren…' : 'Account activeren'}</button>
       </section>
     `
   }

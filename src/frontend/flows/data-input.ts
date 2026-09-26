@@ -141,17 +141,23 @@ export class DataInput extends LiteElement {
   _change = (e: Event) => {
     const value = (e.target as HTMLInputElement).value
 
+    // Keep normal form values in sync immediately. Previously every value was
+    // delayed by the places debounce, so a quick submit could send stale data.
+    this.value = value
+    if (this.type === 'place') this.place = undefined
+    this.dispatchEvent(
+      new CustomEvent('data-input-changed', {
+        detail: { value: this.value },
+        bubbles: true,
+        composed: true
+      })
+    )
+
+    if (this.type !== 'place') return
+
     if (this.timeout) clearTimeout(this.timeout)
     this.timeout = setTimeout(async () => {
-      this.value = value
-      this.dispatchEvent(
-        new CustomEvent('data-input-changed', {
-          detail: { value: this.value },
-          bubbles: true,
-          composed: true
-        })
-      )
-      if (this.type === 'place') {
+      if (this.value.trim()) {
         // Add an initial request body.
         const { Place, AutocompleteSessionToken, AutocompleteSuggestion } = await google.maps.importLibrary('places')
         let request = {
@@ -198,6 +204,10 @@ export class DataInput extends LiteElement {
         // await place.fetchFields({
         //   fields: ['displayName', 'formattedAddress']
         // })
+      } else {
+        this.suggestions = []
+        this.selector.innerHTML = ''
+        this.dropdown.open = false
       }
     }, 300)
   }

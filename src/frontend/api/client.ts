@@ -65,8 +65,17 @@ class ApiClient {
     const response = await fetch(url, options)
 
     if (!response.ok) {
-      const error = await response.text().catch(() => response.statusText)
-      throw new Error(`API error ${response.status}: ${error}`)
+      const responseBody = await response.text().catch(() => '')
+      let message = response.statusText || 'De aanvraag is mislukt'
+      if (responseBody) {
+        try {
+          const parsed = JSON.parse(responseBody) as { message?: string; error?: string }
+          message = parsed.message || parsed.error || message
+        } catch {
+          message = responseBody
+        }
+      }
+      throw new Error(message)
     }
 
     const contentType = response.headers.get('content-type')

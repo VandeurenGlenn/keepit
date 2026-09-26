@@ -30,6 +30,20 @@ router.post('/', async (ctx) => {
     return
   }
 
+  const phone = String(body.phone || '').trim()
+  if (!phone) {
+    ctx.status = 400
+    ctx.body = { error: 'Phone required', message: 'Vul eerst je telefoonnummer in.' }
+    return
+  }
+
+  const place = body.place
+  if (!place || typeof place !== 'object' || !place.id || !place.formattedAddress) {
+    ctx.status = 400
+    ctx.body = { error: 'Valid place required', message: 'Kies je werkadres uit de voorgestelde locaties.' }
+    return
+  }
+
   const invitedEmail = invite?.email?.trim().toLowerCase()
   if (invitedEmail && Object.values(users).some((user) => user.email?.trim().toLowerCase() === invitedEmail)) {
     ctx.status = 409
@@ -47,8 +61,8 @@ router.post('/', async (ctx) => {
     email: invitedEmail || googleEmail,
     googleEmail,
     picture: body.picture || ctx.state.googleProfile.picture,
-    place: body.place,
-    phone: body.phone || ctx.state.googleProfile.phone || '',
+    place,
+    phone,
     createdAt: now,
     updatedAt: now,
     roles: invite?.roles?.length ? [...invite.roles] : undefined,
