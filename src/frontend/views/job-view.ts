@@ -58,6 +58,7 @@ const formatPrestationRange = (checkinValue?: number, checkoutValue?: number): s
 
 type HoursByUser = Record<string, Prestation[]>
 const STANDARD_WORKDAY_LIMIT_MS = 12 * 60 * 60 * 1000
+const currencyFormatter = new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' })
 
 type MaterialDraft = {
   name: string
@@ -291,15 +292,44 @@ export class JobView extends LiteElement {
 
       .materials-row {
         display: grid;
-        grid-template-columns: minmax(180px, 1fr) 100px 120px 120px auto;
-        gap: 8px;
-        align-items: center;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+          'product actions'
+          'fields fields';
+        gap: 11px 12px;
+        align-items: start;
+        padding: 13px;
+        border: 1px solid color-mix(in srgb, var(--app-border) 88%, transparent 12%);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--app-panel-strong) 96%, white 4%);
       }
 
       .material-input-wrap {
+        grid-area: product;
         display: flex;
         flex-direction: column;
         gap: 4px;
+        min-width: 0;
+      }
+
+      .material-fields {
+        grid-area: fields;
+        display: grid;
+        grid-template-columns: minmax(80px, 0.65fr) minmax(110px, 1fr) minmax(110px, 0.85fr);
+        gap: 8px;
+      }
+
+      .material-field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        min-width: 0;
+      }
+
+      .material-field-label {
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: 0.66rem;
+        font-weight: 700;
       }
 
       .materials-actions {
@@ -309,6 +339,7 @@ export class JobView extends LiteElement {
       }
 
       .material-row-actions {
+        grid-area: actions;
         display: flex;
         align-items: center;
         gap: 6px;
@@ -345,12 +376,11 @@ export class JobView extends LiteElement {
       }
 
       .material-meta {
-        min-height: 1em;
+        min-height: 1.1em;
         font-size: 0.75rem;
         color: var(--md-sys-color-on-surface-variant);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
       }
 
       .material-picker-backdrop {
@@ -1111,7 +1141,19 @@ export class JobView extends LiteElement {
         }
 
         .materials-row {
+          grid-template-columns: 1fr;
+          grid-template-areas:
+            'product'
+            'fields'
+            'actions';
+        }
+
+        .material-fields {
           grid-template-columns: 1fr 1fr;
+        }
+
+        .material-field:last-child {
+          grid-column: 1 / -1;
         }
 
         .materials-header {
@@ -1155,7 +1197,7 @@ export class JobView extends LiteElement {
         }
 
         .material-row-actions {
-          grid-column: 1 / -1;
+          grid-area: actions;
           display: grid;
           grid-template-columns: 44px 1fr;
         }
@@ -1556,7 +1598,7 @@ export class JobView extends LiteElement {
 
   get materialsSummary(): string {
     const count = this.sanitizedMaterials.length
-    return `${count} ${count === 1 ? 'regel' : 'regels'} · € ${this.materialsTotal.toFixed(2)}`
+    return `${count} ${count === 1 ? 'regel' : 'regels'} · ${currencyFormatter.format(this.materialsTotal)}`
   }
 
   getMaterialSuggestion(name: string): MaterialLine | undefined {
@@ -2199,38 +2241,6 @@ export class JobView extends LiteElement {
                           : ''}
                       </div>
                     </div>
-                    <input
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      placeholder="Aantal"
-                      .value=${String(material.quantity)}
-                      @input=${(event: Event) => {
-                        const input = event.target as HTMLInputElement
-                        this.updateMaterialField(index, 'quantity', Number(input.value || 0))
-                      }} />
-                    <input
-                      type="text"
-                      placeholder="Eenheid"
-                      .value=${material.unit}
-                      @input=${(event: Event) => {
-                        const input = event.target as HTMLInputElement
-                        this.updateMaterialField(index, 'unit', input.value)
-                      }} />
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="€/stuk"
-                      .value=${material.unitPrice === undefined ? '' : String(material.unitPrice)}
-                      @input=${(event: Event) => {
-                        const input = event.target as HTMLInputElement
-                        this.updateMaterialField(
-                          index,
-                          'unitPrice',
-                          input.value === '' ? undefined : Number(input.value)
-                        )
-                      }} />
                     <div class="material-row-actions">
                       <button
                         type="button"
@@ -2259,6 +2269,48 @@ export class JobView extends LiteElement {
                         @click=${() => this.removeMaterialRow(index)}>
                         Verwijder
                       </button>
+                    </div>
+                    <div class="material-fields">
+                      <label class="material-field">
+                        <span class="material-field-label">Aantal</span>
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          .value=${String(material.quantity)}
+                          @input=${(event: Event) => {
+                            const input = event.target as HTMLInputElement
+                            this.updateMaterialField(index, 'quantity', Number(input.value || 0))
+                          }} />
+                      </label>
+                      <label class="material-field">
+                        <span class="material-field-label">Eenheid</span>
+                        <input
+                          type="text"
+                          placeholder="Stuk(s)"
+                          .value=${material.unit}
+                          @input=${(event: Event) => {
+                            const input = event.target as HTMLInputElement
+                            this.updateMaterialField(index, 'unit', input.value)
+                          }} />
+                      </label>
+                      <label class="material-field">
+                        <span class="material-field-label">Prijs per eenheid</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="€ 0,00"
+                          .value=${material.unitPrice === undefined ? '' : String(material.unitPrice)}
+                          @input=${(event: Event) => {
+                            const input = event.target as HTMLInputElement
+                            this.updateMaterialField(
+                              index,
+                              'unitPrice',
+                              input.value === '' ? undefined : Number(input.value)
+                            )
+                          }} />
+                      </label>
                     </div>
                   </div>
                 `
