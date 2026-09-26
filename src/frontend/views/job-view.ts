@@ -175,6 +175,10 @@ export class JobView extends LiteElement {
         gap: 10px;
       }
 
+      .materials-print-document {
+        display: none;
+      }
+
       .materials-header {
         display: flex;
         justify-content: space-between;
@@ -1255,6 +1259,140 @@ export class JobView extends LiteElement {
           width: 100%;
         }
       }
+
+      @media print {
+        :host {
+          display: block;
+          width: auto;
+          max-width: none;
+          height: auto;
+          padding: 0;
+          color: #1d1d1d;
+          background: #fff;
+          font-family: Arial, sans-serif;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        :host > :not(.materials-print-document) {
+          display: none !important;
+        }
+
+        .materials-print-document {
+          display: block;
+        }
+
+        .materials-print-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 32px;
+          padding-bottom: 18px;
+          border-bottom: 3px solid #a85427;
+        }
+
+        .materials-print-kicker {
+          display: block;
+          margin-bottom: 5px;
+          color: #a85427;
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+        }
+
+        .materials-print-header h1,
+        .materials-print-header p {
+          margin: 0;
+        }
+
+        .materials-print-header h1 {
+          font-size: 24px;
+          line-height: 1.15;
+        }
+
+        .materials-print-header p {
+          margin-top: 5px;
+          color: #606060;
+          font-size: 11px;
+        }
+
+        .materials-print-date {
+          color: #555;
+          font-size: 10px;
+          text-align: right;
+          white-space: nowrap;
+        }
+
+        .materials-print-table {
+          width: 100%;
+          margin-top: 24px;
+          border-collapse: collapse;
+          font-size: 10px;
+        }
+
+        .materials-print-table th {
+          padding: 8px 7px;
+          border-bottom: 1px solid #777;
+          color: #555;
+          font-size: 8px;
+          letter-spacing: 0.08em;
+          text-align: left;
+          text-transform: uppercase;
+        }
+
+        .materials-print-table td {
+          padding: 10px 7px;
+          border-bottom: 1px solid #ddd;
+          vertical-align: top;
+        }
+
+        .materials-print-table tr {
+          break-inside: avoid;
+        }
+
+        .materials-print-table .number,
+        .materials-print-table th.number {
+          text-align: right;
+        }
+
+        .materials-print-check {
+          width: 12px;
+          height: 12px;
+          border: 1px solid #777;
+          border-radius: 2px;
+        }
+
+        .materials-print-description strong,
+        .materials-print-description span {
+          display: block;
+        }
+
+        .materials-print-description span {
+          margin-top: 3px;
+          color: #666;
+          font-size: 9px;
+        }
+
+        .materials-print-total {
+          display: flex;
+          justify-content: flex-end;
+          gap: 22px;
+          margin-top: 18px;
+          padding-top: 10px;
+          border-top: 2px solid #a85427;
+          font-size: 13px;
+        }
+
+        .materials-print-footer {
+          margin-top: 36px;
+          padding-top: 9px;
+          border-top: 1px solid #ddd;
+          color: #777;
+          font-size: 8px;
+          text-align: center;
+        }
+      }
     `
   ]
 
@@ -1996,6 +2134,76 @@ export class JobView extends LiteElement {
     `
   }
 
+  renderMaterialsPrintDocument() {
+    const materials = this.sanitizedMaterials
+    const address = this.job?.place?.formattedAddress || this.job?.description || 'Geen adres beschikbaar'
+    const printedAt = new Intl.DateTimeFormat('nl-BE', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(new Date())
+
+    return html`
+      <article class="materials-print-document" aria-hidden="true">
+        <header class="materials-print-header">
+          <div>
+            <span class="materials-print-kicker">Materiaallijst</span>
+            <h1>${this.job?.name || 'Job'}</h1>
+            <p>${address}</p>
+          </div>
+          <div class="materials-print-date">Afgedrukt op<br /><strong>${printedAt}</strong></div>
+        </header>
+
+        <table class="materials-print-table">
+          <thead>
+            <tr>
+              <th aria-label="Afvinken"></th>
+              <th>Materiaal</th>
+              <th class="number">Aantal</th>
+              <th>Eenheid</th>
+              <th class="number">Eenheidsprijs</th>
+              <th class="number">Totaal</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${materials.map((material) => {
+              const reference = [
+                material.articleNumber ? `ART: ${material.articleNumber}` : '',
+                material.productNumber ? `PROD: ${material.productNumber}` : ''
+              ]
+                .filter(Boolean)
+                .join(' · ')
+              const unitPrice = material.unitPrice
+              return html`
+                <tr>
+                  <td><div class="materials-print-check"></div></td>
+                  <td class="materials-print-description">
+                    <strong>${material.name}</strong>
+                    ${reference ? html`<span>${reference}</span>` : null}
+                  </td>
+                  <td class="number">${material.quantity}</td>
+                  <td>${material.unit || '—'}</td>
+                  <td class="number">${unitPrice === undefined ? '—' : currencyFormatter.format(unitPrice)}</td>
+                  <td class="number">
+                    ${unitPrice === undefined ? '—' : currencyFormatter.format(material.quantity * unitPrice)}
+                  </td>
+                </tr>
+              `
+            })}
+          </tbody>
+        </table>
+
+        <div class="materials-print-total">
+          <span>Totaal</span>
+          <strong>${currencyFormatter.format(this.materialsTotal)}</strong>
+        </div>
+        <footer class="materials-print-footer">${materials.length} materiaalregels · ${this.job?.name || 'Job'}</footer>
+      </article>
+    `
+  }
+
   render() {
     if (!this.job) return html`<loading-view></loading-view>`
     const job = this.job
@@ -2007,6 +2215,7 @@ export class JobView extends LiteElement {
       }, 0)
 
     return html`
+      ${this.renderMaterialsPrintDocument()}
       <header class="job-hero">
         <div class="job-identity">
           <div class="job-icon"><custom-icon icon="work"></custom-icon></div>
@@ -2158,6 +2367,13 @@ export class JobView extends LiteElement {
             <span class="materials-total-inline">${this.materialsSummary}</span>
           </div>
           <div class="materials-actions">
+            <button
+              type="button"
+              class="materials-toggle"
+              ?disabled=${this.sanitizedMaterials.length === 0}
+              @click=${() => globalThis.print()}>
+              Lijst afdrukken
+            </button>
             ${this.openMaterials || this.sanitizedMaterials.length
               ? html`<button
                   type="button"
