@@ -18,6 +18,7 @@ import {
   getHistory,
   isFavorite
 } from '../helpers/material-preferences.js'
+import { databasePath } from '../helpers/paths.js'
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -25,7 +26,7 @@ const upload = multer({
       cb(null, file.originalname)
     },
     destination: async (req, file, cb) => {
-      const dir = `./.database/invoices/${new Date().getFullYear()}/images`
+      const dir = databasePath('invoices', new Date().getFullYear().toString(), 'images')
       try {
         const dirent = await opendir(dir)
         await dirent.close()

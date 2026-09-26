@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'fs/promises'
 import { basename, resolve } from 'path'
+import { databaseRoot, databasePath } from './paths.js'
 
 export const BACKUP_FORMAT = 'keepit-backup'
 export const BACKUP_VERSION = 1
@@ -39,7 +40,6 @@ export interface BackupSummary {
   sizeBytes: number
 }
 
-const databaseRoot = resolve('.database')
 const backupRoot = process.env.KEEPIT_BACKUP_DIR ? resolve(process.env.KEEPIT_BACKUP_DIR) : resolve(databaseRoot, 'backups')
 const backupNamePattern = /^keepit-backup-[0-9TZ-]+-(automatic|manual|pre-restore)\.json$/
 const configuredRetention = Number(process.env.KEEPIT_BACKUP_RETENTION)
@@ -66,7 +66,7 @@ const atomicJsonWrite = async (file: string, value: unknown) => {
 
 const readDataset = async (name: BackupDataset): Promise<Record<string, unknown>> => {
   try {
-    const parsed = JSON.parse(await readFile(resolve(databaseRoot, `${name}.json`), 'utf8'))
+    const parsed = JSON.parse(await readFile(databasePath(`${name}.json`), 'utf8'))
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}

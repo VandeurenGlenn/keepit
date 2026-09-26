@@ -51,6 +51,8 @@ Je kan de secret expliciet zetten in server.config.json:
 }
 ```
 
+Keepit bewaart alle persistente gegevens standaard in `$HOME/keepit/.database`, onafhankelijk van de map waaruit Node of PM2 werd gestart. Stel `KEEPIT_DATA_DIR` in om een andere absolute opslaglocatie te gebruiken, bijvoorbeeld een gemount volume. Verwijzingen naar `.database` hieronder slaan op deze centrale datamap.
+
 Als er geen session.secret is opgegeven, maakt keepit automatisch een persistente secret aan in `.database/session-secret`.
 
 ## Desco Materials Sync
@@ -237,7 +239,7 @@ Keepit maakt automatisch een consistente JSON-back-up van de unieke bedrijfsgege
 
 Admins kunnen via **Organisatie → Back-ups** een snapshot maken, downloaden of een eerder gedownload bestand herstellen. Vóór ieder herstel maakt Keepit eerst een extra veiligheidskopie.
 
-Standaard staan snapshots in `.database/backups`. Gebruik in productie bij voorkeur een gemount extern volume of NAS:
+Standaard staan snapshots in `$HOME/keepit/.database/backups`. Gebruik in productie bij voorkeur een gemount extern volume of NAS:
 
 ```sh
 KEEPIT_BACKUP_DIR=/mnt/keepit-backups KEEPIT_BACKUP_RETENTION=60 npm start

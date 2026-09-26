@@ -1,6 +1,7 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
 import { api } from '../api/client.js'
+import { showToast } from '../helpers/toast.js'
 import {
   LocationVerification,
   Prestation,
@@ -18,6 +19,11 @@ export class TimelineView extends LiteElement {
   @property({ type: Array }) accessor entries: TimelineEntry[] = []
   @property({ type: Boolean }) accessor loading = true
   @property({ type: String }) accessor error = ''
+  @property({ type: String }) accessor editingId = ''
+  @property({ type: String }) accessor editStart = ''
+  @property({ type: String }) accessor editEnd = ''
+  @property({ type: String }) accessor editReason = ''
+  @property({ type: Boolean }) accessor savingEdit = false
 
   static styles = [
     css`
@@ -225,6 +231,103 @@ export class TimelineView extends LiteElement {
         white-space: nowrap;
       }
 
+      .entry-side {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+      }
+
+      .edit-button,
+      .correction-actions button {
+        min-height: 34px;
+        padding: 0 10px;
+        border: 1px solid var(--app-border);
+        border-radius: 9px;
+        background: var(--app-panel-strong);
+        color: var(--md-sys-color-on-surface);
+        font: inherit;
+        font-size: .72rem;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      .edit-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .edit-button custom-icon {
+        --custom-icon-color: var(--app-accent);
+        --custom-icon-size: 16px;
+      }
+
+      .correction-form {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 6px;
+        padding: 14px;
+        border: 1px solid color-mix(in srgb, var(--app-accent) 28%, var(--app-border));
+        border-radius: var(--app-radius-control);
+        background: color-mix(in srgb, var(--app-accent) 6%, var(--app-panel-strong));
+      }
+
+      .correction-form label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: .7rem;
+        font-weight: 650;
+      }
+
+      .correction-form h4 {
+        grid-column: 1 / -1;
+        margin: 0;
+        font-size: .82rem;
+      }
+
+      .correction-form input {
+        width: 100%;
+        height: 40px;
+        padding: 0 9px;
+        box-sizing: border-box;
+        border: 1px solid var(--app-border);
+        border-radius: 9px;
+        background: var(--app-panel);
+        color: var(--md-sys-color-on-surface);
+        font: inherit;
+      }
+
+      .correction-reason,
+      .correction-actions {
+        grid-column: 1 / -1;
+      }
+
+      .correction-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .correction-actions .save {
+        border-color: var(--app-accent-strong);
+        background: var(--app-accent);
+        color: var(--md-sys-color-on-primary);
+      }
+
+      .correction-actions button:disabled {
+        opacity: .55;
+        cursor: wait;
+      }
+
+      .correction-audit {
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: .68rem;
+      }
+
       .empty {
         padding: 34px;
         border: 1px dashed var(--app-border);
@@ -268,8 +371,23 @@ export class TimelineView extends LiteElement {
         }
 
         .duration {
-          grid-column: 2;
           width: fit-content;
+        }
+
+        .entry-side {
+          grid-column: 2;
+          align-items: flex-start;
+          flex-direction: row;
+          flex-wrap: wrap;
+        }
+
+        .correction-form {
+          grid-template-columns: 1fr;
+        }
+
+        .correction-reason,
+        .correction-actions {
+          grid-column: auto;
         }
       }
     `
@@ -299,6 +417,55 @@ export class TimelineView extends LiteElement {
   formatTime(timestamp?: number) {
     if (!timestamp) return 'Nu'
     return new Intl.DateTimeFormat('nl-BE', { hour: '2-digit', minute: '2-digit' }).format(timestamp)
+  }
+
+  toLocalDateTime(value?: number) {
+    if (!value || !Number.isFinite(value)) return ''
+    const date = new Date(value - new Date(value).getTimezoneOffset() * 60_000)
+    return date.toISOString().slice(0, 16)
+  }
+
+  startEditing(entry: TimelineEntry) {
+    this.editingId = entry.id
+    this.editStart = this.toLocalDateTime(Number(entry.checkin))
+    this.editEnd = this.toLocalDateTime(Number(entry.checkout))
+    this.editReason = ''
+    requestAnimationFrame(() => this.shadowRoot?.querySelector<HTMLInputElement>('.correction-form input')?.focus())
+  }
+
+  cancelEditing() {
+    this.editingId = ''
+    this.editStart = ''
+    this.editEnd = ''
+    this.editReason = ''
+  }
+
+  async saveCorrection(entry: TimelineEntry) {
+    const userId = this.user?.id
+    const jobId = entry.jobId
+    const checkin = new Date(this.editStart).getTime()
+    const checkout = this.editEnd ? new Date(this.editEnd).getTime() : undefined
+    if (!userId || !jobId || !entry.id) return showToast('Deze registratie kan niet aangepast worden.')
+    if (!Number.isFinite(checkin) || (checkout !== undefined && (!Number.isFinite(checkout) || checkout < checkin))) {
+      return showToast('Controleer de begin- en eindtijd.')
+    }
+    if (this.editReason.trim().length < 3) return showToast('Geef kort aan waarom je de uren aanpast.')
+    this.savingEdit = true
+    try {
+      const updated = await api.correctHours(jobId, userId, entry.id, {
+        checkin,
+        checkout,
+        reason: this.editReason.trim()
+      })
+      this.entries = this.entries.map((item) => item.id === entry.id ? { ...item, ...updated, id: entry.id } : item)
+      this.cancelEditing()
+      showToast('Uren aangepast. De wijziging is bewaard in het correctielog.')
+    } catch (error) {
+      console.error(error)
+      showToast(error instanceof Error ? error.message : 'Uren aanpassen is mislukt.')
+    } finally {
+      this.savingEdit = false
+    }
   }
 
   getDuration(entry: TimelineEntry) {
@@ -420,8 +587,14 @@ export class TimelineView extends LiteElement {
           ${this.renderOffSiteWarning('Check-in', entry.checkinLocationVerification)}
           ${this.renderOffSiteWarning('Check-out', entry.checkoutLocationVerification)}
           ${this.renderHoursWarning(entry)}
+          ${entry.corrections?.length
+            ? html`<span class="correction-audit">${entry.corrections.length} ${entry.corrections.length === 1 ? 'aanpassing' : 'aanpassingen'} · laatste reden: ${entry.corrections.at(-1)?.reason}</span>`
+            : ''}
+          ${this.editingId === entry.id
+            ? html`<section class="correction-form" aria-label="Uren aanpassen"><h4>Uren aanpassen</h4><label>Starttijd<input type="datetime-local" .value=${this.editStart} @input=${(event:Event)=>(this.editStart=(event.target as HTMLInputElement).value)} /></label><label>Eindtijd <span class="muted">(leeg indien bezig)</span><input type="datetime-local" .value=${this.editEnd} @input=${(event:Event)=>(this.editEnd=(event.target as HTMLInputElement).value)} /></label><label class="correction-reason">Reden<input maxlength="500" placeholder="Bijvoorbeeld: verkeerde starttijd gekozen" .value=${this.editReason} @input=${(event:Event)=>(this.editReason=(event.target as HTMLInputElement).value)} /></label><div class="correction-actions"><button @click=${()=>this.cancelEditing()}>Annuleren</button><button class="save" ?disabled=${this.savingEdit} @click=${()=>this.saveCorrection(entry)}>${this.savingEdit?'Opslaan…':'Aanpassing opslaan'}</button></div></section>`
+            : ''}
         </div>
-        <span class="duration">${this.formatDuration(entry)}</span>
+        <div class="entry-side"><span class="duration">${this.formatDuration(entry)}</span>${entry.jobId&&!entry.invoiceId&&!entry.invoicedAt&&this.editingId!==entry.id?html`<button class="edit-button" @click=${()=>this.startEditing(entry)}><custom-icon icon="edit"></custom-icon>Aanpassen</button>`:''}</div>
       </article>
     `
   }

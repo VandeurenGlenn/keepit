@@ -7,14 +7,15 @@ import sharp from 'sharp'
 import { readDescoCatalog } from './desco.js'
 import { readAlelekCatalog } from './alelek.js'
 import { repairProductImageUrl } from './image-url-repair.js'
+import { databasePath } from './paths.js'
 
 export type ProductImageVariant = 'card' | 'detail'
 export type ProductImageSource = 'all' | 'desco' | 'alelek'
 
 const PRODUCT_IMAGE_VARIANTS: ProductImageVariant[] = ['card', 'detail']
-const productImageRoot = resolve('.database/product-images')
-const productImageStatePath = resolve('.database/product-image-cache-state.json')
-const catalogAssetRoot = resolve('.database/catalog-assets')
+const productImageRoot = databasePath('product-images')
+const productImageStatePath = databasePath('product-image-cache-state.json')
+const catalogAssetRoot = databasePath('catalog-assets')
 const publicRoot = resolve('www')
 const productImageRequests = new Map<string, Promise<void>>()
 const productImageFailures = new Map<string, { expiresAt: number; error: Error }>()

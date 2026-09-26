@@ -1,9 +1,9 @@
 import { mkdir, readFile, stat, writeFile } from 'fs/promises'
-import { resolve } from 'path'
 import { MaterialLine } from '../../types/index.js'
 import { scrapeAlekCategories, type AlelekScraperProgress, type ScrapedProduct } from './alelek-scraper.js'
 import { clearSync, recordSync } from './sync-tracker.js'
 import { dedupeCatalogMaterials } from './catalog-dedupe.js'
+import { databasePath, databaseRoot } from './paths.js'
 
 type JsonObject = Record<string, unknown>
 
@@ -20,8 +20,8 @@ type AlelekCatalog = {
   items: MaterialLine[]
 }
 
-const alelekCatalogPath = resolve('.database', 'alelek-materials.json')
-const alelekManufacturerOverridesPath = resolve('.database', 'alelek-manufacturer-overrides.json')
+const alelekCatalogPath = databasePath('alelek-materials.json')
+const alelekManufacturerOverridesPath = databasePath('alelek-manufacturer-overrides.json')
 let alelekCatalogCache: { modifiedAt: number; catalog: AlelekCatalog } | undefined
 
 const normalizeString = (value: unknown): string => {
@@ -399,7 +399,7 @@ const applyManufacturerOverrides = async (items: MaterialLine[]): Promise<Materi
 }
 
 const writeAlelekCatalog = async (items: MaterialLine[]): Promise<AlelekCatalog> => {
-  await mkdir(resolve('.database'), { recursive: true })
+  await mkdir(databaseRoot, { recursive: true })
   const enrichedItems = await applyManufacturerOverrides(items)
 
   const catalog: AlelekCatalog = {

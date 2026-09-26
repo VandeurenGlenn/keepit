@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
-import { resolve } from 'path'
 import { MaterialLine } from '../../types/index.js'
+import { databasePath, databaseRoot } from './paths.js'
 
 export type StoredMaterial = {
   name: string
@@ -18,12 +18,12 @@ type MaterialPreferences = {
   history: StoredMaterial[]
 }
 
-const preferencesPath = resolve('.database', 'material-preferences.json')
+const preferencesPath = databasePath('material-preferences.json')
 const MAX_HISTORY = 20
 
 export const ensureStorageDir = async (): Promise<void> => {
   try {
-    await mkdir(resolve('.database'), { recursive: true })
+    await mkdir(databaseRoot, { recursive: true })
   } catch {
     // Directory already exists
   }

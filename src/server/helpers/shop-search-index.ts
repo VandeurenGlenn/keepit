@@ -1,8 +1,8 @@
 import { rm, rename } from 'fs/promises'
-import { resolve } from 'path'
 import { DatabaseSync } from 'node:sqlite'
 import type { MaterialLine } from '../../types/index.js'
 import { normalizeShopSearchText } from './shop-search.js'
+import { databasePath } from './paths.js'
 
 export type ShopSearchSource = 'desco' | 'alelek'
 
@@ -30,7 +30,7 @@ type SearchResult = {
   total: number
 }
 
-const indexPath = resolve('.database', 'shop-search.sqlite')
+const indexPath = databasePath('shop-search.sqlite')
 const temporaryIndexPath = `${indexPath}.tmp`
 let database: DatabaseSync | undefined
 let databaseSignature = ''

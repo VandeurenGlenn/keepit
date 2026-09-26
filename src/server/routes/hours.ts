@@ -121,9 +121,11 @@ router.get('/job/:id', async (ctx) => {
 
 router.patch('/job/:jobId/:userId/:prestationId', async (ctx) => {
   const actor = users[ctx.state.userid]
-  if (!actor?.roles?.includes('admin')) {
+  const isAdmin = Boolean(actor?.roles?.includes('admin'))
+  const isOwnRegistration = ctx.state.userid === ctx.params.userId
+  if (!isAdmin && !isOwnRegistration) {
     ctx.status = 403
-    ctx.body = { error: 'Alleen admins kunnen uren corrigeren.' }
+    ctx.body = { error: 'Je kunt alleen je eigen uren aanpassen.' }
     return
   }
   const { jobId, userId, prestationId } = ctx.params
@@ -156,7 +158,7 @@ router.patch('/job/:jobId/:userId/:prestationId', async (ctx) => {
   prestation.checkin = checkin
   prestation.checkout = checkout
   prestation.duration = checkout === undefined ? 0 : checkout - checkin
-  prestation.source = 'admin'
+  if (isAdmin) prestation.source = 'admin'
   prestation.corrections = [...(prestation.corrections || []), {
     id: crypto.randomUUID(), actorId: ctx.state.userid, correctedAt: new Date().toISOString(), reason,
     before, after: { checkin, checkout }

@@ -1,9 +1,9 @@
 import { mkdir, readFile, stat, writeFile } from 'fs/promises'
-import { resolve } from 'path'
 import { MaterialLine } from '../../types/index.js'
 import { recordSync } from './sync-tracker.js'
 import { mergeDescoMetadataItems, type DescoMaterialMetadata } from './desco-metadata.js'
 import * as XLSX from 'xlsx'
+import { databasePath, databaseRoot } from './paths.js'
 
 type JsonObject = Record<string, unknown>
 
@@ -20,9 +20,9 @@ type DescoMetadataCatalog = {
   items: DescoMaterialMetadata[]
 }
 
-const descoCatalogPath = resolve('.database', 'desco-materials.json')
-const descoMetadataPath = resolve('.database', 'desco-materials.metadata.json')
-const descoArticlesPath = resolve('.database', 'desco', 'articles.xlsx')
+const descoCatalogPath = databasePath('desco-materials.json')
+const descoMetadataPath = databasePath('desco-materials.metadata.json')
+const descoArticlesPath = databasePath('desco', 'articles.xlsx')
 let descoCatalogCache: { modifiedAt: number; catalog: DescoCatalog } | undefined
 
 const normalizeString = (value: unknown): string => {
@@ -158,7 +158,7 @@ const readDescoMetadataCatalog = async (): Promise<DescoMetadataCatalog> => {
 }
 
 const writeDescoMetadataCatalog = async (items: DescoMaterialMetadata[]): Promise<DescoMetadataCatalog> => {
-  await mkdir(resolve('.database'), { recursive: true })
+  await mkdir(databaseRoot, { recursive: true })
 
   const catalog: DescoMetadataCatalog = {
     source: 'desco-metadata',
@@ -641,7 +641,7 @@ const parseDescoMaterials = (raw: string, contentType: string, binary: Buffer): 
 }
 
 const writeDescoCatalog = async (items: MaterialLine[]): Promise<DescoCatalog> => {
-  await mkdir(resolve('.database'), { recursive: true })
+  await mkdir(databaseRoot, { recursive: true })
 
   const catalog: DescoCatalog = {
     source: 'desco',

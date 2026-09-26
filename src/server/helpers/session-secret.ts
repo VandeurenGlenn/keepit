@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
-import { resolve } from 'path'
+import { databasePath, databaseRoot } from './paths.js'
 
-const sessionSecretDirectory = resolve('.database')
-const sessionSecretPath = resolve(sessionSecretDirectory, 'session-secret')
+const sessionSecretDirectory = databaseRoot
+const sessionSecretPath = databasePath('session-secret')
 
 const readConfigSecret = async () => {
   try {

@@ -1,12 +1,12 @@
 import { readFile, writeFile, mkdir } from 'fs/promises'
-import { resolve } from 'path'
+import { databasePath, databaseRoot } from './paths.js'
 
 type SyncTimestamps = {
   desco?: number
   alelek?: number
 }
 
-const syncTrackerPath = resolve('.database', 'sync-timestamps.json')
+const syncTrackerPath = databasePath('sync-timestamps.json')
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 const readTimestamps = async (): Promise<SyncTimestamps> => {
@@ -19,7 +19,7 @@ const readTimestamps = async (): Promise<SyncTimestamps> => {
 }
 
 const writeTimestamps = async (timestamps: SyncTimestamps): Promise<void> => {
-  await mkdir(resolve('.database'), { recursive: true })
+  await mkdir(databaseRoot, { recursive: true })
   await writeFile(syncTrackerPath, JSON.stringify(timestamps, null, 2), 'utf8')
 }
 

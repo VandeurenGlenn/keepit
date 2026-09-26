@@ -7,8 +7,9 @@ import { basename, extname, resolve } from 'path'
 import { media, mediaStore } from '../database/database.js'
 import { MediaAsset } from '../../types/index.js'
 import { hasRole } from '../helpers/roles.js'
+import { databasePath } from '../helpers/paths.js'
 
-const mediaRoot = resolve('.database/media')
+const mediaRoot = databasePath('media')
 
 await mkdir(mediaRoot, { recursive: true })
 

@@ -1,5 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from 'fs/promises'
-import { resolve } from 'path'
+import { databasePath, databaseRoot } from './paths.js'
 
 export interface ScrapedProduct {
   name: string
@@ -98,7 +98,7 @@ type ApiSearchPage = {
 
 const API_ROOT = 'https://webshop.groepalelek.be/api'
 const SHOP_ROOT = 'https://webshop.groepalelek.be/nl/product'
-const STATE_PATH = resolve('.database', 'alelek-scraper-state.json')
+const STATE_PATH = databasePath('alelek-scraper-state.json')
 const PAGE_SIZE = 250
 const DEFAULT_MAX_PRODUCTS_PER_RUN = 25000
 const REQUEST_RETRY_LIMIT = 3
@@ -150,7 +150,7 @@ const readState = async (): Promise<ScraperState> => {
 }
 
 const writeState = async (state: ScraperState): Promise<void> => {
-  await mkdir(resolve('.database'), { recursive: true })
+  await mkdir(databaseRoot, { recursive: true })
   const temporaryPath = `${STATE_PATH}.tmp`
   await writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
   await rename(temporaryPath, STATE_PATH)

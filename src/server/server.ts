@@ -39,6 +39,7 @@ import { handleWebSocketConnection } from './helpers/websocket.js'
 import { readDescoCatalog } from './helpers/desco.js'
 import { readAlelekCatalog } from './helpers/alelek.js'
 import { warmShopSearchIndex } from './helpers/shop-search-index.js'
+import { databaseRoot } from './helpers/paths.js'
 
 const api = new Koa()
 // Resolve public files from the emitted server bundle, never from process.cwd().
@@ -161,6 +162,8 @@ const findAvailablePort = async (startPort: number, maxAttempts: number): Promis
 const startServer = async (): Promise<void> => {
   const preferredPort = resolveStartPort()
   const port = await findAvailablePort(preferredPort, MAX_PORT_ATTEMPTS)
+
+  console.log(`Keepit data directory: ${databaseRoot}`)
 
   try {
     await startAutomaticBackups()

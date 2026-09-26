@@ -17,12 +17,13 @@ import {
 } from '../../types/index.js'
 import { DataStore } from './store.js'
 import { opendir, mkdir } from 'fs/promises'
+import { databasePath } from '../helpers/paths.js'
 
 try {
-  const dirent = await opendir('./.database/invoices')
+  const dirent = await opendir(databasePath('invoices'))
   await dirent.close()
 } catch (error) {
-  await mkdir('./.database/invoices', { recursive: true })
+  await mkdir(databasePath('invoices'), { recursive: true })
 }
 
 export const jobsStore = new DataStore('jobs')

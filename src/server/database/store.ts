@@ -2,6 +2,7 @@ import pubsub from './../helpers/pubsub.js'
 import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
 import { dirname, parse } from 'path'
 import { scheduleAutomaticBackup } from '../helpers/backups.js'
+import { databasePath } from '../helpers/paths.js'
 
 export const write = async (file: string, data: any) => {
   await mkdir(dirname(file), { recursive: true })
@@ -63,13 +64,13 @@ export class DataStore {
     const { type, data, resolve, reject } = this.queue.shift()!
     try {
       if (type === 'update' || type === 'write') {
-        await write(`./.database/${this.file}.json`, data)
+        await write(databasePath(`${this.file}.json`), data)
         resolve()
         scheduleAutomaticBackup()
-        console.log(`Data written to .database/${this.file}.json`)
+        console.log(`Data written to ${databasePath(`${this.file}.json`)}`)
         pubsub.publish(`${parse(this.file).name}.changed`, data)
       } else if (type === 'read') {
-        const stored = await read(`./.database/${this.file}.json`)
+        const stored = await read(databasePath(`${this.file}.json`))
         if (!stored) {
           if (this.storageType === 'Array') {
             resolve([])
