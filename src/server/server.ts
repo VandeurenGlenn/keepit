@@ -1,7 +1,6 @@
 import pubsub from './helpers/pubsub.js'
 import Koa from 'koa'
 import http from 'http'
-import net from 'net'
 import { dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { WebSocketServer } from 'ws'
@@ -126,7 +125,6 @@ wss.on('error', (error: NodeJS.ErrnoException) => {
 })
 
 const DEFAULT_PORT = 5678
-const MAX_PORT_ATTEMPTS = 10
 
 const resolveStartPort = (): number => {
   const envPort = Number(process.env.PORT)
@@ -134,36 +132,28 @@ const resolveStartPort = (): number => {
   return DEFAULT_PORT
 }
 
-const isPortAvailable = async (port: number): Promise<boolean> => {
-  return new Promise((resolve) => {
-    const tester = net.createServer()
-
-    tester.once('error', () => {
-      resolve(false)
-    })
-
-    tester.once('listening', () => {
-      tester.close(() => resolve(true))
-    })
-
-    tester.listen(port)
-  })
-}
-
-const findAvailablePort = async (startPort: number, maxAttempts: number): Promise<number> => {
-  for (let offset = 0; offset < maxAttempts; offset += 1) {
-    const candidate = startPort + offset
-    if (await isPortAvailable(candidate)) return candidate
-  }
-
-  throw new Error(`No free port found between ${startPort} and ${startPort + maxAttempts - 1}`)
-}
-
 const startServer = async (): Promise<void> => {
-  const preferredPort = resolveStartPort()
-  const port = await findAvailablePort(preferredPort, MAX_PORT_ATTEMPTS)
+  const port = resolveStartPort()
 
   console.log(`Keepit data directory: ${databaseRoot}`)
+
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    const onError = (error: NodeJS.ErrnoException) => {
+      server.off('listening', onListening)
+      if (error.code === 'EADDRINUSE') {
+        rejectPromise(new Error(`Poort ${port} is al in gebruik. Stop de oude Keepit/PM2-instantie voordat je opnieuw start.`))
+        return
+      }
+      rejectPromise(error)
+    }
+    const onListening = () => {
+      server.off('error', onError)
+      resolvePromise()
+    }
+    server.once('error', onError)
+    server.once('listening', onListening)
+    server.listen(port)
+  })
 
   try {
     await startAutomaticBackups()
@@ -181,13 +171,7 @@ const startServer = async (): Promise<void> => {
     console.error('Shop search index warmup failed:', error instanceof Error ? error.message : String(error))
   }
 
-  if (port !== preferredPort) {
-    console.warn(`Port ${preferredPort} is in use, starting on ${port} instead.`)
-  }
-
-  server.listen(port, () => {
-    console.log(`Server (HTTP + WS) is running on http://localhost:${port}`)
-  })
+  console.log(`Server (HTTP + WS) is running on http://localhost:${port}`)
 }
 
 startServer().catch((error: unknown) => {

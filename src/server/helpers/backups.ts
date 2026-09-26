@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'fs/promises'
-import { basename, resolve } from 'path'
+import { basename, dirname, resolve } from 'path'
 import { databaseRoot, databasePath } from './paths.js'
 
 export const BACKUP_FORMAT = 'keepit-backup'
@@ -41,6 +41,9 @@ export interface BackupSummary {
 }
 
 const backupRoot = process.env.KEEPIT_BACKUP_DIR ? resolve(process.env.KEEPIT_BACKUP_DIR) : resolve(databaseRoot, 'backups')
+const configuredMirrorRoot = process.env.KEEPIT_BACKUP_MIRROR_DIR?.trim()
+const backupMirrorRoot = configuredMirrorRoot ? resolve(configuredMirrorRoot) : undefined
+export const backupMirrorEnabled = Boolean(backupMirrorRoot && backupMirrorRoot !== backupRoot)
 const backupNamePattern = /^keepit-backup-[0-9TZ-]+-(automatic|manual|pre-restore)\.json$/
 const configuredRetention = Number(process.env.KEEPIT_BACKUP_RETENTION)
 export const automaticRetention = Number.isInteger(configuredRetention) && configuredRetention > 0
@@ -53,7 +56,7 @@ let scheduledBackup: ReturnType<typeof setTimeout> | undefined
 const safeTimestamp = (date: Date) => date.toISOString().replaceAll(':', '-').replaceAll('.', '-')
 
 const atomicJsonWrite = async (file: string, value: unknown) => {
-  await mkdir(backupRoot, { recursive: true })
+  await mkdir(dirname(file), { recursive: true })
   const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`
   try {
     await writeFile(temporary, JSON.stringify(value, null, 2), 'utf8')
@@ -118,6 +121,20 @@ const rotate = async () => {
     removeOverflow('manual', manualRetention),
     removeOverflow('pre-restore', manualRetention)
   ])
+
+  if (backupMirrorEnabled && backupMirrorRoot) {
+    await mkdir(backupMirrorRoot, { recursive: true })
+    const names = (await readdir(backupMirrorRoot)).filter((name) => backupNamePattern.test(name)).sort().reverse()
+    const removeMirrorOverflow = async (reason: BackupReason, keep: number) => {
+      const overflow = names.filter((name) => name.endsWith(`-${reason}.json`)).slice(keep)
+      await Promise.all(overflow.map((name) => unlink(resolve(backupMirrorRoot, name)).catch(() => undefined)))
+    }
+    await Promise.all([
+      removeMirrorOverflow('automatic', automaticRetention),
+      removeMirrorOverflow('manual', manualRetention),
+      removeMirrorOverflow('pre-restore', manualRetention)
+    ])
+  }
 }
 
 export const resolveBackupFile = (id: string) => {
@@ -145,6 +162,7 @@ export const createBackup = async (reason: BackupReason = 'manual'): Promise<Bac
     }
     const id = `keepit-backup-${safeTimestamp(new Date(createdAt))}-${reason}.json`
     await atomicJsonWrite(resolve(backupRoot, id), backup)
+    if (backupMirrorEnabled && backupMirrorRoot) await atomicJsonWrite(resolve(backupMirrorRoot, id), backup)
     const result = await summaryFor(id)
     await rotate()
     return result

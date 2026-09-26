@@ -1,8 +1,9 @@
 import pubsub from './../helpers/pubsub.js'
-import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
+import { mkdir, rename, unlink, writeFile } from 'fs/promises'
 import { dirname, parse } from 'path'
 import { scheduleAutomaticBackup } from '../helpers/backups.js'
 import { databasePath } from '../helpers/paths.js'
+import { readJsonFile } from './json-file.js'
 
 export const write = async (file: string, data: any) => {
   await mkdir(dirname(file), { recursive: true })
@@ -16,16 +17,7 @@ export const write = async (file: string, data: any) => {
   }
 }
 
-export const read = async (file: string) => {
-  let data
-  try {
-    data = JSON.parse(await readFile(file, 'utf-8'))
-  } catch (error) {
-    data = {}
-  }
-
-  return data
-}
+export const read = readJsonFile
 
 export class DataStore {
   private busy = false
@@ -71,7 +63,7 @@ export class DataStore {
         pubsub.publish(`${parse(this.file).name}.changed`, data)
       } else if (type === 'read') {
         const stored = await read(databasePath(`${this.file}.json`))
-        if (!stored) {
+        if (stored === undefined) {
           if (this.storageType === 'Array') {
             resolve([])
           } else {

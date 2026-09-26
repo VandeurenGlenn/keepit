@@ -64,9 +64,7 @@ export const validateTicket = async (ticket, remoteAddress) => {
       return null
     }
     return result.payload as { userid: string; remoteAddress: string; exp: number }
-  } catch (error) {
-    console.log(error)
-
+  } catch {
     return null
   }
 }

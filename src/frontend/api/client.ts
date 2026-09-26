@@ -418,7 +418,7 @@ class ApiClient {
   }
 
   // Backups API (admin only)
-  async getBackups(): Promise<{ backups: BackupSummary[]; automaticRetention: number }> {
+  async getBackups(): Promise<{ backups: BackupSummary[]; automaticRetention: number; backupMirrorEnabled: boolean }> {
     return this.request('GET', '/backups')
   }
 

@@ -13,7 +13,7 @@ import './elements/global-search.js'
 import { api } from './api/client.js'
 import { TimelineTracker } from './helpers/timeline-tracker.js'
 import type { AppNotification } from '../types/index.js'
-import { flushOfflineActions, getPendingWorkState, initializeOfflineSync } from './helpers/offline-actions.js'
+import { flushOfflineActions, getPendingWorkState, initializeOfflineSync, setOfflineActionOwner } from './helpers/offline-actions.js'
 import type { ConfirmationOptions } from './helpers/confirmation.js'
 import { confirmAction } from './helpers/confirmation.js'
 import { clearUnsavedChanges, hasUnsavedChanges } from './helpers/unsaved-changes.js'
@@ -296,6 +296,7 @@ export class AppShell extends LiteElement {
     this.appNotification = undefined
     this.notificationListenerBound = false
     this.timelineTracker.stop()
+    setOfflineActionOwner()
     this.requestRender()
 
     if (globalThis.client) {
@@ -498,7 +499,6 @@ export class AppShell extends LiteElement {
     const client = new WebSocket(`${websocketProtocol}//${location.host}/ws`, [
       `ticket__${localStorage.getItem('ticket')}`
     ])
-    console.log(client)
     globalThis.client = client
     client.addEventListener('open', () => {
       pubsub.subscribe(`users.changed`, (value) => {
@@ -518,14 +518,15 @@ export class AppShell extends LiteElement {
       }
       setTimeout(() => {
         client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: 'users.changed' } }))
-        client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: 'invites.changed' } }))
+        if (this.user?.roles?.some((role) => role === 'admin' || role === 'roles')) {
+          client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: 'invites.changed' } }))
+        }
         client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: `notifications.${this.user.id}` } }))
       }, 50)
     })
 
     client.addEventListener('message', (event) => {
       const { type, params, message } = JSON.parse(event.data)
-      console.log('WebSocket message received:', type, params, message)
       if (type === 'error') {
         if (message === 'Ticket session expired') {
           localStorage.removeItem('ticket')
@@ -539,10 +540,10 @@ export class AppShell extends LiteElement {
     })
 
     client.addEventListener('close', () => {
-      console.log('WebSocket connection closed, reconnecting in 5 seconds...')
+      if (globalThis.client === client) globalThis.client = undefined
       if (clientTimeout) clearTimeout(clientTimeout)
       clientTimeout = setTimeout(() => {
-        this.initWSClient()
+        if (this.userSignedIn) this.initWSClient()
       }, 5000)
     })
   }
@@ -621,6 +622,7 @@ export class AppShell extends LiteElement {
 
       const userData = await api.getUser(user.id)
       const mergedUser = { ...user, ...userData }
+      setOfflineActionOwner(user.id)
       const pendingWork=getPendingWorkState()
       if(pendingWork.currentJob){mergedUser.currentJob=pendingWork.currentJob;mergedUser.currentPrestationId=pendingWork.currentPrestationId}
       mergedUser.picture = (await this.cacheProfilePicture(mergedUser.picture)) || mergedUser.picture
@@ -674,7 +676,6 @@ export class AppShell extends LiteElement {
       return
     }
     const data = await response.json()
-    console.log({ data })
     if (!this.subscribedDataTypes.has(type)) {
       pubsub.subscribe(`${type}.changed`, (value) => {
         this[type] = value
@@ -685,13 +686,13 @@ export class AppShell extends LiteElement {
   }
 
   onChange(propertyKey: string, value: any): void {
-    console.log(`Property ${propertyKey} changed to`, value)
+    void propertyKey
+    void value
   }
 
   renderSelectedView() {
     const hash = location.hash
     const path = (hash.split('!/')[1] || 'home').split('?')[0]
-    console.log(path)
 
     if (this.error) {
       return html`
@@ -790,8 +791,6 @@ export class AppShell extends LiteElement {
     }
 
     if (path === 'invoice') {
-      console.log(this.invoice)
-
       if (!this.invoice) {
         return html` <loading-view type="loading"></loading-view> `
       }

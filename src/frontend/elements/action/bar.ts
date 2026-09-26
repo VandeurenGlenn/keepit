@@ -80,8 +80,6 @@ export class ActionBar extends LiteElement {
     this.resizeTimeout = setTimeout(() => {
       const totalWidth = this.itemWidths.reduce((acc, { width }) => acc + width, 0)
       const availableWidth = rect.width - 32 // 16px padding on each side
-      console.log('availableWidth', availableWidth)
-      console.log('totalWidth', totalWidth)
 
       this.overflows = totalWidth > availableWidth
       const maxWidth = this.overflows ? availableWidth - 32 : availableWidth
@@ -113,7 +111,6 @@ export class ActionBar extends LiteElement {
       el: HTMLElement
       width: number
     }[]
-    console.log('itemWidths', this.itemWidths)
 
     const totalWidth = this.itemWidths.reduce((acc, { width }) => acc + width, 0)
     const availableWidth = rect.width - 32 // 16px padding on each side

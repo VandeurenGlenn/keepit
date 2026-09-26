@@ -1,7 +1,7 @@
 import { users, usersStore } from '../database/database.js'
 
 export const hasRole = (userid, role) => {
-  if (!userid || !users[userid].roles) return false
+  if (!userid || !users[userid]?.roles) return false
   return users[userid].roles.includes(role)
 }
 

@@ -1,5 +1,22 @@
 # keepit
 
+## Productieserver met PM2
+
+Gebruik één vaste Keepit-instantie. De meegeleverde PM2-config start altijd vanuit de repository, gebruikt poort `5678`
+en laat `npm start` de frontend en server opnieuw bouwen wanneer de Git-revisie veranderd is:
+
+```bash
+cd /root/keepit
+pm2 startOrReload deploy/ecosystem.config.cjs
+pm2 save
+```
+
+Keepit stopt bewust wanneer poort 5678 al bezet is. Daardoor kan een nieuwe versie niet ongemerkt op 5679 starten terwijl
+Nginx nog de oude instantie bedient. Controleer in dat geval eerst `pm2 list` en verwijder de oude dubbele processen.
+
+Een ontbrekend databasebestand wordt als een nieuwe lege gegevensset geïnitialiseerd. Een beschadigd of onleesbaar bestand
+stopt de server daarentegen met een duidelijke fout; Keepit mag zo'n fout nooit als een lege database presenteren.
+
 ## Nginx reverse proxy
 
 Een productieconfig voor `https://keepit.dimac.be` staat in
@@ -238,6 +255,16 @@ Bestellingen worden opgeslagen in `.database/shopOrders.json`.
 Keepit maakt automatisch een consistente JSON-back-up van de unieke bedrijfsgegevens: uren, jobs, planning, klanten en leveranciers, offertes, factuurgegevens, gebruikers, bestellingen, meldingen en tijdlijngegevens. Na wijzigingen wordt een snapshot met korte vertraging gemaakt en bij het opstarten minstens eenmaal per 24 uur. Standaard blijven de laatste 30 automatische en 10 handmatige back-ups bewaard.
 
 Admins kunnen via **Organisatie → Back-ups** een snapshot maken, downloaden of een eerder gedownload bestand herstellen. Vóór ieder herstel maakt Keepit eerst een extra veiligheidskopie.
+
+Voor bescherming tegen verlies van de volledige VPS of schijf stel je een map op een afzonderlijk gemount volume in. Elke
+back-up wordt dan atomisch naar beide locaties geschreven en met dezelfde retentie opgeruimd:
+
+```bash
+KEEPIT_BACKUP_MIRROR_DIR=/mnt/keepit-offsite pm2 startOrReload deploy/ecosystem.config.cjs --update-env
+```
+
+De back-uppagina toont expliciet of deze externe spiegel actief is. Een herstel schrijft eerst alle gevalideerde datasets;
+bij een schrijffout wordt de automatisch gemaakte veiligheidskopie teruggezet voordat de live data wordt vervangen.
 
 Standaard staan snapshots in `$HOME/keepit/.database/backups`. Gebruik in productie bij voorkeur een gemount extern volume of NAS:
 

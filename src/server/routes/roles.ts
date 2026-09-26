@@ -1,6 +1,6 @@
 import { Router } from '@koa/router'
 import { grantRole, revokeRole, hasRole } from '../helpers/roles.js'
-import { users } from '../database/database.js'
+import { invites, invitesStore, users } from '../database/database.js'
 
 const router = new Router({
   prefix: '/api/roles'
@@ -16,13 +16,35 @@ router.use(async (ctx, next) => {
 })
 
 router.post('/grant/:uuid/:role', async (ctx) => {
-  await grantRole(ctx.params.uuid, ctx.params.role)
+  const { uuid, role } = ctx.params
+  if (!['admin', 'roles', 'user'].includes(role) || role === 'owner') {
+    ctx.status = 400
+    ctx.body = { error: 'Invalid role', message: 'Deze rol kan niet via teambeheer worden toegekend' }
+    return
+  }
+  if (!users[uuid] && !invites[uuid]) {
+    ctx.status = 404
+    ctx.body = { error: 'User not found' }
+    return
+  }
+  if (invites[uuid]) {
+    invites[uuid].roles = Array.from(new Set([...(invites[uuid].roles || []), role]))
+    await invitesStore.put(invites)
+  } else {
+    await grantRole(uuid, role)
+  }
   ctx.status = 200
 })
 
 router.post('/revoke/:uuid/:role', async (ctx) => {
-  const targetUser = users[ctx.params.uuid]
+  const targetUser = users[ctx.params.uuid] || invites[ctx.params.uuid]
   const role = ctx.params.role
+
+  if (!['admin', 'roles', 'user'].includes(role) || role === 'owner') {
+    ctx.status = 400
+    ctx.body = { error: 'Invalid role', message: 'Deze rol kan niet via teambeheer worden verwijderd' }
+    return
+  }
 
   if (!targetUser) {
     ctx.status = 404
@@ -45,7 +67,12 @@ router.post('/revoke/:uuid/:role', async (ctx) => {
     }
   }
 
-  await revokeRole(ctx.params.uuid, ctx.params.role)
+  if (invites[ctx.params.uuid]) {
+    invites[ctx.params.uuid].roles = (invites[ctx.params.uuid].roles || []).filter((item) => item !== role)
+    await invitesStore.put(invites)
+  } else {
+    await revokeRole(ctx.params.uuid, role)
+  }
   ctx.status = 200
 })
 

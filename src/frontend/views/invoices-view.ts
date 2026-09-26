@@ -662,7 +662,6 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   }
 
   _addInvoice = async () => {
-    console.log('Adding a new invoice...')
     // make sure to set the takingPicture to true before setting the addingInvoice to true
     // to avoid flickering/seeing the final invoice step
     this.takingPicture = true

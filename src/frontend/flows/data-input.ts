@@ -178,8 +178,6 @@ export class DataInput extends LiteElement {
         let i = 0
         for (let suggestion of suggestions) {
           const placePrediction = suggestion.placePrediction
-          console.log(placePrediction)
-
           // Create a new list element.
           const listItem = document.createElement('li')
           const body = `
@@ -213,15 +211,10 @@ export class DataInput extends LiteElement {
   }
 
   select = async (event: CustomEvent) => {
-    console.log(event.detail)
     let place = this.suggestions[event.detail].placePrediction.toPlace() // Get first predicted place.
     const fields = await place.fetchFields({
       fields: ['id', 'displayName', 'formattedAddress', 'location']
     })
-    console.log(fields)
-
-    console.log(fields.place.displayName)
-
     const selectedPlace = fields.place
     this.place = {
       id: selectedPlace.id,

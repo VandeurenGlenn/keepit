@@ -1,6 +1,6 @@
 import { Router } from '@koa/router'
 import { createReadStream } from 'fs'
-import { automaticRetention, createBackup, listBackups, readBackup, resolveBackupFile, validateBackup } from '../helpers/backups.js'
+import { automaticRetention, backupMirrorEnabled, createBackup, listBackups, readBackup, resolveBackupFile, validateBackup } from '../helpers/backups.js'
 import { operationalData, operationalStores } from '../database/database.js'
 import { hasRole } from '../helpers/roles.js'
 
@@ -16,7 +16,7 @@ router.use(async (ctx, next) => {
 })
 
 router.get('/', async (ctx) => {
-  ctx.body = { backups: await listBackups(), automaticRetention }
+  ctx.body = { backups: await listBackups(), automaticRetention, backupMirrorEnabled }
 })
 
 router.post('/', async (ctx) => {
@@ -41,14 +41,27 @@ router.post('/restore', async (ctx) => {
     return
   }
 
-  await createBackup('pre-restore')
+  const safetySummary = await createBackup('pre-restore')
+  const safetyBackup = await readBackup(safetySummary.id)
+  try {
+    // Persist every validated dataset before replacing the live in-memory data.
+    // If any write fails, put the complete pre-restore snapshot back.
+    await Promise.all(
+      Object.entries(operationalStores).map(([name, store]) => store.put(backup.datasets[name]))
+    )
+  } catch (error) {
+    await Promise.all(
+      Object.entries(operationalStores).map(([name, store]) => store.put(safetyBackup.datasets[name]))
+    )
+    ctx.status = 500
+    ctx.body = { error: 'Herstellen is mislukt; de oorspronkelijke gegevens zijn teruggezet.' }
+    return
+  }
+
   for (const [name, target] of Object.entries(operationalData)) {
     for (const key of Object.keys(target)) delete target[key]
     for (const [key, value] of Object.entries(backup.datasets[name])) target[key] = value
   }
-  await Promise.all(
-    Object.entries(operationalStores).map(([name, store]) => store.put(operationalData[name]))
-  )
 
   ctx.body = { ok: true, restoredAt: new Date().toISOString(), sourceCreatedAt: backup.createdAt }
 })

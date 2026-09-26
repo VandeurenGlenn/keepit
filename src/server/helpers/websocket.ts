@@ -3,15 +3,12 @@ import { users } from '../database/database.js'
 import { isExpired, validateTicket } from './auth.js'
 
 export const handleWebSocketConnection = async (socket, req) => {
-  const remote = req.socket.remoteAddress || 'unknown'
-  console.log('WebSocket connection from', remote)
   if (!socket.protocol.startsWith('ticket__')) {
     socket.close()
     return
   }
 
   const valid = await validateTicket(socket.protocol.split('__')[1], req.socket.remoteAddress)
-  console.log(valid)
   if (!valid) {
     socket.send(JSON.stringify({ type: 'error', message: 'Ticket session expired' }))
     socket.close()
@@ -25,45 +22,48 @@ export const handleWebSocketConnection = async (socket, req) => {
   }
 
   if (valid) {
+    const subscriptions = new Map<string, () => void>()
     socket.on('message', (data) => {
-      console.log(`WebSocket message received`, data)
-      // simple echo behavior for now
-      const { type, params } = JSON.parse(typeof data === 'string' ? data : data.toString())
-      console.log(`WebSocket message received: ${type}`, params)
-
       try {
+        const { type, params } = JSON.parse(typeof data === 'string' ? data : data.toString())
         if (type === 'pubsub') {
           if (params && params.subscribe) {
             const channel = String(params.subscribe)
-            if (channel.startsWith('notifications.') && channel !== `notifications.${valid.userid}`) {
-              socket.send(JSON.stringify({ type: 'error', message: 'Forbidden notification channel' }))
+            const actor = users[valid.userid]
+            const canManageTeam = actor?.roles?.some((role) => role === 'admin' || role === 'roles')
+            const allowed = channel === 'users.changed'
+              || channel === `notifications.${valid.userid}`
+              || (channel === 'invites.changed' && canManageTeam)
+            if (!allowed) {
+              socket.send(JSON.stringify({ type: 'error', message: 'Forbidden subscription channel' }))
               return
             }
-            pubsub.subscribe(params.subscribe, (value) => {
-              console.log(`WebSocket subscription to ${params.subscribe}`)
+            if (subscriptions.has(channel)) return
+            const unsubscribe = pubsub.subscribe(channel, (value) => {
               if (socket.readyState !== 1) return
               socket.send(
                 JSON.stringify({
                   type: 'pubsub',
                   params: {
-                    value: params.subscribe === 'users.changed' ? users[valid.userid] : value,
-                    publish: params.subscribe
+                    value: channel === 'users.changed' ? { [valid.userid]: users[valid.userid] } : value,
+                    publish: channel
                   }
                 })
               )
             })
+            subscriptions.set(channel, unsubscribe)
           }
         }
       } catch (e) {
-        console.error('Failed to send WS message', e)
+        if (socket.readyState === 1) socket.send(JSON.stringify({ type: 'error', message: 'Invalid websocket message' }))
       }
     })
 
     socket.on('close', () => {
-      console.log('WebSocket closed for', remote)
+      for (const unsubscribe of subscriptions.values()) unsubscribe()
+      subscriptions.clear()
     })
   } else {
-    console.log('WebSocket connection not authenticated for', remote)
     socket.close()
   }
 }

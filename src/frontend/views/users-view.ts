@@ -8,6 +8,10 @@ export class UsersView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor users: Users
   @property({ type: Object, consumes: true }) accessor user: User
   @property({ type: Object, provides: true }) accessor error: { label: string; href: string; message: string }
+  @property({ type: Boolean }) accessor inviteOpen = false
+  @property({ type: Boolean }) accessor inviting = false
+  @property({ type: String }) accessor inviteEmail = ''
+  @property({ type: String }) accessor inviteError = ''
 
   invitedUsersLoaded = false
   teamChangeTimer?: ReturnType<typeof setTimeout>
@@ -206,6 +210,35 @@ export class UsersView extends LiteElement {
         color: var(--md-sys-color-on-surface);
       }
 
+      .dialog-layer {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        display: grid;
+        place-items: center;
+        padding: 18px;
+        background: rgb(0 0 0 / 56%);
+        backdrop-filter: blur(4px);
+      }
+
+      .invite-dialog {
+        width: min(100%, 460px);
+        padding: 20px;
+        border: 1px solid var(--workspace-border);
+        border-radius: var(--app-radius-panel);
+        background: var(--workspace-panel);
+        box-shadow: var(--app-shadow-strong);
+        box-sizing: border-box;
+      }
+
+      .invite-dialog h2,
+      .invite-dialog p { margin: 0; }
+      .invite-dialog p { margin-top: 6px; color: var(--md-sys-color-on-surface-variant); line-height: 1.5; }
+      .invite-dialog label { display: flex; flex-direction: column; gap: 7px; margin-top: 18px; font-size: .78rem; font-weight: 600; }
+      .invite-dialog input { width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--workspace-border); border-radius: var(--app-radius-control); background: var(--workspace-panel-strong); color: var(--md-sys-color-on-surface); font: inherit; box-sizing: border-box; }
+      .dialog-error { color: var(--md-sys-color-error) !important; font-weight: 600; }
+      .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
       @media (max-width: 720px) {
         :host {
           padding: 12px;
@@ -340,7 +373,6 @@ export class UsersView extends LiteElement {
 
     const roles = Array.from(new Set([...(this.users[uuid]?.roles || []), role]))
     this.setUserRoles(uuid, roles)
-    console.log(`Granting ${role} role to user with key: ${uuid}`)
   }
 
   revokeRole = async (uuid: string, role: string) => {
@@ -375,45 +407,58 @@ export class UsersView extends LiteElement {
     }
   }
 
-  _inviteUser = async () => {
-    const email = await prompt('Enter the email address of the user to invite:')
+  openInviteDialog() {
+    this.inviteEmail = ''
+    this.inviteError = ''
+    this.inviteOpen = true
+    requestAnimationFrame(() => this.shadowRoot?.querySelector<HTMLInputElement>('#invite-email')?.focus())
+  }
+
+  closeInviteDialog() {
+    if (this.inviting) return
+    this.inviteOpen = false
+  }
+
+  _inviteUser = async (event?: Event) => {
+    event?.preventDefault()
+    const email = this.inviteEmail.trim().toLowerCase()
     if (!email) return
-    const response = await fetch('/api/users', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: localStorage.getItem('token')
-      },
-      body: JSON.stringify({ email })
-    })
-    if (!response.ok) {
-      const { error, message } = await response.json()
-      this.error = {
-        label: 'Terug naar team',
-        href: '#!/users',
-        message: message || error || 'Gebruiker toevoegen mislukt'
+    this.inviting = true
+    this.inviteError = ''
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: localStorage.getItem('token')
+        },
+        body: JSON.stringify({ email })
+      })
+      if (!response.ok) {
+        const { error, message } = await response.json()
+        this.inviteError = message || error || 'Gebruiker toevoegen mislukt'
+        return
+      }
+      await response.json()
+      this.inviteOpen = false
+      showToast(`Uitnodiging verstuurd naar ${email}.`)
+      if (this.canManageRoles()) {
+        this.invitedUsersLoaded = true
+        await this.loadUsersIncludingInvited()
+        return
       }
       this.requestRender()
-      return
-    }
-    await response.json()
-    if (this.canManageRoles()) {
-      this.invitedUsersLoaded = true
-      await this.loadUsersIncludingInvited()
-      return
-    }
-    this.requestRender()
-  }
-
-  _handleFabKeyUp = (event) => {
-    if (event.key === 'Enter' || event.key === 'Space') {
-      event.preventDefault()
-      this._inviteUser()
+    } catch (error) {
+      this.inviteError = error instanceof Error ? error.message : 'Uitnodiging versturen mislukt.'
+    } finally {
+      this.inviting = false
     }
   }
 
-  _deleteUser = async (uuid: string) => {
-    const answer = await confirmAction({ title: 'Medewerker verwijderen?', message: 'De medewerker verliest toegang tot Keepit. Bestaande uren blijven bewaard.', confirmLabel: 'Medewerker verwijderen' })
+  _deleteUser = async (uuid: string, invitation = false) => {
+    const answer = await confirmAction(invitation
+      ? { title: 'Uitnodiging verwijderen?', message: 'De persoonlijke uitnodigingslink werkt daarna niet meer.', confirmLabel: 'Uitnodiging verwijderen' }
+      : { title: 'Medewerker verwijderen?', message: 'De medewerker verliest toegang tot Keepit. Bestaande uren blijven bewaard.', confirmLabel: 'Medewerker verwijderen' })
     if (!answer) return
     const response = await fetch(`/api/users/${uuid}`, {
       method: 'DELETE',
@@ -504,8 +549,8 @@ export class UsersView extends LiteElement {
           <button
             class="danger"
             ?disabled=${isOwner}
-            @click=${() => this._deleteUser(uuid)}>
-            Verwijder gebruiker
+            @click=${() => this._deleteUser(uuid, isPendingInvitation)}>
+            ${isPendingInvitation ? 'Uitnodiging verwijderen' : 'Verwijder gebruiker'}
           </button>
         </div>
       </article>
@@ -534,7 +579,7 @@ export class UsersView extends LiteElement {
         <div class="top-actions">
           <button
             class="primary"
-            @click=${() => this._inviteUser()}>
+            @click=${() => this.openInviteDialog()}>
             Nodig gebruiker uit
           </button>
           <span class="muted"
@@ -544,6 +589,7 @@ export class UsersView extends LiteElement {
       </section>
 
       <section class="users-grid">${this.userEntries.map(([key, entry]) => this.renderUserCard(key, entry))}</section>
+      ${this.inviteOpen ? html`<div class="dialog-layer" @click=${(event:Event)=>{if(event.target===event.currentTarget)this.closeInviteDialog()}}><form class="invite-dialog" role="dialog" aria-modal="true" aria-labelledby="invite-title" @submit=${(event:Event)=>this._inviteUser(event)} @keydown=${(event:KeyboardEvent)=>{if(event.key==='Escape')this.closeInviteDialog()}}><h2 id="invite-title">Medewerker uitnodigen</h2><p>De medewerker ontvangt een persoonlijke link om het account met Google te activeren.</p><label for="invite-email">E-mailadres<input id="invite-email" type="email" autocomplete="email" required placeholder="naam@bedrijf.be" .value=${this.inviteEmail} @input=${(event:Event)=>(this.inviteEmail=(event.target as HTMLInputElement).value)} /></label>${this.inviteError?html`<p class="dialog-error" role="alert">${this.inviteError}</p>`:''}<div class="dialog-actions"><button type="button" ?disabled=${this.inviting} @click=${()=>this.closeInviteDialog()}>Annuleren</button><button class="primary" type="submit" ?disabled=${this.inviting}>${this.inviting?'Versturen…':'Uitnodiging versturen'}</button></div></form></div>` : ''}
     `
   }
 }

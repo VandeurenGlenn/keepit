@@ -17,7 +17,10 @@ export default html` <custom-icon-set>
     <span name="upload_file">@symbol-upload_file</span>
     <span name="download">@symbol-download</span>
     <span name="notes">@symbol-notes</span>
-    <span name="restore">@symbol-restore</span>
+    <span name="restore">@symbol-restore_page</span>
+    <span name="login">@symbol-login</span>
+    <span name="logout">@symbol-logout</span>
+    <span name="cloud_upload">@symbol-cloud_upload</span>
 
     <span name="cameraswitch">@symbol-cameraswitch</span>
 

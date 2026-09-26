@@ -9,6 +9,7 @@ import {
   usersStore
 } from './../database/database.js'
 import { sendInviteMail } from '../helpers/mailer.js'
+import { hasRole } from '../helpers/roles.js'
 
 const router = new Router({
   prefix: '/api/users'
@@ -50,13 +51,13 @@ router.post('/', async (ctx) => {
   invites[uuid] = newUser
 
   try {
-    await sendInviteMail(email, uuid)
-    console.log(`Sent invite email to ${email} with UUID: ${uuid}`)
-
     await invitesStore.put(invites)
+    await sendInviteMail(email, uuid)
   } catch (err) {
+    delete invites[uuid]
+    await invitesStore.put(invites).catch(() => undefined)
     ctx.status = 500
-    ctx.body = { error: 'Failed to invite new user' }
+    ctx.body = { error: 'Failed to invite new user', message: 'De uitnodiging kon niet veilig worden opgeslagen en verzonden.' }
     return
   }
 
@@ -110,6 +111,12 @@ router.get('/:uuid', async (ctx) => {
     ctx.body = { error: 'UUID is required' }
     return
   }
+  const canManageTeam = hasRole(ctx.state.userid, 'admin') || hasRole(ctx.state.userid, 'roles')
+  if (uuid !== ctx.state.userid && !canManageTeam) {
+    ctx.status = 403
+    ctx.body = { error: 'Forbidden', message: 'Je kunt alleen je eigen profiel bekijken' }
+    return
+  }
   ctx.body = users[uuid] || {}
   ctx.status = 200
   ctx.set('Content-Type', 'application/json')
@@ -119,7 +126,14 @@ router.get('/', async (ctx) => {
   const includeInvited = ['1', 'true', 'yes'].includes(String(ctx.query.includeInvited || '').toLowerCase())
 
   if (!includeInvited) {
-    ctx.body = users
+    const canManageTeam = hasRole(ctx.state.userid, 'admin') || hasRole(ctx.state.userid, 'roles')
+    ctx.body = canManageTeam
+      ? users
+      : Object.fromEntries(Object.entries(users).map(([id, user]) => [id, {
+          name: user.name,
+          picture: user.picture,
+          roles: user.roles
+        }]))
     ctx.status = 200
     ctx.set('Content-Type', 'application/json')
     return
@@ -159,10 +173,28 @@ router.get('/', async (ctx) => {
 })
 
 router.delete('/:uuid', async (ctx) => {
+  if (!hasRole(ctx.state.userid, 'admin') && !hasRole(ctx.state.userid, 'roles')) {
+    ctx.status = 403
+    ctx.body = { error: 'Forbidden', message: 'Je hebt geen rechten om gebruikers te verwijderen' }
+    return
+  }
+
   const uuid = ctx.params.uuid
   if (!uuid) {
     ctx.status = 400
     ctx.body = { error: 'UUID is required', message: 'Please provide a user UUID to delete' }
+    return
+  }
+  if (invites[uuid]) {
+    delete invites[uuid]
+    try {
+      await invitesStore.put(invites)
+    } catch {
+      ctx.status = 500
+      ctx.body = { error: 'Failed to persist invitation deletion' }
+      return
+    }
+    ctx.status = 204
     return
   }
   if (!users[uuid]) {
@@ -178,6 +210,7 @@ router.delete('/:uuid', async (ctx) => {
   }
 
   if (users[uuid].roles?.includes('admin')) {
+    ctx.status = 400
     ctx.body = {
       error: 'Cannot delete admin user',
       message: 'Please assign at least one admin before deleting this user'
