@@ -114,6 +114,30 @@ main {
   position: absolute;
 }
 
+main > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:disabled,
+[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
+.global-search-trigger:focus-visible,
+.offline-status:focus-visible,
+.mobile-bottom-nav a:focus-visible,
+.mobile-bottom-nav button:focus-visible,
+.drawer-profile:focus-visible {
+  outline: 0;
+  box-shadow: var(--app-focus-ring);
+}
+
 .signed-out-shell {
   display: flex;
   align-items: center;
@@ -773,6 +797,17 @@ flex-container.wide-workspace {
   #google-signin-anchor {
     width: 100%;
     justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }
 

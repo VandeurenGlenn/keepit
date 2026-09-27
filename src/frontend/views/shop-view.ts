@@ -1607,7 +1607,7 @@ export class ShopView extends LiteElement {
           </div>
 
           ${this.cart.size === 0
-            ? html`<div class="empty-cart">Your cart is empty</div>`
+            ? html`<div class="empty-cart">Je winkelwagen is leeg.</div>`
             : html`
                 ${Array.from(this.cart.entries()).map(
                   ([productId, quantity]) =>
