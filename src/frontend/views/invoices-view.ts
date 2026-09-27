@@ -64,6 +64,8 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   @property({ type: Object }) accessor hourUsers: Record<string, User> = {}
   @property({ type: Object }) accessor openHourUsers: Record<string, boolean> = {}
   @property({ type: Boolean }) accessor openMaterials = false
+  @property({ type: Array }) accessor billableMaterials: MaterialLine[] = []
+  @property({ type: String }) accessor invoiceKind: 'standard' | 'interim' | 'final' = 'standard'
 
   @query('chip-field[label="jobs"]') accessor jobChips!: ChipField
   @query('chip-field[label="companies"]') accessor companyChips!: ChipField
@@ -306,6 +308,25 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         margin-top: 4px;
       }
 
+      .invoice-kind-field {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: .78rem;
+        font-weight: 700;
+      }
+
+      .invoice-kind-field select {
+        min-height: 44px;
+        padding: 0 12px;
+        border: 1px solid var(--app-border);
+        border-radius: var(--app-radius-control);
+        background: var(--app-panel-strong);
+        color: var(--md-sys-color-on-surface);
+        font: inherit;
+      }
+
       .materials-panel {
         display: flex;
         flex-direction: column;
@@ -519,12 +540,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   }
 
   loadJobMaterials() {
-    const selectedJobId = this.jobChips?.selected?.[0]
-    if (!selectedJobId) return
-
-    const selectedJob = this.jobs?.[selectedJobId] as Job | undefined
-    const materials = Array.isArray(selectedJob?.materials) ? selectedJob.materials : []
-
+    const materials = this.billableMaterials
     this.materials = materials.length
       ? materials.map((material) => ({
           name: material.name,
@@ -537,6 +553,27 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         }))
       : [{ name: '', quantity: 1, unit: '', unitPrice: undefined }]
     this.openMaterials = true
+  }
+
+  async selectInvoiceJob(jobId?: string) {
+    if (!jobId) {
+      this.billableMaterials = []
+      this.resetMaterials()
+      await this.loadBillableHours()
+      return
+    }
+    const linkedCustomer = (this.jobs?.[jobId] as Job | undefined)?.customerId
+    if (linkedCustomer && this.companyChips) {
+      this.companyChips.selected = [linkedCustomer]
+      this.companyChips.requestRender()
+      void this.loadMaterialSuggestions(linkedCustomer)
+    }
+    const [materials] = await Promise.all([
+      api.getBillableJobMaterials(jobId),
+      this.loadBillableHours(jobId)
+    ])
+    this.billableMaterials = materials
+    this.loadJobMaterials()
   }
 
   getMaterialSuggestion(name: string): MaterialLine | undefined {
@@ -783,7 +820,8 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         createdAt: date,
         updatedAt: date,
         notes: this.notes,
-        materials
+        materials,
+        kind: this.invoiceKind
       }
 
       const data = await api.createInvoice(invoice)
@@ -871,11 +909,11 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
             multi
             @selected=${() => {
               const selectedJob = this.jobChips?.selected?.[0]
-              void this.loadBillableHours(selectedJob)
+              void this.selectInvoiceJob(selectedJob)
             }}
             @selection-changed=${() => {
               const selectedJob = this.jobChips?.selected?.[0]
-              void this.loadBillableHours(selectedJob)
+              void this.selectInvoiceJob(selectedJob)
             }}
             @add-chip=${() => {
               this._createJob()
@@ -926,13 +964,12 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
 
             ${this.openMaterials
               ? html`
-                  ${this.jobChips?.selected?.[0] &&
-                  (this.jobs?.[this.jobChips.selected[0]] as Job | undefined)?.materials?.length
+                  ${this.jobChips?.selected?.[0] && this.billableMaterials.length
                     ? html`
                         <button
                           type="button"
                           @click=${() => this.loadJobMaterials()}>
-                          Jobmaterialen laden
+                          Resterende jobmaterialen laden
                         </button>
                       `
                     : null}
@@ -1079,6 +1116,14 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
                 `}
           </div>
 
+          <label class="invoice-kind-field">Factuurtype
+            <select .value=${this.invoiceKind} @change=${(event: Event) => (this.invoiceKind = (event.target as HTMLSelectElement).value as 'standard' | 'interim' | 'final')}>
+              <option value="standard">Gewone factuur</option>
+              <option value="interim">Tussenfactuur</option>
+              <option value="final">Eindfactuur</option>
+            </select>
+          </label>
+
           <md-outlined-text-field
             class="notes-field"
             label="Notes"
@@ -1094,7 +1139,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   }
 
   _deleteInvoice = async (key: string) => {
-    if (!(await confirmAction({ title: 'Factuur verwijderen?', message: 'Deze factuur verdwijnt uit Keepit. Deze actie kan niet ongedaan gemaakt worden.', confirmLabel: 'Factuur verwijderen' }))) return
+    if (!(await confirmAction({ title: 'Factuur verwijderen?', message: 'Deze factuur verdwijnt uit Keepit. De gekoppelde uren en materialen worden opnieuw factureerbaar.', confirmLabel: 'Factuur verwijderen' }))) return
 
     try {
       await api.deleteInvoice(key)
@@ -1134,7 +1179,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
           </section>
 
           <section class="list-panel">
-            ${invoiceEntries.length ? html`<div class="invoice-grid">${invoiceEntries.map(([key,invoice])=>html`<article class="invoice-card"><a class="invoice-link" href=${`#!/invoice?selected=${key}`}><span class="invoice-icon"><custom-icon icon="receipt"></custom-icon></span><span class="invoice-copy"><strong>${invoice?.name || 'Naamloze factuur'}</strong><span>${invoice?.description || new Date(invoice?.createdAt).toLocaleDateString('nl-BE')}</span></span></a><button class="invoice-delete" aria-label="Factuur verwijderen" @click=${()=>this._deleteInvoice(key)}><custom-icon icon="delete"></custom-icon></button></article>`)}</div>` : html`<div class="material-summary">Nog geen facturen toegevoegd.</div>`}
+            ${invoiceEntries.length ? html`<div class="invoice-grid">${invoiceEntries.map(([key,invoice])=>html`<article class="invoice-card"><a class="invoice-link" href=${`#!/invoice?selected=${key}`}><span class="invoice-icon"><custom-icon icon="receipt"></custom-icon></span><span class="invoice-copy"><strong>${invoice?.name || 'Naamloze factuur'}</strong><span>${invoice?.kind === 'interim' ? 'Tussenfactuur' : invoice?.kind === 'final' ? 'Eindfactuur' : 'Factuur'} · ${invoice?.description || new Date(invoice?.createdAt).toLocaleDateString('nl-BE')}</span></span></a><button class="invoice-delete" aria-label="Factuur verwijderen" @click=${()=>this._deleteInvoice(key)}><custom-icon icon="delete"></custom-icon></button></article>`)}</div>` : html`<div class="material-summary">Nog geen facturen toegevoegd.</div>`}
           </section>
         `
   }

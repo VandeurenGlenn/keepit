@@ -241,6 +241,11 @@ class ApiClient {
     return this.request('GET', `/invoices/materials?${params.toString()}`)
   }
 
+  async getBillableJobMaterials(jobId: string): Promise<MaterialLine[]> {
+    const response = await this.request<{ materials: MaterialLine[] }>('GET', `/invoices/billable/${encodeURIComponent(jobId)}`)
+    return response.materials
+  }
+
   async uploadInvoiceFile(formData: FormData): Promise<string[]> {
     const url = `${this.baseUrl}/invoices/upload`
     const token = this.getAuthToken()

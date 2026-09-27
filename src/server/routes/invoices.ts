@@ -1,8 +1,8 @@
 import { Router } from '@koa/router'
 import { opendir, mkdir } from 'fs/promises'
-import { invoices, invoicesStore, hours, hoursStore, companies } from '../database/database.js'
+import { invoices, invoicesStore, hours, hoursStore, companies, jobs } from '../database/database.js'
 import multer from '@koa/multer'
-import { InvoiceHourLine, MaterialLine } from '../../types/index.js'
+import { Invoice, InvoiceHourLine, MaterialLine } from '../../types/index.js'
 import { readDescoCatalog, syncDescoCatalogWithTracking } from '../helpers/desco.js'
 import {
   readAlelekCatalog,
@@ -19,6 +19,7 @@ import {
   isFavorite
 } from '../helpers/material-preferences.js'
 import { databasePath } from '../helpers/paths.js'
+import { collectRemainingMaterials, materialBillingKey } from '../helpers/billable-materials.js'
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -64,11 +65,26 @@ const normalizeMaterials = (value: unknown): MaterialLine[] => {
       name,
       quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
       unit: unit || undefined,
-      unitPrice: unitPrice !== undefined && Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : undefined
+      unitPrice: unitPrice !== undefined && Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : undefined,
+      kind: item?.kind === 'small-materials' ? 'small-materials' : 'material',
+      smallMaterialAmount: Number.isFinite(Number(item?.smallMaterialAmount)) ? Number(item.smallMaterialAmount) : undefined,
+      articleNumber: typeof item?.articleNumber === 'string' ? item.articleNumber.trim() || undefined : undefined,
+      productNumber: typeof item?.productNumber === 'string' ? item.productNumber.trim() || undefined : undefined,
+      packagingQuantity: Number.isFinite(Number(item?.packagingQuantity)) ? Number(item.packagingQuantity) : undefined,
+      description: typeof item?.description === 'string' ? item.description : undefined,
+      image: typeof item?.image === 'string' ? item.image : undefined,
+      technicalData: item?.technicalData && typeof item.technicalData === 'object' ? item.technicalData : undefined
     })
   }
 
   return normalized
+}
+
+const billableMaterialsForJob = (jobId: string): MaterialLine[] => {
+  const alreadyInvoiced = Object.values(invoices)
+    .filter((invoice) => invoice.job === jobId)
+    .flatMap((invoice) => invoice.materials || [])
+  return collectRemainingMaterials(jobs[jobId]?.materials || [], alreadyInvoiced)
 }
 
 const collectBillableHoursForJob = (jobId: string): InvoiceHourLine[] => {
@@ -126,6 +142,16 @@ router.get('/', async (ctx) => {
   ctx.body = invoices
   ctx.status = 200
   ctx.set('Content-Type', 'application/json')
+})
+
+router.get('/billable/:jobId', async (ctx) => {
+  const jobId = ctx.params.jobId
+  if (!jobs[jobId]) {
+    ctx.status = 404
+    ctx.body = { error: 'Job niet gevonden.' }
+    return
+  }
+  ctx.body = { materials: billableMaterialsForJob(jobId) }
 })
 
 router.get('/materials', async (ctx) => {
@@ -355,6 +381,7 @@ router.post('/', async (ctx) => {
     laborAmount?: number
     discountAmount?: number
     vatRate?: number
+    kind?: 'standard' | 'interim' | 'final'
   }
   const { name, description, invoiceImages, company, job, user, notes } = body
   const materials = normalizeMaterials(body.materials)
@@ -365,8 +392,27 @@ router.post('/', async (ctx) => {
     return
   }
   const hoursSnapshot = job ? collectBillableHoursForJob(job) : []
+  const remainingMaterials = billableMaterialsForJob(job)
+  const remainingByKey = new Map(remainingMaterials.map((material) => [materialBillingKey(material), material]))
+  for (const material of materials) {
+    const key = materialBillingKey(material)
+    const jobMaterial = (jobs[job]?.materials || []).find((candidate) => materialBillingKey(candidate) === key)
+    if (!jobMaterial) continue
+    const remaining = remainingByKey.get(key)
+    const requested = material.kind === 'small-materials'
+      ? Number(material.smallMaterialAmount ?? material.unitPrice) || 0
+      : Number(material.quantity) || 0
+    const available = material.kind === 'small-materials'
+      ? Number(remaining?.smallMaterialAmount ?? remaining?.unitPrice) || 0
+      : Number(remaining?.quantity) || 0
+    if (requested > available + 0.000_001) {
+      ctx.status = 409
+      ctx.body = { error: `${material.name} bevat meer dan de nog factureerbare hoeveelheid.` }
+      return
+    }
+  }
 
-  const invoice = {
+  const invoice: Invoice = {
     name,
     description,
     invoiceImages,
@@ -378,11 +424,12 @@ router.post('/', async (ctx) => {
     year,
     notes,
     materials,
-    hours: hoursSnapshot
-    ,quoteId: typeof body.quoteId === 'string' ? body.quoteId : undefined
-    ,laborAmount: Math.max(0, Number(body.laborAmount) || 0)
-    ,discountAmount: Math.max(0, Number(body.discountAmount) || 0)
-    ,vatRate: Math.min(100, Math.max(0, Number(body.vatRate) || 0))
+    hours: hoursSnapshot,
+    kind: body.kind === 'interim' || body.kind === 'final' ? body.kind : 'standard',
+    quoteId: typeof body.quoteId === 'string' ? body.quoteId : undefined,
+    laborAmount: Math.max(0, Number(body.laborAmount) || 0),
+    discountAmount: Math.max(0, Number(body.discountAmount) || 0),
+    vatRate: Math.min(100, Math.max(0, Number(body.vatRate) || 0))
   }
 
   const uuid = body.uuid || crypto.randomUUID()
@@ -414,8 +461,22 @@ router.delete('/:uuid', async (ctx) => {
     ctx.body = { error: 'UUID is required' }
     return
   }
+  const invoice = invoices[uuid]
+  if (!invoice) {
+    ctx.status = 404
+    ctx.body = { error: 'Factuur niet gevonden.' }
+    return
+  }
+  for (const line of invoice.hours || []) {
+    for (const prestationId of line.prestationIds || []) {
+      const prestation = hours[line.userId]?.[prestationId]
+      if (prestation?.invoiceId !== uuid) continue
+      delete prestation.invoiceId
+      delete prestation.invoicedAt
+    }
+  }
   delete invoices[uuid]
-  await invoicesStore.put(invoices)
+  await Promise.all([invoicesStore.put(invoices), hoursStore.put(hours)])
   ctx.status = 204
 })
 

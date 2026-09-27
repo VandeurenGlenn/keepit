@@ -219,6 +219,7 @@ export interface Invoice extends BaseInput {
   laborAmount?: number
   discountAmount?: number
   vatRate?: number
+  kind?: 'standard' | 'interim' | 'final'
 }
 
 export type QuoteStatus = 'draft' | 'sent' | 'approved' | 'rejected'

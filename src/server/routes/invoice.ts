@@ -26,7 +26,15 @@ const normalizeMaterials = (value: unknown): MaterialLine[] => {
       name,
       quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
       unit: unit || undefined,
-      unitPrice: unitPrice !== undefined && Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : undefined
+      unitPrice: unitPrice !== undefined && Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : undefined,
+      kind: item?.kind === 'small-materials' ? 'small-materials' : 'material',
+      smallMaterialAmount: Number.isFinite(Number(item?.smallMaterialAmount)) ? Number(item.smallMaterialAmount) : undefined,
+      articleNumber: typeof item?.articleNumber === 'string' ? item.articleNumber.trim() || undefined : undefined,
+      productNumber: typeof item?.productNumber === 'string' ? item.productNumber.trim() || undefined : undefined,
+      packagingQuantity: Number.isFinite(Number(item?.packagingQuantity)) ? Number(item.packagingQuantity) : undefined,
+      description: typeof item?.description === 'string' ? item.description : undefined,
+      image: typeof item?.image === 'string' ? item.image : undefined,
+      technicalData: item?.technicalData && typeof item.technicalData === 'object' ? item.technicalData : undefined
     })
   }
 
