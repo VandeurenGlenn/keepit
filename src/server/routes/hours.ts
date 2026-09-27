@@ -3,7 +3,7 @@ import { jobs, jobsStore, hours, hoursStore, users, usersStore } from './../data
 import { Prestation, WorkLocation } from '../../types/index.js'
 import { verifyJobLocation } from '../helpers/geo.js'
 import { findNearbyPlace, findPlaceLocation } from '../helpers/places.js'
-import { findActiveWorkSession, findOpenPrestationId } from '../helpers/work-sessions.js'
+import { findActiveWorkSession, findOpenPrestationId, hasOverlappingWorkSession } from '../helpers/work-sessions.js'
 
 const router = new Router({
   prefix: '/api/hours'
@@ -131,6 +131,78 @@ router.get('/job/:id', async (ctx) => {
   ctx.set('Content-Type', 'application/json')
   ctx.body = jobHours
   return
+})
+
+router.post('/job/:jobId/:userId', async (ctx) => {
+  const actor = users[ctx.state.userid]
+  if (!actor?.roles?.includes('admin')) {
+    ctx.status = 403
+    ctx.body = { error: 'Alleen admins kunnen uren voor een medewerker toevoegen.' }
+    return
+  }
+
+  const { jobId, userId } = ctx.params
+  if (!jobs[jobId]) {
+    ctx.status = 404
+    ctx.body = { error: 'Job niet gevonden.' }
+    return
+  }
+  if (!users[userId]) {
+    ctx.status = 404
+    ctx.body = { error: 'Medewerker niet gevonden.' }
+    return
+  }
+
+  const body = (ctx.request.body || {}) as { checkin?: number | string; checkout?: number | string; reason?: string }
+  const checkin = toTimestamp(body.checkin)
+  const checkout = toTimestamp(body.checkout)
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+  if (!Number.isFinite(checkin) || !Number.isFinite(checkout) || checkout <= checkin) {
+    ctx.status = 400
+    ctx.body = { error: 'Controleer de begin- en eindtijd.' }
+    return
+  }
+  if (reason.length < 3 || reason.length > 500) {
+    ctx.status = 400
+    ctx.body = { error: 'Geef een reden van minstens 3 en maximaal 500 tekens.' }
+    return
+  }
+
+  const overlaps = hasOverlappingWorkSession(hours[userId] || {}, checkin, checkout)
+  if (overlaps) {
+    ctx.status = 409
+    ctx.body = { error: 'Deze periode overlapt met een bestaande urenregistratie van de medewerker.' }
+    return
+  }
+
+  const now = Date.now()
+  const prestationId = crypto.randomUUID()
+  const prestation: Prestation = {
+    description: '',
+    checkin,
+    checkout,
+    serverCheckin: now,
+    serverCheckout: now,
+    duration: checkout - checkin,
+    source: 'admin',
+    jobId,
+    adminEntry: {
+      actorId: ctx.state.userid,
+      createdAt: new Date(now).toISOString(),
+      reason
+    }
+  }
+
+  hours[userId] = hours[userId] || {}
+  hours[userId][prestationId] = prestation
+  jobs[jobId].hours = jobs[jobId].hours || {}
+  jobs[jobId].hours![userId] = jobs[jobId].hours![userId] || []
+  jobs[jobId].hours![userId].push(prestationId)
+  jobs[jobId].updatedAt = new Date(now).toISOString()
+
+  await Promise.all([hoursStore.put(hours), jobsStore.put(jobs)])
+  ctx.status = 201
+  ctx.body = { id: prestationId, ...prestation }
 })
 
 router.patch('/job/:jobId/:userId/:prestationId', async (ctx) => {

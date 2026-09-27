@@ -70,6 +70,11 @@ export type Prestation = {
   clientRequestId?: string
   checkoutClientRequestId?: string
   corrections?: WorkTimeCorrection[]
+  adminEntry?: {
+    actorId: userId
+    createdAt: string
+    reason: string
+  }
 }
 
 export type WorkTimeCorrection = {

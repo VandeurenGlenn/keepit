@@ -233,6 +233,7 @@ export class AppShell extends LiteElement {
     }
     if (path === 'job') {
       promises.push(this._load('job', params.selected))
+      if (this.user?.roles?.includes('admin') && !this.users) promises.push(this._load('users'))
     }
     if (path === 'companies') {
       if (!this.companies) promises.push(this._load('companies'))

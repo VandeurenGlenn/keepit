@@ -78,7 +78,7 @@ type MaterialDraft = {
 export class JobView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor user: User | undefined = undefined
   @property({ type: Object }) accessor hours: HoursByUser = {}
-  @property({ type: Object }) accessor users: { [userId: string]: User } = {}
+  @property({ type: Object, consumes: true }) accessor users: { [userId: string]: User } = {}
   @property({ type: Object }) accessor openUsers: Record<string, boolean> = {}
   @property({ type: Boolean }) accessor openMaterials = false
   @property({ type: Array }) accessor materialSuggestions: MaterialLine[] = []
@@ -105,6 +105,12 @@ export class JobView extends LiteElement {
   @property({ type: String }) accessor correctionEnd = ''
   @property({ type: String }) accessor correctionReason = ''
   @property({ type: Boolean }) accessor correctingHours = false
+  @property({ type: Boolean }) accessor addingHours = false
+  @property({ type: Boolean }) accessor savingAddedHours = false
+  @property({ type: String }) accessor addHoursEmployee = ''
+  @property({ type: String }) accessor addHoursStart = ''
+  @property({ type: String }) accessor addHoursEnd = ''
+  @property({ type: String }) accessor addHoursReason = ''
 
   favoriteNames: Set<string> = new Set()
   private materialPickerLoadToken = 0
@@ -784,6 +790,13 @@ export class JobView extends LiteElement {
       .correction-actions button { min-height:36px; padding:0 11px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel); color:inherit; font:inherit; cursor:pointer; }
       .correction-actions .save { border-color:var(--app-accent-strong); background:var(--app-accent); color:var(--md-sys-color-on-primary); }
       .correction-audit { flex-basis:100%; color:var(--md-sys-color-on-surface-variant); font-size:.68rem; }
+      .admin-hour-form { display:grid; grid-template-columns:minmax(160px,1fr) 1fr 1fr; gap:10px; padding:14px; border:1px solid color-mix(in srgb,var(--app-accent) 34%,var(--app-border)); border-radius:var(--app-radius-control); background:var(--app-panel-strong); }
+      .admin-hour-form label { display:flex; flex-direction:column; gap:6px; color:var(--md-sys-color-on-surface-variant); font-size:.72rem; font-weight:600; }
+      .admin-hour-form input,.admin-hour-form select { min-width:0; height:40px; padding:0 10px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel); color:var(--md-sys-color-on-surface); font:inherit; box-sizing:border-box; }
+      .admin-hour-reason { grid-column:1/-1; }
+      .admin-hour-actions { grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px; }
+      .admin-hour-actions button { min-height:38px; padding:0 12px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel); color:inherit; font:inherit; cursor:pointer; }
+      .admin-hour-actions .save { border-color:var(--app-accent-strong); background:var(--app-accent); color:var(--md-sys-color-on-primary); }
 
       .note-meta {
         font-size: 12px;
@@ -1191,6 +1204,15 @@ export class JobView extends LiteElement {
 
         .hour-entry {
           flex-direction: column;
+        }
+
+        .admin-hour-form {
+          grid-template-columns: 1fr;
+        }
+
+        .admin-hour-reason,
+        .admin-hour-actions {
+          grid-column: 1;
         }
 
         .materials-row {
@@ -2021,6 +2043,53 @@ export class JobView extends LiteElement {
     return date.toISOString().slice(0, 16)
   }
 
+  openAddHours() {
+    const employees = Object.entries(this.users || {}).filter(([, employee]) => employee.invited !== true)
+    if (!employees.length) return showToast('Er zijn nog geen geregistreerde medewerkers beschikbaar.')
+    const end = new Date()
+    end.setSeconds(0, 0)
+    const start = new Date(end.getTime() - 8 * 60 * 60 * 1000)
+    this.addHoursEmployee = employees[0][0]
+    this.addHoursStart = this.toLocalDateTime(start.getTime())
+    this.addHoursEnd = this.toLocalDateTime(end.getTime())
+    this.addHoursReason = ''
+    this.addingHours = true
+  }
+
+  closeAddHours() {
+    if (this.savingAddedHours) return
+    this.addingHours = false
+    this.addHoursReason = ''
+  }
+
+  async saveAddedHours() {
+    const checkin = new Date(this.addHoursStart).getTime()
+    const checkout = new Date(this.addHoursEnd).getTime()
+    const reason = this.addHoursReason.trim()
+    if (!this.selectedJobId || !this.addHoursEmployee || !Number.isFinite(checkin) || !Number.isFinite(checkout) || checkout <= checkin) {
+      return showToast('Controleer de medewerker en begin- en eindtijd.')
+    }
+    if (reason.length < 3) return showToast('Geef kort aan waarom je deze uren toevoegt.')
+
+    this.savingAddedHours = true
+    try {
+      const created = await api.addHoursForEmployee(this.selectedJobId, this.addHoursEmployee, { checkin, checkout, reason })
+      this.hours = {
+        ...this.hours,
+        [this.addHoursEmployee]: [...(this.hours[this.addHoursEmployee] || []), created]
+          .sort((left, right) => Number(left.checkin) - Number(right.checkin))
+      }
+      this.openUsers = { ...this.openUsers, [this.addHoursEmployee]: true }
+      this.addingHours = false
+      this.addHoursReason = ''
+      showToast('Uren toegevoegd voor de medewerker.')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'De uren konden niet toegevoegd worden.')
+    } finally {
+      this.savingAddedHours = false
+    }
+  }
+
   startHourCorrection(userId: string, prestation: Prestation) {
     if (!prestation.id) return
     this.correctionId = prestation.id
@@ -2422,7 +2491,9 @@ export class JobView extends LiteElement {
       <section class="section-panel" id="job-hours">
         <div class="section-heading">
           <div><h2>Uren</h2><p>Registraties per medewerker</p></div>
+          ${this.user?.roles?.includes('admin') ? html`<button type="button" class="section-action primary-action" @click=${()=>this.addingHours?this.closeAddHours():this.openAddHours()}>${this.addingHours?'Annuleren':'Uren toevoegen'}</button>` : null}
         </div>
+        ${this.addingHours ? html`<section class="admin-hour-form" aria-label="Uren voor medewerker toevoegen"><label>Medewerker<select .value=${this.addHoursEmployee} @change=${(event:Event)=>(this.addHoursEmployee=(event.target as HTMLSelectElement).value)}>${Object.entries(this.users||{}).filter(([,employee])=>employee.invited!==true).map(([id,employee])=>html`<option value=${id}>${employee.name||employee.email||id}</option>`)}</select></label><label>Begin<input type="datetime-local" .value=${this.addHoursStart} @input=${(event:Event)=>(this.addHoursStart=(event.target as HTMLInputElement).value)} /></label><label>Einde<input type="datetime-local" .value=${this.addHoursEnd} @input=${(event:Event)=>(this.addHoursEnd=(event.target as HTMLInputElement).value)} /></label><label class="admin-hour-reason">Reden<input maxlength="500" placeholder="Bijvoorbeeld: vergeten in te checken" .value=${this.addHoursReason} @input=${(event:Event)=>(this.addHoursReason=(event.target as HTMLInputElement).value)} /></label><div class="admin-hour-actions"><button type="button" ?disabled=${this.savingAddedHours} @click=${()=>this.closeAddHours()}>Annuleren</button><button type="button" class="save" ?disabled=${this.savingAddedHours} @click=${()=>this.saveAddedHours()}>${this.savingAddedHours?'Opslaan…':'Uren opslaan'}</button></div></section>` : null}
         <div class="hours-list">
           ${Object.keys(this.hours).length
             ? Object.entries(this.hours).map(([userId, prestations]) => {
@@ -2460,6 +2531,7 @@ export class JobView extends LiteElement {
                               >
                               <span>${msToTime(getPrestationDuration(prestation))}</span>
                               <small>${prestation.source === 'offline-sync' ? 'Offline geregistreerd' : prestation.source === 'admin' ? 'Admin' : prestation.source === 'legacy' ? 'Oude registratie' : 'Manueel'}</small>
+                              ${prestation.adminEntry ? html`<span class="correction-audit">Toegevoegd door admin · ${prestation.adminEntry.reason}</span>` : null}
                               ${this.user?.roles?.includes('admin') && prestation.id && !prestation.invoiceId ? html`<button class="hour-edit" @click=${() => this.startHourCorrection(userId, prestation)}>Corrigeren</button>` : null}
                               ${prestation.corrections?.length ? html`<span class="correction-audit">${prestation.corrections.length} ${prestation.corrections.length === 1 ? 'correctie' : 'correcties'} · laatste: ${prestation.corrections.at(-1)?.reason}</span>` : null}
                               ${this.correctionId === prestation.id ? html`<div class="correction-form"><label>Begin<input type="datetime-local" .value=${this.correctionStart} @input=${(event:Event)=>(this.correctionStart=(event.target as HTMLInputElement).value)} /></label><label>Einde<input type="datetime-local" .value=${this.correctionEnd} @input=${(event:Event)=>(this.correctionEnd=(event.target as HTMLInputElement).value)} /></label><label class="correction-reason">Reden<input maxlength="500" placeholder="Waarom worden deze uren aangepast?" .value=${this.correctionReason} @input=${(event:Event)=>(this.correctionReason=(event.target as HTMLInputElement).value)} /></label><div class="correction-actions"><button @click=${()=>this.cancelHourCorrection()}>Annuleren</button><button class="save" ?disabled=${this.correctingHours} @click=${()=>this.saveHourCorrection()}>${this.correctingHours?'Opslaan…':'Correctie opslaan'}</button></div></div>` : null}

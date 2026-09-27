@@ -109,6 +109,10 @@ class ApiClient {
     return this.request('PATCH', `/hours/job/${jobId}/${userId}/${prestationId}`, input)
   }
 
+  async addHoursForEmployee(jobId: string, userId: string, input: { checkin: number; checkout: number; reason: string }): Promise<Prestation> {
+    return this.request('POST', `/hours/job/${jobId}/${userId}`, input)
+  }
+
   async getMyTimeline(days = 14): Promise<Array<Prestation & { id: string }>> {
     return this.request('GET', `/hours/me?days=${days}`)
   }

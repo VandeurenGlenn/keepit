@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { findActiveWorkSession, findOpenPrestationId } from '../server/helpers/work-sessions.ts'
+import { findActiveWorkSession, findOpenPrestationId, hasOverlappingWorkSession } from '../server/helpers/work-sessions.ts'
 
 const base = { description:'',duration:0,serverCheckin:1000,checkin:900,jobId:'job-1' }
 
@@ -28,4 +28,17 @@ test('selects another open session when the preferred session was closed',()=>{
     open:{...base,jobId:'job-2',checkin:1500}
   }
   assert.equal(findActiveWorkSession('closed',hours)?.id,'open')
+})
+
+test('adminuren mogen niet overlappen met bestaande registraties',()=>{
+  const hours = {existing:{...base,checkin:1_000,checkout:2_000}}
+  assert.equal(hasOverlappingWorkSession(hours,1_500,2_500),true)
+  assert.equal(hasOverlappingWorkSession(hours,2_000,3_000),false)
+  assert.equal(hasOverlappingWorkSession(hours,100,1_000),false)
+})
+
+test('een open registratie blokkeert latere adminuren',()=>{
+  const hours = {open:{...base,checkin:1_000}}
+  assert.equal(hasOverlappingWorkSession(hours,1_100,1_500),true)
+  assert.equal(hasOverlappingWorkSession(hours,100,900),false)
 })
