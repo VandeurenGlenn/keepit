@@ -36,6 +36,7 @@ export const JobsMixin = (base: typeof LiteElement) =>
         template: html`
           <data-input
             label="place"
+            current-location
             type="place"></data-input>
         `,
 

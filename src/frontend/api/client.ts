@@ -19,6 +19,7 @@ import {
   Quotes,
   BackupSummary,
   KeepitBackup,
+  Place,
   jobId,
   userId,
   invoiceId
@@ -305,6 +306,11 @@ class ApiClient {
 
   async registerUser(user: Partial<User> & { inviteId?: string }): Promise<User> {
     return this.request('POST', '/register', user)
+  }
+
+  async reverseGeocode(location: WorkLocation): Promise<Place> {
+    const response = await this.request<{ content: Place }>('POST', '/places/reverse', location)
+    return response.content
   }
 
   // Companies API

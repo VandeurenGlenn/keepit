@@ -224,6 +224,7 @@ export class RegisterView extends LiteElement {
 
         <data-input
           type="place"
+          current-location
           label="place"></data-input>
 
         ${this.registrationError

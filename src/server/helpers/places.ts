@@ -1,8 +1,9 @@
 import { config } from './config.js'
-import { TimelinePlace, WorkLocation } from '../../types/index.js'
+import { Place, TimelinePlace, WorkLocation } from '../../types/index.js'
 import { readFile } from 'fs/promises'
 import { timelinePlaceCache, timelinePlaceCacheStore } from '../database/database.js'
 import { findNearestPlaceCacheEntry, hasFreshPlaceContent } from './geo.js'
+import { geocodeResponseToPlace, type GoogleGeocodeResponse } from './reverse-geocode.js'
 
 let frontendApiKey: string | undefined
 
@@ -20,10 +21,13 @@ const getApiKey = async (): Promise<string | undefined> => {
   }
 }
 
-const reverseGeocode = async (
+export const reverseGeocodeAddress = async (
   location: WorkLocation,
-  apiKey: string
-): Promise<TimelinePlace | undefined> => {
+  apiKeyOverride?: string
+): Promise<Place | undefined> => {
+  const apiKey = apiKeyOverride || (await getApiKey())
+  if (!apiKey) return undefined
+
   try {
     const params = new URLSearchParams({
       latlng: `${location.latitude},${location.longitude}`,
@@ -36,31 +40,24 @@ const reverseGeocode = async (
       console.warn(`Reverse geocoding failed with ${response.status}`)
       return undefined
     }
-    const data = (await response.json()) as {
-      status?: string
-      results?: Array<{
-        place_id?: string
-        formatted_address?: string
-        address_components?: Array<{ long_name?: string; types?: string[] }>
-      }>
-    }
-    const result = data.results?.[0]
-    if (data.status !== 'OK' || !result?.formatted_address) return undefined
-    const component = (type: string) =>
-      result.address_components?.find((entry) => entry.types?.includes(type))?.long_name
-    const street = component('route')
-    const number = component('street_number')
-    const locality = component('locality') || component('postal_town') || component('administrative_area_level_2')
-    const name = [street, number].filter(Boolean).join(' ') || locality || result.formatted_address
-    return {
-      id: result.place_id,
-      name,
-      formattedAddress: result.formatted_address,
-      primaryType: 'address'
-    }
+    return geocodeResponseToPlace((await response.json()) as GoogleGeocodeResponse, location)
   } catch (error) {
     console.warn('Reverse geocoding failed', error)
     return undefined
+  }
+}
+
+const reverseGeocode = async (
+  location: WorkLocation,
+  apiKey: string
+): Promise<TimelinePlace | undefined> => {
+  const address = await reverseGeocodeAddress(location, apiKey)
+  if (!address) return undefined
+  return {
+    id: address.id,
+    name: address.displayName,
+    formattedAddress: address.formattedAddress,
+    primaryType: 'address'
   }
 }
 
