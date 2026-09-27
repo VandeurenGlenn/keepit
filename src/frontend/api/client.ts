@@ -135,6 +135,7 @@ class ApiClient {
     name: string
     description?: string
     place: any
+    customerId?: string
     uuid?: string
   }): Promise<{ uuid: string; content: Job }> {
     return this.request('POST', '/jobs', job)
@@ -148,7 +149,7 @@ class ApiClient {
     return this.request('GET', `/job/${jobId}/completion-check`)
   }
 
-  async updateJob(jobId: jobId, updates: Partial<Job>): Promise<Job> {
+  async updateJob(jobId: jobId, updates: Omit<Partial<Job>, 'customerId'> & { customerId?: string | null }): Promise<Job> {
     return this.request('PATCH', `/job/${jobId}`, updates)
   }
 

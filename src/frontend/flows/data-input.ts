@@ -18,7 +18,9 @@ export class DataInput extends LiteElement {
 
   @property({ type: String }) accessor value = ''
 
-  @property({ type: String }) accessor type: 'text' | 'number' | 'place' = 'text'
+  @property({ type: String }) accessor type: 'text' | 'number' | 'place' | 'select' = 'text'
+
+  @property({ type: Array }) accessor options: Array<{ value: string; label: string }> = []
 
   @property({ type: Object }) accessor place: Place
 
@@ -119,6 +121,27 @@ export class DataInput extends LiteElement {
       md-outlined-text-field {
         width: 100%;
         max-width: none;
+      }
+
+      .select-field {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: .78rem;
+        font-weight: 700;
+      }
+
+      .select-field select {
+        width: 100%;
+        min-height: 56px;
+        padding: 0 14px;
+        box-sizing: border-box;
+        border: 1px solid var(--app-border);
+        border-radius: var(--app-radius-control);
+        background: var(--app-panel-strong);
+        color: var(--md-sys-color-on-surface);
+        font: inherit;
       }
 
       custom-icon {
@@ -356,10 +379,12 @@ export class DataInput extends LiteElement {
     }
   }
   render() {
-    const displayLabel = ({ name: 'Naam', place: 'Locatie', description: 'Omschrijving', telephone: 'Telefoon' } as Record<string, string>)[this.label] || this.label
+    const displayLabel = ({ name: 'Naam', place: 'Locatie', description: 'Omschrijving', telephone: 'Telefoon', customerId: 'Klant' } as Record<string, string>)[this.label] || this.label
     return html`
       <div class="input">
-        <md-outlined-text-field
+        ${this.type === 'select'
+          ? html`<label class="select-field">${displayLabel}<select .value=${this.value} @change=${(event: Event) => this._change(event)}>${this.options.map((option) => html`<option value=${option.value}>${option.label}</option>`)}</select></label>`
+          : html`<md-outlined-text-field
           @input=${(e) => this._change(e)}
           .type=${this.type}
           .label=${displayLabel}
@@ -370,8 +395,7 @@ export class DataInput extends LiteElement {
                 icon="location_on"></custom-icon>`
             : html`<custom-icon
                 slot="leading-icon"
-                icon="info"></custom-icon>`}</md-outlined-text-field
-        >
+                icon="info"></custom-icon>`}</md-outlined-text-field>`}
 
         <custom-dropdown
           ><custom-selector

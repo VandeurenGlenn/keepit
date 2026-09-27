@@ -121,6 +121,7 @@ export interface BaseInput {
 
 export interface Job extends BaseInput {
   place: Place
+  customerId?: string
   images?: string[]
   hours?: {
     [userId: string]: string[]

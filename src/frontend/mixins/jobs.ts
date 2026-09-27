@@ -10,10 +10,19 @@ import './../animations/success.js'
 export const JobsMixin = (base: typeof LiteElement) =>
   class JobsMixin extends base {
     @property({ type: Object, consumes: true }) accessor jobs
+    @property({ type: Object, consumes: true }) accessor companies
 
     @property({ type: Boolean }) accessor creatingJob = false
 
-    @property({ type: Array }) accessor jobSteps = [
+    getJobSteps() {
+      const customerOptions = [
+        { value: '', label: 'Geen klant gekoppeld' },
+        ...Object.entries(this.companies || {})
+          .filter(([, company]: [string, any]) => (company.relationshipType || 'customer') === 'customer')
+          .sort(([, left]: [string, any], [, right]: [string, any]) => (left.name || '').localeCompare(right.name || '', 'nl'))
+          .map(([value, company]: [string, any]) => ({ value, label: company.name || 'Naamloze klant' }))
+      ]
+      return [
       {
         name: 'Naam van de job',
         description: 'Geef de werf of opdracht een herkenbare naam.',
@@ -29,6 +38,15 @@ export const JobsMixin = (base: typeof LiteElement) =>
           }
           return { valid: true, values: data }
         }
+      },
+      {
+        name: 'Klant koppelen',
+        description: 'Koppel deze job aan een klant. Dit kan later nog aangepast worden.',
+        template: html`<data-input label="customerId" type="select" .options=${customerOptions}></data-input>`,
+        validateAndReturnValues: (inputs) => ({
+          valid: true,
+          values: { customerId: inputs[0]?.value || undefined }
+        })
       },
       {
         name: 'Werflocatie',
@@ -65,12 +83,13 @@ export const JobsMixin = (base: typeof LiteElement) =>
           return { valid: true, values: data }
         }
       }
-    ]
+      ]
+    }
 
     _createJob = async () => {
       this.creatingJob = true
       const dataFlow = new DataFlow()
-      dataFlow.steps = this.jobSteps
+      dataFlow.steps = this.getJobSteps()
       dataFlow.label = 'Nieuwe job'
       document.body.appendChild(dataFlow)
       const stepResults = await dataFlow.done
@@ -82,7 +101,7 @@ export const JobsMixin = (base: typeof LiteElement) =>
       const result = (stepResults as Array<Record<string, any>>).reduce(
         (acc, curr) => ({ ...acc, ...curr }),
         {}
-      ) as { name: string; description?: string; place: any }
+      ) as { name: string; description?: string; place: any; customerId?: string }
 
       try {
         const data = await api.createJob(result)

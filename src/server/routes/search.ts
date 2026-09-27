@@ -12,8 +12,9 @@ router.get('/', (ctx) => {
   const results: SearchResult[] = []
 
   for (const [id, job] of Object.entries(jobs)) {
-    if (matches(query, job.name, job.description, job.place?.formattedAddress)) {
-      results.push({ id, type: 'Job', title: job.name, subtitle: job.place?.formattedAddress, href: `#!/job?selected=${id}`, icon: 'inventory2' })
+    const customer = job.customerId ? companies[job.customerId] : undefined
+    if (matches(query, job.name, customer?.name, job.description, job.place?.formattedAddress)) {
+      results.push({ id, type: 'Job', title: job.name, subtitle: [customer?.name, job.place?.formattedAddress].filter(Boolean).join(' · '), href: `#!/job?selected=${id}`, icon: 'inventory2' })
     }
   }
 

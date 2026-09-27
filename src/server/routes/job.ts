@@ -1,6 +1,6 @@
 import { Router } from '@koa/router'
 
-import { hours, jobs, planning } from './../database/database.js'
+import { companies, hours, jobs, planning } from './../database/database.js'
 import { jobsStore } from './../database/database.js'
 import { hasRole } from '../helpers/roles.js'
 
@@ -58,7 +58,7 @@ router.patch('/:uuid', async (ctx) => {
   }
 
   const allowed = hasRole(ctx.state.userid, 'admin')
-    ? ['name', 'description', 'place', 'images', 'materials', 'materialDiscountPercent', 'notes', 'status', 'archivedAt']
+    ? ['name', 'description', 'place', 'customerId', 'images', 'materials', 'materialDiscountPercent', 'notes', 'status', 'archivedAt']
     : ['materials', 'materialDiscountPercent', 'notes', 'images']
   const updates = Object.fromEntries(Object.entries(payload).filter(([key]) => allowed.includes(key)))
   if (!Object.keys(updates).length) { ctx.status = 403; ctx.body = { error: 'Geen toegelaten wijzigingen' }; return }
@@ -70,6 +70,15 @@ router.patch('/:uuid', async (ctx) => {
       return
     }
   }
+  if ('customerId' in updates) {
+    const customerId = String(updates.customerId || '').trim()
+    if (customerId && (!companies[customerId] || (companies[customerId].relationshipType || 'customer') !== 'customer')) {
+      ctx.status = 400
+      ctx.body = { error: 'Kies een geldige klant.' }
+      return
+    }
+    updates.customerId = customerId || undefined
+  }
   if ('materialDiscountPercent' in updates) {
     const discount = Number(updates.materialDiscountPercent)
     if (!Number.isFinite(discount) || discount < 0 || discount > 100) {
@@ -80,6 +89,7 @@ router.patch('/:uuid', async (ctx) => {
     updates.materialDiscountPercent = discount
   }
   jobs[uuid] = { ...jobs[uuid], ...updates, updatedAt: new Date().toISOString() }
+  if (!jobs[uuid].customerId) delete jobs[uuid].customerId
 
   try {
     await jobsStore.put(jobs)

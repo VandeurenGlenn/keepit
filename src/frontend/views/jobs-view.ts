@@ -8,6 +8,7 @@ const jobsMixin = JobsMixin(LiteElement)
 export class JobsView extends jobsMixin {
   @property({ type: String }) accessor searchQuery = ''
   @property({ type: String }) accessor statusFilter = 'active'
+  @property({ type: String }) accessor customerFilter = ''
   @property({ type: Object, consumes: true }) accessor user: any
 
   static styles = [
@@ -149,7 +150,8 @@ export class JobsView extends jobsMixin {
       }
 
       .search,
-      .status-filter {
+      .status-filter,
+      .customer-filter {
         min-height: 44px;
         box-sizing: border-box;
         border: 1px solid var(--app-border);
@@ -165,6 +167,13 @@ export class JobsView extends jobsMixin {
       }
 
       .status-filter {
+        padding: 0 34px 0 13px;
+        font-size: 0.84rem;
+        font-weight: 650;
+      }
+
+      .customer-filter {
+        max-width: 220px;
         padding: 0 34px 0 13px;
         font-size: 0.84rem;
         font-weight: 650;
@@ -381,8 +390,10 @@ export class JobsView extends jobsMixin {
           flex-direction: column;
         }
 
-        .status-filter {
+        .status-filter,
+        .customer-filter {
           width: 100%;
+          max-width: none;
         }
 
         .job-card {
@@ -403,14 +414,20 @@ export class JobsView extends jobsMixin {
         const completed = job.status === 'completed'
         if (this.statusFilter === 'active' && completed) return false
         if (this.statusFilter === 'completed' && !completed) return false
+        if (this.customerFilter && job.customerId !== this.customerFilter) return false
         if (!query) return true
-        return `${job.name} ${job.description || ''} ${job.place?.formattedAddress || ''}`.toLowerCase().includes(query)
+        const customer = job.customerId ? this.companies?.[job.customerId] : undefined
+        return `${job.name} ${customer?.name || ''} ${job.description || ''} ${job.place?.formattedAddress || ''}`.toLowerCase().includes(query)
       })
       .sort(([, left], [, right]) => {
         const leftCompleted = left.status === 'completed' ? 1 : 0
         const rightCompleted = right.status === 'completed' ? 1 : 0
         return leftCompleted - rightCompleted || left.name.localeCompare(right.name, 'nl')
       })
+  }
+
+  customerName(job: Job): string {
+    return job.customerId ? this.companies?.[job.customerId]?.name || 'Onbekende klant' : ''
   }
 
   render() {
@@ -460,6 +477,19 @@ export class JobsView extends jobsMixin {
           <option value="completed">Afgeronde jobs</option>
           <option value="all">Alle jobs</option>
         </select>
+        <select
+          class="customer-filter"
+          aria-label="Filter jobs op klant"
+          .value=${this.customerFilter}
+          @change=${(event: Event) => {
+            this.customerFilter = (event.target as HTMLSelectElement).value
+          }}>
+          <option value="">Alle klanten</option>
+          ${Object.entries(this.companies || {})
+            .filter(([, company]: [string, any]) => (company.relationshipType || 'customer') === 'customer')
+            .sort(([, left]: [string, any], [, right]: [string, any]) => (left.name || '').localeCompare(right.name || '', 'nl'))
+            .map(([id, company]: [string, any]) => html`<option value=${id}>${company.name}</option>`)}
+        </select>
       </div>
 
       <div class="list-heading">
@@ -482,6 +512,7 @@ export class JobsView extends jobsMixin {
                       <span class="status ${job.status === 'completed' ? 'completed' : ''}">
                         ${job.status === 'completed' ? 'Afgerond' : 'Actief'}
                       </span>
+                      ${job.customerId ? html`<span>${this.customerName(job)}</span>` : ''}
                       <span class="material-count">${job.materials?.length || 0} materialen</span>
                     </div>
                   </div>

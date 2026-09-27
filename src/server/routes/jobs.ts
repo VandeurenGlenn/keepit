@@ -1,5 +1,5 @@
 import { Router } from '@koa/router'
-import { jobs, jobsStore } from './../database/database.js'
+import { companies, jobs, jobsStore } from './../database/database.js'
 import { Place } from '../../types/index.js'
 import { hasRole } from '../helpers/roles.js'
 
@@ -19,14 +19,21 @@ router.post('/', async (ctx) => {
     name?: string
     description?: string
     place?: Place
+    customerId?: string
     uuid?: string
   }
 
   const { name, description, place } = body
+  const customerId = String(body.customerId || '').trim()
 
   if (!name || !place) {
     ctx.status = 400
     ctx.body = { error: 'Missing required fields' }
+    return
+  }
+  if (customerId && (!companies[customerId] || (companies[customerId].relationshipType || 'customer') !== 'customer')) {
+    ctx.status = 400
+    ctx.body = { error: 'Kies een geldige klant.' }
     return
   }
 
@@ -38,6 +45,7 @@ router.post('/', async (ctx) => {
     hours: {},
     materials: [],
     place,
+    ...(customerId ? { customerId } : {}),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   }

@@ -119,7 +119,7 @@ export const CompaniesMixin = (base: typeof LiteElement) =>
         showToast(`${relation === 'klant' ? 'Klant' : 'Leverancier'} verwijderd.`)
       } catch (error) {
         console.error('Error deleting company:', error)
-        showToast(`De ${relation} kon niet verwijderd worden.`)
+        showToast(error instanceof Error ? error.message : `De ${relation} kon niet verwijderd worden.`)
       }
     }
 

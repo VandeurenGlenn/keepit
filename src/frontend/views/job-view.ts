@@ -1,6 +1,6 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
-import { Job, MaterialLine, Place, Prestation, ShopProduct, User } from '../../types/index.js'
+import { Companies, Job, MaterialLine, Place, Prestation, ShopProduct, User } from '../../types/index.js'
 import { api } from '../api/client.js'
 import { setUnsavedChanges } from '../helpers/unsaved-changes.js'
 import { showToast } from '../helpers/toast.js'
@@ -80,6 +80,7 @@ export class JobView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor user: User | undefined = undefined
   @property({ type: Object }) accessor hours: HoursByUser = {}
   @property({ type: Object, consumes: true }) accessor users: { [userId: string]: User } = {}
+  @property({ type: Object, consumes: true }) accessor companies: Companies = {}
   @property({ type: Object }) accessor openUsers: Record<string, boolean> = {}
   @property({ type: Boolean }) accessor openMaterials = false
   @property({ type: Array }) accessor materialSuggestions: MaterialLine[] = []
@@ -102,6 +103,7 @@ export class JobView extends LiteElement {
   @property({ type: String }) accessor detailDescription = ''
   @property({ type: String }) accessor detailPlaceValue = ''
   @property({ type: Object }) accessor detailPlace: Place | undefined
+  @property({ type: String }) accessor detailCustomerId = ''
   @property({ type: String }) accessor correctionId = ''
   @property({ type: String }) accessor correctionUserId = ''
   @property({ type: String }) accessor correctionStart = ''
@@ -121,7 +123,8 @@ export class JobView extends LiteElement {
   materialBaseline='[]'
   detailBaseline=''
   get materialState(){return JSON.stringify({materials:this.sanitizedMaterials,discountPercent:this.normalizedMaterialDiscountPercent})}
-  get jobDirty(){return this.materialState!==this.materialBaseline||(this.editingDetails&&JSON.stringify([this.detailName.trim(),this.detailDescription.trim(),this.detailPlace?.id||''])!==this.detailBaseline)}
+  get jobDirty(){return this.materialState!==this.materialBaseline||(this.editingDetails&&JSON.stringify([this.detailName.trim(),this.detailDescription.trim(),this.detailPlace?.id||'',this.detailCustomerId])!==this.detailBaseline)}
+  get customerOptions(){return [['','Geen klant gekoppeld'],...Object.entries(this.companies||{}).filter(([,company])=>(company.relationshipType||'customer')==='customer').sort(([,left],[,right])=>(left.name||'').localeCompare(right.name||'','nl')).map(([id,company])=>[id,company.name||'Naamloze klant'])] as Array<[string,string]>}
   disconnectedCallback(){setUnsavedChanges('job',false);super.disconnectedCallback()}
 
   static styles = [
@@ -954,7 +957,8 @@ export class JobView extends LiteElement {
         font-weight: 700;
       }
 
-      .details-field input {
+      .details-field input,
+      .details-field select {
         min-height: 44px;
         padding: 0 12px;
         border: 1px solid var(--app-border);
@@ -1525,7 +1529,8 @@ export class JobView extends LiteElement {
       this.detailDescription = this.job?.description || ''
       this.detailPlace = this.job?.place
       this.detailPlaceValue = this.job?.place?.displayName || this.job?.place?.formattedAddress || ''
-      this.detailBaseline=JSON.stringify([this.detailName.trim(),this.detailDescription.trim(),this.detailPlace?.id||''])
+      this.detailCustomerId = this.job?.customerId || ''
+      this.detailBaseline=JSON.stringify([this.detailName.trim(),this.detailDescription.trim(),this.detailPlace?.id||'',this.detailCustomerId])
       await this.loadMaterialSuggestions()
 
       try {
@@ -1983,6 +1988,7 @@ export class JobView extends LiteElement {
     this.detailDescription = this.job?.description || ''
     this.detailPlace = this.job?.place
     this.detailPlaceValue = this.job?.place?.displayName || this.job?.place?.formattedAddress || ''
+    this.detailCustomerId = this.job?.customerId || ''
     this.editingDetails = true
   }
 
@@ -1992,6 +1998,7 @@ export class JobView extends LiteElement {
     this.detailDescription = this.job?.description || ''
     this.detailPlace = this.job?.place
     this.detailPlaceValue = this.job?.place?.displayName || this.job?.place?.formattedAddress || ''
+    this.detailCustomerId = this.job?.customerId || ''
   }
 
   async saveJobDetails() {
@@ -2005,10 +2012,11 @@ export class JobView extends LiteElement {
       this.job = await api.updateJob(this.selectedJobId, {
         name,
         description: this.detailDescription.trim(),
-        place: this.detailPlace
+        place: this.detailPlace,
+        customerId: this.detailCustomerId || null
       })
       this.editingDetails = false
-      this.detailBaseline=JSON.stringify([this.detailName.trim(),this.detailDescription.trim(),this.detailPlace.id])
+      this.detailBaseline=JSON.stringify([this.detailName.trim(),this.detailDescription.trim(),this.detailPlace.id,this.detailCustomerId])
       setUnsavedChanges('job',this.jobDirty)
       this.requestRender()
       showToast('Jobgegevens opgeslagen.')
@@ -2417,6 +2425,7 @@ export class JobView extends LiteElement {
   render() {
     if (!this.job) return html`<loading-view></loading-view>`
     const job = this.job
+    const customer = job.customerId ? this.companies?.[job.customerId] : undefined
     const totalDurationMs = Object.values(this.hours)
       .flatMap((prestations) => prestations)
       .reduce((sum, prestation) => {
@@ -2433,7 +2442,7 @@ export class JobView extends LiteElement {
             <span class="job-kicker">Joboverzicht</span>
             <h1 class="job-title">${job.name}</h1>
             <p class="job-subtitle">
-              ${[job.description, job.place?.formattedAddress].filter(Boolean).join(' · ') ||
+              ${[customer?.name, job.description, job.place?.formattedAddress].filter(Boolean).join(' · ') ||
               'Geen omschrijving toegevoegd'}
             </p>
           </div>
@@ -2457,6 +2466,16 @@ export class JobView extends LiteElement {
                   @input=${(event: Event) => {
                     this.detailName = (event.target as HTMLInputElement).value
                   }} />
+              </label>
+              <label class="details-field">
+                Klant
+                <select
+                  .value=${this.detailCustomerId}
+                  @change=${(event: Event) => {
+                    this.detailCustomerId = (event.target as HTMLSelectElement).value
+                  }}>
+                  ${this.customerOptions.map(([id, name]) => html`<option value=${id}>${name}</option>`)}
+                </select>
               </label>
               <div class="details-place">
                 <data-input

@@ -203,6 +203,7 @@ export class AppShell extends LiteElement {
     }
     if (path === 'jobs') {
       if (!this.jobs) promises.push(this._load('jobs'))
+      if (!this.companies) promises.push(this._load('companies'))
     }
     if (path === 'planning') {
       if (!this.jobs) promises.push(this._load('jobs'))
@@ -233,6 +234,7 @@ export class AppShell extends LiteElement {
     }
     if (path === 'job') {
       promises.push(this._load('job', params.selected))
+      if (!this.companies) promises.push(this._load('companies'))
       if (this.user?.roles?.includes('admin') && !this.users) promises.push(this._load('users'))
     }
     if (path === 'companies') {
@@ -834,7 +836,7 @@ export class AppShell extends LiteElement {
     }
 
     if (path === 'jobs') {
-      if (!this.jobs) {
+      if (!this.jobs || !this.companies) {
         return html` <loading-view type="loading"></loading-view> `
       }
       return html` <jobs-view></jobs-view> `
@@ -856,7 +858,7 @@ export class AppShell extends LiteElement {
     if (path === 'reports') return this.user?.roles?.includes('admin') ? html`<reports-view></reports-view>` : html`<home-view></home-view>`
 
     if (path === 'job') {
-      if (!this.job) {
+      if (!this.job || !this.companies) {
         return html` <loading-view type="loading"></loading-view> `
       }
       return html` <job-view></job-view> `

@@ -1,5 +1,5 @@
 import { Router } from '@koa/router'
-import { companies, companiesStore } from '../database/database.js'
+import { companies, companiesStore, jobs } from '../database/database.js'
 import { Company, Place } from '../../types/index.js'
 
 type CreateCompanyBody = {
@@ -92,6 +92,15 @@ router.delete('/:uuid', async (ctx) => {
   if (!companies[uuid]) {
     ctx.status = 404
     ctx.body = { error: 'Company not found' }
+    return
+  }
+  const linkedJobs = Object.values(jobs).filter((job) => job.customerId === uuid)
+  if (linkedJobs.length) {
+    ctx.status = 409
+    ctx.body = {
+      error: 'Klant is gekoppeld aan jobs',
+      message: `Deze klant is nog gekoppeld aan ${linkedJobs.length} job${linkedJobs.length === 1 ? '' : 's'}. Ontkoppel die eerst.`
+    }
     return
   }
 
