@@ -770,14 +770,37 @@ export class JobView extends LiteElement {
       }
 
       .hour-entry {
-        display: flex;
-        justify-content: space-between;
+        display: grid;
+        grid-template-columns: minmax(210px, 1fr) minmax(64px, auto) minmax(92px, auto) auto;
+        align-items: center;
         gap: 10px;
-        flex-wrap: wrap;
+      }
+
+      .hour-range {
+        min-width: 0;
+      }
+
+      .hour-duration,
+      .hour-source {
+        white-space: nowrap;
+      }
+
+      .hour-duration {
+        text-align: right;
+      }
+
+      .hour-source {
+        justify-self: end;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--app-border) 42%, transparent);
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: .68rem;
+        font-weight: 700;
       }
 
       .hour-future-warning {
-        flex-basis: 100%;
+        grid-column: 1 / -1;
         padding: 8px 10px;
         border: 1px solid color-mix(in srgb, #f0a13a 54%, var(--app-border));
         border-radius: 10px;
@@ -787,15 +810,15 @@ export class JobView extends LiteElement {
         font-weight: 750;
         line-height: 1.4;
       }
-      .hour-edit { min-height:30px; padding:0 9px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel-strong); color:var(--app-accent); font:inherit; font-size:.7rem; cursor:pointer; }
-      .correction-form { flex-basis:100%; display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:12px; border:1px solid var(--app-border); border-radius:var(--app-radius-control); background:var(--app-panel-strong); }
+      .hour-edit { justify-self:end; min-height:30px; padding:0 9px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel-strong); color:var(--app-accent); font:inherit; font-size:.7rem; cursor:pointer; }
+      .correction-form { grid-column:1/-1; display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:12px; border:1px solid var(--app-border); border-radius:var(--app-radius-control); background:var(--app-panel-strong); }
       .correction-form label { display:flex; flex-direction:column; gap:5px; font-size:.68rem; }
       .correction-form input { min-width:0; height:38px; padding:0 9px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel); color:inherit; font:inherit; }
       .correction-reason { grid-column:1/-1; }
       .correction-actions { grid-column:1/-1; display:flex; justify-content:flex-end; gap:7px; }
       .correction-actions button { min-height:36px; padding:0 11px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel); color:inherit; font:inherit; cursor:pointer; }
       .correction-actions .save { border-color:var(--app-accent-strong); background:var(--app-accent); color:var(--md-sys-color-on-primary); }
-      .correction-audit { flex-basis:100%; color:var(--md-sys-color-on-surface-variant); font-size:.68rem; }
+      .correction-audit { grid-column:1/-1; color:var(--md-sys-color-on-surface-variant); font-size:.68rem; }
       .admin-hour-form { display:grid; grid-template-columns:minmax(160px,1fr) 1fr 1fr; gap:10px; padding:14px; border:1px solid color-mix(in srgb,var(--app-accent) 34%,var(--app-border)); border-radius:var(--app-radius-control); background:var(--app-panel-strong); }
       .admin-hour-form label { display:flex; flex-direction:column; gap:6px; color:var(--md-sys-color-on-surface-variant); font-size:.72rem; font-weight:600; }
       .admin-hour-form input,.admin-hour-form select { min-width:0; height:40px; padding:0 10px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel); color:var(--md-sys-color-on-surface); font:inherit; box-sizing:border-box; }
@@ -922,6 +945,20 @@ export class JobView extends LiteElement {
         font-size: 0.83rem;
         font-weight: 700;
         cursor: pointer;
+      }
+
+      a.section-action {
+        display: inline-flex;
+        align-items: center;
+        text-decoration: none;
+      }
+
+      .job-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
       }
 
       .details-save,
@@ -1214,7 +1251,21 @@ export class JobView extends LiteElement {
         }
 
         .hour-entry {
-          flex-direction: column;
+          grid-template-columns: 1fr auto;
+          align-items: start;
+        }
+
+        .hour-range {
+          grid-column: 1 / -1;
+        }
+
+        .hour-duration {
+          text-align: left;
+        }
+
+        .hour-source,
+        .hour-edit {
+          justify-self: end;
         }
 
         .admin-hour-form {
@@ -2447,12 +2498,21 @@ export class JobView extends LiteElement {
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          class="ghost-button"
-          @click=${() => (this.editingDetails ? this.cancelEditingDetails() : this.startEditingDetails())}>
-          ${this.editingDetails ? 'Annuleren' : 'Bewerken'}
-        </button>
+        <div class="job-actions">
+          ${this.user?.roles?.includes('admin')
+            ? html`<a
+                class="section-action primary-action"
+                href=${`#!/invoices?create=1&job=${encodeURIComponent(this.selectedJobId)}`}>
+                Factuur maken
+              </a>`
+            : null}
+          <button
+            type="button"
+            class="ghost-button"
+            @click=${() => (this.editingDetails ? this.cancelEditingDetails() : this.startEditingDetails())}>
+            ${this.editingDetails ? 'Annuleren' : 'Bewerken'}
+          </button>
+        </div>
       </header>
 
       ${this.editingDetails
@@ -2571,16 +2631,16 @@ export class JobView extends LiteElement {
                             const futureTimeWarning = this.getFutureTimeWarning(prestation)
                             const longDurationWarning = this.getLongDurationWarning(prestation)
                             return html`<div class="hour-entry">
-                              <span
+                              <span class="hour-range"
                                 >${formatPrestationRange(
                                   Number(prestation.checkin),
                                   Number(prestation.checkout)
                                 )}</span
                               >
-                              <span>${msToTime(getPrestationDuration(prestation))}</span>
-                              <small>${prestation.source === 'offline-sync' ? 'Offline geregistreerd' : prestation.source === 'admin' ? 'Admin' : prestation.source === 'legacy' ? 'Oude registratie' : 'Manueel'}</small>
-                              ${prestation.adminEntry ? html`<span class="correction-audit">Toegevoegd door admin · ${prestation.adminEntry.reason}</span>` : null}
+                              <span class="hour-duration">${msToTime(getPrestationDuration(prestation))}</span>
+                              <small class="hour-source">${prestation.source === 'offline-sync' ? 'Offline' : prestation.source === 'admin' ? 'Admin' : prestation.source === 'legacy' ? 'Historiek' : 'Manueel'}</small>
                               ${this.user?.roles?.includes('admin') && prestation.id && !prestation.invoiceId ? html`<button class="hour-edit" @click=${() => this.startHourCorrection(userId, prestation)}>Corrigeren</button>` : null}
+                              ${prestation.adminEntry ? html`<span class="correction-audit">Toegevoegd door admin · ${prestation.adminEntry.reason}</span>` : null}
                               ${prestation.corrections?.length ? html`<span class="correction-audit">${prestation.corrections.length} ${prestation.corrections.length === 1 ? 'correctie' : 'correcties'} · laatste: ${prestation.corrections.at(-1)?.reason}</span>` : null}
                               ${this.correctionId === prestation.id ? html`<div class="correction-form"><label>Begin<input type="datetime-local" .value=${this.correctionStart} @input=${(event:Event)=>(this.correctionStart=(event.target as HTMLInputElement).value)} /></label><label>Einde<input type="datetime-local" .value=${this.correctionEnd} @input=${(event:Event)=>(this.correctionEnd=(event.target as HTMLInputElement).value)} /></label><label class="correction-reason">Reden<input maxlength="500" placeholder="Waarom worden deze uren aangepast?" .value=${this.correctionReason} @input=${(event:Event)=>(this.correctionReason=(event.target as HTMLInputElement).value)} /></label><div class="correction-actions"><button @click=${()=>this.cancelHourCorrection()}>Annuleren</button><button class="save" ?disabled=${this.correctingHours} @click=${()=>this.saveHourCorrection()}>${this.correctingHours?'Opslaan…':'Correctie opslaan'}</button></div></div>` : null}
                               ${futureTimeWarning

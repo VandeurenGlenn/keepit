@@ -66,14 +66,28 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   @property({ type: Boolean }) accessor openMaterials = false
   @property({ type: Array }) accessor billableMaterials: MaterialLine[] = []
   @property({ type: String }) accessor invoiceKind: 'standard' | 'interim' | 'final' = 'standard'
+  @property({ type: String }) accessor prefillJobId = ''
 
   @query('chip-field[label="jobs"]') accessor jobChips!: ChipField
   @query('chip-field[label="companies"]') accessor companyChips!: ChipField
 
   currentStream: MediaStream | null = null
   favoriteNames: Set<string> = new Set()
+  private handledCreateRequest = ''
 
   dataUrl: string | null = null
+
+  async onChange(propertyKey: string): Promise<void> {
+    if (propertyKey !== 'jobs' && propertyKey !== 'invoices') return
+    const params = new URLSearchParams(globalThis.location.hash.split('?')[1] || '')
+    const jobId = params.get('job') || ''
+    if (params.get('create') !== '1' || !jobId || !this.jobs?.[jobId]) return
+    const requestKey = `${jobId}:${params.get('create')}`
+    if (this.handledCreateRequest === requestKey) return
+    this.handledCreateRequest = requestKey
+    this._addInvoice(jobId, false)
+    history.replaceState(history.state, '', `${location.pathname}${location.search}#!/invoices?job=${encodeURIComponent(jobId)}`)
+  }
   static styles = [
     css`
       :host {
@@ -698,11 +712,21 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       .reduce((sum, prestation) => sum + prestationDuration(prestation), 0)
   }
 
-  _addInvoice = async () => {
+  applyPrefilledJob = async () => {
+    if (!this.prefillJobId) return
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    if (!this.jobChips) return
+    this.jobChips.selected = [this.prefillJobId]
+    this.jobChips.requestRender()
+    await this.selectInvoiceJob(this.prefillJobId)
+  }
+
+  _addInvoice = async (jobId = '', captureImage = true) => {
     // make sure to set the takingPicture to true before setting the addingInvoice to true
     // to avoid flickering/seeing the final invoice step
-    this.takingPicture = true
+    this.takingPicture = captureImage
     this.addingInvoice = true
+    this.prefillJobId = jobId
     this.notes = ''
     this.resetMaterials()
     this.openMaterials = false
@@ -710,6 +734,11 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     this.hourUsers = {}
     this.openHourUsers = {}
     await this.loadMaterialSuggestions()
+
+    if (!captureImage) {
+      void this.applyPrefilledJob()
+      return
+    }
 
     // Logic to add a new invoice
     this.currentStream = await navigator.mediaDevices.getUserMedia({
@@ -760,6 +789,8 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       const data = canvas.toDataURL('image/png', 1.0)
       this.dataUrl = data
       this.takingPicture = false
+      void this.applyPrefilledJob()
+      resolve(data)
 
       //  photo.setAttribute('src', data)
     })
@@ -799,16 +830,16 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     const formattedTime = `${_date.getHours()}:${minutes < 10 ? '0' : ''}${minutes}`
 
     const invoiceId = crypto.randomUUID()
-    if (!this.dataUrl) return showToast('Maak eerst een foto van de factuur.')
-    const invoiceImage = this.dataURLtoFile(this.dataUrl, invoiceId)
     const invoiceName = `${companies[selectedCompany]?.name || 'Invoice'} ${formattedDate} ${formattedTime}`
 
-    const formData = new FormData()
-    formData.append('files', invoiceImage)
-
     try {
-      const uploadResult = await api.uploadInvoiceFile(formData)
-      const invoiceImages = uploadResult
+      let invoiceImages: string[] = []
+      if (this.dataUrl) {
+        const invoiceImage = this.dataURLtoFile(this.dataUrl, invoiceId)
+        const formData = new FormData()
+        formData.append('files', invoiceImage)
+        invoiceImages = await api.uploadInvoiceFile(formData)
+      }
 
       const invoice: Invoice & { notes: string } = {
         name: invoiceName,
@@ -888,7 +919,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
           <div class="panel-title-row">
             <div class="panel-title-wrap">
               <h2 class="panel-title">Factuur bewaren</h2>
-              <p class="panel-description">Koppel de opname aan een job of company en voeg context toe voor later.</p>
+              <p class="panel-description">Controleer de job, klant, factureerbare uren en resterende materialen.</p>
             </div>
             <button
               class="primary"
@@ -898,9 +929,9 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
           </div>
         </div>
 
-        <img
-          src=${this.dataUrl || ''}
-          adding-invoice-image />
+        ${this.dataUrl
+          ? html`<img src=${this.dataUrl} adding-invoice-image />`
+          : null}
 
         <div class="capture-form">
           <chip-field
