@@ -62,6 +62,14 @@ router.patch('/:uuid', async (ctx) => {
     : ['materials', 'materialDiscountPercent', 'notes', 'images']
   const updates = Object.fromEntries(Object.entries(payload).filter(([key]) => allowed.includes(key)))
   if (!Object.keys(updates).length) { ctx.status = 403; ctx.body = { error: 'Geen toegelaten wijzigingen' }; return }
+  if ('place' in updates) {
+    const place = updates.place as { id?: unknown; formattedAddress?: unknown } | undefined
+    if (!place?.id || !place.formattedAddress) {
+      ctx.status = 400
+      ctx.body = { error: 'Kies een geldig werfadres uit de zoekresultaten.' }
+      return
+    }
+  }
   if ('materialDiscountPercent' in updates) {
     const discount = Number(updates.materialDiscountPercent)
     if (!Number.isFinite(discount) || discount < 0 || discount > 100) {

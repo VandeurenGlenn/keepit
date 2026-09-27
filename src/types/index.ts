@@ -102,6 +102,10 @@ export type Place = {
   }
 }
 
+export type AppSettings = {
+  addressCountry?: string
+}
+
 export type LocationVerification = {
   status: 'on-site' | 'off-site' | 'unavailable'
   distanceMeters?: number

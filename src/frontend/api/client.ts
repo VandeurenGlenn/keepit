@@ -20,6 +20,7 @@ import {
   BackupSummary,
   KeepitBackup,
   Place,
+  AppSettings,
   jobId,
   userId,
   invoiceId
@@ -308,9 +309,23 @@ class ApiClient {
     return this.request('POST', '/register', user)
   }
 
-  async reverseGeocode(location: WorkLocation): Promise<Place> {
-    const response = await this.request<{ content: Place }>('POST', '/places/reverse', location)
+  async reverseGeocode(
+    location: WorkLocation,
+    preferences?: { countryCode?: string; language?: string }
+  ): Promise<Place> {
+    const response = await this.request<{ content: Place }>('POST', '/places/reverse', {
+      ...location,
+      ...preferences
+    })
     return response.content
+  }
+
+  async getAppSettings(): Promise<AppSettings> {
+    return this.request('GET', '/settings')
+  }
+
+  async updateAppSettings(settings: AppSettings): Promise<AppSettings> {
+    return this.request('PATCH', '/settings', settings)
   }
 
   // Companies API

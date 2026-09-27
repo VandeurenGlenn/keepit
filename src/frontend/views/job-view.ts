@@ -1,9 +1,10 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
-import { Job, MaterialLine, Prestation, ShopProduct, User } from '../../types/index.js'
+import { Job, MaterialLine, Place, Prestation, ShopProduct, User } from '../../types/index.js'
 import { api } from '../api/client.js'
 import { setUnsavedChanges } from '../helpers/unsaved-changes.js'
 import { showToast } from '../helpers/toast.js'
+import '../flows/data-input.js'
 
 function msToTime(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '-'
@@ -99,6 +100,8 @@ export class JobView extends LiteElement {
   @property({ type: Boolean }) accessor savingDetails = false
   @property({ type: String }) accessor detailName = ''
   @property({ type: String }) accessor detailDescription = ''
+  @property({ type: String }) accessor detailPlaceValue = ''
+  @property({ type: Object }) accessor detailPlace: Place | undefined
   @property({ type: String }) accessor correctionId = ''
   @property({ type: String }) accessor correctionUserId = ''
   @property({ type: String }) accessor correctionStart = ''
@@ -118,7 +121,7 @@ export class JobView extends LiteElement {
   materialBaseline='[]'
   detailBaseline=''
   get materialState(){return JSON.stringify({materials:this.sanitizedMaterials,discountPercent:this.normalizedMaterialDiscountPercent})}
-  get jobDirty(){return this.materialState!==this.materialBaseline||(this.editingDetails&&JSON.stringify([this.detailName.trim(),this.detailDescription.trim()])!==this.detailBaseline)}
+  get jobDirty(){return this.materialState!==this.materialBaseline||(this.editingDetails&&JSON.stringify([this.detailName.trim(),this.detailDescription.trim(),this.detailPlace?.id||''])!==this.detailBaseline)}
   disconnectedCallback(){setUnsavedChanges('job',false);super.disconnectedCallback()}
 
   static styles = [
@@ -938,6 +941,10 @@ export class JobView extends LiteElement {
         gap: 12px;
       }
 
+      .details-place {
+        grid-column: 1 / -1;
+      }
+
       .details-field {
         display: flex;
         flex-direction: column;
@@ -1516,7 +1523,9 @@ export class JobView extends LiteElement {
       this.editingDetails = false
       this.detailName = this.job?.name || ''
       this.detailDescription = this.job?.description || ''
-      this.detailBaseline=JSON.stringify([this.detailName.trim(),this.detailDescription.trim()])
+      this.detailPlace = this.job?.place
+      this.detailPlaceValue = this.job?.place?.displayName || this.job?.place?.formattedAddress || ''
+      this.detailBaseline=JSON.stringify([this.detailName.trim(),this.detailDescription.trim(),this.detailPlace?.id||''])
       await this.loadMaterialSuggestions()
 
       try {
@@ -1972,6 +1981,8 @@ export class JobView extends LiteElement {
   startEditingDetails() {
     this.detailName = this.job?.name || ''
     this.detailDescription = this.job?.description || ''
+    this.detailPlace = this.job?.place
+    this.detailPlaceValue = this.job?.place?.displayName || this.job?.place?.formattedAddress || ''
     this.editingDetails = true
   }
 
@@ -1979,19 +1990,25 @@ export class JobView extends LiteElement {
     this.editingDetails = false
     this.detailName = this.job?.name || ''
     this.detailDescription = this.job?.description || ''
+    this.detailPlace = this.job?.place
+    this.detailPlaceValue = this.job?.place?.displayName || this.job?.place?.formattedAddress || ''
   }
 
   async saveJobDetails() {
     const name = this.detailName.trim()
-    if (!this.selectedJobId || !name) return
+    if (!this.selectedJobId || !name || !this.detailPlace?.id) {
+      showToast('Vul een jobnaam in en kies een geldig werfadres.')
+      return
+    }
     this.savingDetails = true
     try {
       this.job = await api.updateJob(this.selectedJobId, {
         name,
-        description: this.detailDescription.trim()
+        description: this.detailDescription.trim(),
+        place: this.detailPlace
       })
       this.editingDetails = false
-      this.detailBaseline=JSON.stringify([this.detailName.trim(),this.detailDescription.trim()])
+      this.detailBaseline=JSON.stringify([this.detailName.trim(),this.detailDescription.trim(),this.detailPlace.id])
       setUnsavedChanges('job',this.jobDirty)
       this.requestRender()
       showToast('Jobgegevens opgeslagen.')
@@ -2441,6 +2458,18 @@ export class JobView extends LiteElement {
                     this.detailName = (event.target as HTMLInputElement).value
                   }} />
               </label>
+              <div class="details-place">
+                <data-input
+                  label="place"
+                  type="place"
+                  current-location
+                  .value=${this.detailPlaceValue}
+                  .place=${this.detailPlace}
+                  @data-input-changed=${(event: CustomEvent) => {
+                    this.detailPlaceValue = event.detail.value
+                    this.detailPlace = event.detail.place
+                  }}></data-input>
+              </div>
               <label class="details-field">
                 Omschrijving
                 <input

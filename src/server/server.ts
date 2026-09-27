@@ -19,6 +19,7 @@ import users from './routes/users.js'
 import roles from './routes/roles.js'
 import register from './routes/register.js'
 import places from './routes/places.js'
+import settings from './routes/settings.js'
 import isUser from './middleware/is-user.js'
 import handshake from './routes/handshake.js'
 import hours from './routes/hours.js'
@@ -90,6 +91,7 @@ api.use(register)
 // Reverse geocoding is also needed while an invited employee is completing
 // registration, so it must be available before the registered-user guard.
 api.use(places)
+api.use(settings)
 
 // everything after this point requires a user account
 api.use(isUser)

@@ -1,11 +1,12 @@
 import { Router } from '@koa/router'
 import type { WorkLocation } from '../../types/index.js'
 import { reverseGeocodeAddress } from '../helpers/places.js'
+import { appSettings } from '../database/database.js'
 
 const router = new Router({ prefix: '/api/places' })
 
 router.post('/reverse', async (ctx) => {
-  const body = (ctx.request.body || {}) as Partial<WorkLocation>
+  const body = (ctx.request.body || {}) as Partial<WorkLocation> & { countryCode?: string; language?: string }
   const latitude = Number(body.latitude)
   const longitude = Number(body.longitude)
 
@@ -16,11 +17,16 @@ router.post('/reverse', async (ctx) => {
     return
   }
 
+  const requestedCountry = String(appSettings.addressCountry || body.countryCode || '').trim().toLowerCase()
+  const requestedLanguage = String(body.language || '').trim()
   const place = await reverseGeocodeAddress({
     latitude,
     longitude,
     accuracy: Number.isFinite(Number(body.accuracy)) ? Number(body.accuracy) : undefined,
     capturedAt: Number.isFinite(Number(body.capturedAt)) ? Number(body.capturedAt) : Date.now()
+  }, undefined, {
+    region: /^[a-z]{2}$/.test(requestedCountry) ? requestedCountry : undefined,
+    language: /^[a-z]{2,3}(?:-[A-Za-z]{2})?$/.test(requestedLanguage) ? requestedLanguage : undefined
   })
 
   if (!place) {

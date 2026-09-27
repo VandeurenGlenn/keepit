@@ -9,6 +9,7 @@ import '@vandeurenglenn/lite-elements/selector.js'
 import '@material/web/textfield/outlined-text-field.js'
 import type { Place } from '../../types/index.js'
 import { api } from '../api/client.js'
+import { getPlaceSearchSettings } from '../helpers/place-settings.js'
 
 declare const google: typeof globalThis.google
 
@@ -195,7 +196,7 @@ export class DataInput extends LiteElement {
     if (this.type === 'place') this.place = undefined
     this.dispatchEvent(
       new CustomEvent('data-input-changed', {
-        detail: { value: this.value },
+        detail: { value: this.value, place: this.place },
         bubbles: true,
         composed: true
       })
@@ -210,13 +211,14 @@ export class DataInput extends LiteElement {
       if (input) {
         try {
           const { AutocompleteSessionToken, AutocompleteSuggestion } = await google.maps.importLibrary('places')
+          const preferences = await getPlaceSearchSettings()
           this.autocompleteSessionToken ||= new AutocompleteSessionToken()
           const request = {
             input,
             sessionToken: this.autocompleteSessionToken,
-            includedRegionCodes: ['be'],
-            language: 'nl-BE',
-            region: 'be'
+            ...(preferences.countryCode ? { includedRegionCodes: [preferences.countryCode] } : {}),
+            language: preferences.language,
+            region: preferences.countryCode
           }
           const response = await AutocompleteSuggestion.fetchAutocompleteSuggestions(request as any)
           if (requestId !== this.searchRequestId) return
@@ -293,7 +295,7 @@ export class DataInput extends LiteElement {
     this.autocompleteSessionToken = undefined
     this.dispatchEvent(
       new CustomEvent('data-input-changed', {
-        detail: { value: this.value },
+        detail: { value: this.value, place: this.place },
         bubbles: true,
         composed: true
       })
@@ -320,12 +322,13 @@ export class DataInput extends LiteElement {
           maximumAge: 60_000
         })
       })
+      const preferences = await getPlaceSearchSettings()
       const place = await api.reverseGeocode({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
         accuracy: location.coords.accuracy,
         capturedAt: location.timestamp
-      })
+      }, preferences)
       this.place = place
       this.value = place.displayName
       this.suggestions = []

@@ -20,8 +20,9 @@ export class SuppliersView extends CompaniesView {
       <div class="search-wrap"><custom-icon icon="search"></custom-icon><input class="search" type="search" placeholder="Zoek leverancier of adres…" .value=${this.searchQuery} @input=${(event:Event)=>(this.searchQuery=(event.target as HTMLInputElement).value)} /></div>
       <div class="list-heading"><h2>Leveranciers</h2><span class="count">${entries.length} resultaten</span></div>
       ${entries.length
-        ? html`<section class="companies-grid">${entries.map(([uuid,company])=>html`<article class="company-card"><span class="company-icon">${(company.name || '?').charAt(0)}</span><div class="company-copy"><h3>${company.name || 'Naamloze leverancier'}</h3><p>${company.place?.formattedAddress || 'Geen adres ingesteld'}</p></div><button class="delete" aria-label="${company.name} verwijderen" @click=${()=>this._deleteCompany(uuid,'supplier')}><custom-icon icon="delete"></custom-icon></button></article>`)}</section>`
+        ? html`<section class="companies-grid">${entries.map(([uuid,company])=>this.renderCompanyCard(uuid,company,'supplier'))}</section>`
         : html`<div class="empty">Geen leveranciers gevonden.</div>`}
+      ${this.renderCompanyEditor()}
     `
   }
 }

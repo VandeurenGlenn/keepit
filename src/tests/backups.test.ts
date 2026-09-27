@@ -16,6 +16,13 @@ test('accepts a complete Keepit backup', () => {
   assert.equal(validateBackup(backup).createdAt, backup.createdAt)
 })
 
+test('keeps backups from before global app settings restorable', () => {
+  const backup = validBackup()
+  delete backup.datasets.appSettings
+  const validated = validateBackup(backup)
+  assert.deepEqual(validated.datasets.appSettings, {})
+})
+
 test('rejects a backup with a missing dataset', () => {
   const backup = validBackup()
   delete backup.datasets.hours

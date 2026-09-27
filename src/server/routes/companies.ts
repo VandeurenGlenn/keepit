@@ -59,6 +59,11 @@ router.patch('/:uuid', async (ctx) => {
   }
 
   const body = (ctx.request.body || {}) as Partial<CreateCompanyBody>
+  if (body.place && (!body.place.id || !body.place.formattedAddress)) {
+    ctx.status = 400
+    ctx.body = { error: 'Kies een geldig adres uit de zoekresultaten.' }
+    return
+  }
   const relationshipType =
     body.relationshipType === 'supplier' || body.relationshipType === 'customer'
       ? body.relationshipType

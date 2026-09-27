@@ -13,7 +13,8 @@ import {
   TimelineTrackingStates,
   PlanningEntries,
   AppNotifications,
-  Quotes
+  Quotes,
+  AppSettings
 } from '../../types/index.js'
 import { DataStore } from './store.js'
 import { opendir, mkdir } from 'fs/promises'
@@ -41,6 +42,7 @@ export const timelinePlaceCacheStore = new DataStore('timelinePlaceCache')
 export const planningStore = new DataStore('planning')
 export const notificationsStore = new DataStore('notifications')
 export const quotesStore = new DataStore('quotes')
+export const appSettingsStore = new DataStore('appSettings')
 
 const year = new Date().getFullYear()
 
@@ -59,7 +61,8 @@ let promises: Promise<any>[] = [
   timelinePlaceCacheStore.get(),
   planningStore.get(),
   notificationsStore.get(),
-  quotesStore.get()
+  quotesStore.get(),
+  appSettingsStore.get()
 ]
 promises = await Promise.all(promises)
 
@@ -78,10 +81,11 @@ export const timelinePlaceCache = promises[11] as unknown as TimelinePlaceCache
 export const planning = promises[12] as unknown as PlanningEntries
 export const notifications = promises[13] as unknown as AppNotifications
 export const quotes = promises[14] as unknown as Quotes
+export const appSettings = promises[15] as unknown as AppSettings
 
 export const operationalData = {
   jobs, companies, invoices, media, users, bannedUsers, hours, invites, shopOrders,
-  timelineLocations, timelineTrackingStates, timelinePlaceCache, planning, notifications, quotes
+  timelineLocations, timelineTrackingStates, timelinePlaceCache, planning, notifications, quotes, appSettings
 }
 
 export const operationalStores = {
@@ -99,7 +103,8 @@ export const operationalStores = {
   timelinePlaceCache: timelinePlaceCacheStore,
   planning: planningStore,
   notifications: notificationsStore,
-  quotes: quotesStore
+  quotes: quotesStore,
+  appSettings: appSettingsStore
 }
 
 let workSessionMetadataMigrated = false

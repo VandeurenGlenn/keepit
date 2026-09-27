@@ -1,7 +1,8 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
 import { api } from '../api/client.js'
-import type { Prestation } from '../../types/index.js'
+import type { AppSettings, Prestation } from '../../types/index.js'
+import { setCachedAppSettings } from '../helpers/place-settings.js'
 
 export class HomeView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor user
@@ -11,6 +12,9 @@ export class HomeView extends LiteElement {
   @property({ type: Array }) accessor todayPlanning: any[] = []
   @property({ type: Object }) accessor activeSession: (Prestation & { id: string }) | undefined
   @property({ type: Number }) accessor now = Date.now()
+  @property({ type: Object }) accessor appSettings: AppSettings = {}
+  @property({ type: String }) accessor addressCountryDraft = ''
+  @property({ type: Boolean }) accessor savingAppSettings = false
   clockTimer?: ReturnType<typeof setInterval>
 
   connectedCallback() {
@@ -29,8 +33,15 @@ export class HomeView extends LiteElement {
     try {
       const timelinePromise = this.user?.currentJob ? api.getMyTimeline(90) : Promise.resolve([])
       if (this.user?.roles?.includes('admin')) {
-        const [control, timeline] = await Promise.all([api.getControlCenter(), timelinePromise])
+        const [control, timeline, settings] = await Promise.all([
+          api.getControlCenter(),
+          timelinePromise,
+          api.getAppSettings()
+        ])
         this.control = control
+        this.appSettings = settings
+        this.addressCountryDraft = settings.addressCountry || ''
+        setCachedAppSettings(settings)
         this.setActiveSession(timeline)
       } else if (this.user?.id) {
         const start = new Date()
@@ -456,6 +467,38 @@ export class HomeView extends LiteElement {
         flex: 0 0 auto;
       }
 
+      .settings-card {
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .settings-controls {
+        display: flex;
+        align-items: end;
+        gap: 10px;
+        flex: 0 0 auto;
+      }
+
+      .settings-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        color: var(--md-sys-color-on-surface-variant);
+        font-size: .72rem;
+        font-weight: 700;
+      }
+
+      .settings-field select {
+        min-width: 210px;
+        min-height: 48px;
+        padding: 0 12px;
+        border: 1px solid var(--app-border);
+        border-radius: var(--app-radius-control);
+        background: var(--app-panel-strong);
+        color: var(--md-sys-color-on-surface);
+        font: inherit;
+      }
+
       button[disabled] {
         opacity: 0.6;
         cursor: wait;
@@ -492,6 +535,14 @@ export class HomeView extends LiteElement {
           flex-direction: column;
           align-items: stretch;
         }
+
+        .settings-card,
+        .settings-controls {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .settings-field select { width: 100%; }
       }
     `
   ]
@@ -535,6 +586,22 @@ export class HomeView extends LiteElement {
       window.dispatchEvent(new CustomEvent('keepit-timeline-preference'))
     } finally {
       this.savingPreference = false
+    }
+  }
+
+  async saveAddressCountry() {
+    this.savingAppSettings = true
+    try {
+      const settings = await api.updateAppSettings({ addressCountry: this.addressCountryDraft || undefined })
+      this.appSettings = settings
+      this.addressCountryDraft = settings.addressCountry || ''
+      setCachedAppSettings(settings)
+      window.dispatchEvent(new CustomEvent('keepit-toast', { detail: { message: 'Globale adresinstelling opgeslagen.' } }))
+    } catch (error) {
+      console.error('App settings update failed', error)
+      window.dispatchEvent(new CustomEvent('keepit-toast', { detail: { message: 'De adresinstelling kon niet opgeslagen worden.' } }))
+    } finally {
+      this.savingAppSettings = false
     }
   }
 
@@ -764,6 +831,26 @@ export class HomeView extends LiteElement {
           ><custom-icon icon="backup"></custom-icon>Back-ups</a
         >
       </div>
+      <section class="privacy-card settings-card">
+        <div class="privacy-copy">
+          <span class="eyebrow">Globale instelling</span>
+          <h2>Standaardland voor adressen</h2>
+          <p class="muted">Automatisch gebruikt het land uit de browser. Kies hier een land om dit voor iedereen te overschrijven.</p>
+        </div>
+        <div class="settings-controls">
+          <label class="settings-field">Adresland
+            <select .value=${this.addressCountryDraft} @change=${(event: Event) => (this.addressCountryDraft = (event.target as HTMLSelectElement).value)}>
+              <option value="">Automatisch via browser</option>
+              <option value="BE">België</option>
+              <option value="NL">Nederland</option>
+              <option value="LU">Luxemburg</option>
+              <option value="FR">Frankrijk</option>
+              <option value="DE">Duitsland</option>
+            </select>
+          </label>
+          <button class="secondary" ?disabled=${this.savingAppSettings || this.addressCountryDraft === (this.appSettings.addressCountry || '')} @click=${() => void this.saveAddressCountry()}>${this.savingAppSettings ? 'Opslaan…' : 'Opslaan'}</button>
+        </div>
+      </section>
       <div class="section-heading">
         <h2>Te controleren uren</h2>
         <a

@@ -19,7 +19,8 @@ export const BACKUP_DATASETS = [
   'timelinePlaceCache',
   'planning',
   'notifications',
-  'quotes'
+  'quotes',
+  'appSettings'
 ] as const
 
 export type BackupDataset = (typeof BACKUP_DATASETS)[number]
@@ -89,6 +90,8 @@ const parseBackup = (value: unknown): KeepitBackup => {
   if (!candidate.datasets || typeof candidate.datasets !== 'object' || Array.isArray(candidate.datasets)) {
     throw new Error('De gegevens in de back-up ontbreken')
   }
+  // Backups created before global app settings existed remain restorable.
+  candidate.datasets.appSettings ||= {}
   for (const name of BACKUP_DATASETS) {
     const dataset = candidate.datasets[name]
     if (!dataset || typeof dataset !== 'object' || Array.isArray(dataset)) {

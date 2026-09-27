@@ -1,7 +1,7 @@
 import { config } from './config.js'
 import { Place, TimelinePlace, WorkLocation } from '../../types/index.js'
 import { readFile } from 'fs/promises'
-import { timelinePlaceCache, timelinePlaceCacheStore } from '../database/database.js'
+import { appSettings, timelinePlaceCache, timelinePlaceCacheStore } from '../database/database.js'
 import { findNearestPlaceCacheEntry, hasFreshPlaceContent } from './geo.js'
 import { geocodeResponseToPlace, type GoogleGeocodeResponse } from './reverse-geocode.js'
 
@@ -23,7 +23,8 @@ const getApiKey = async (): Promise<string | undefined> => {
 
 export const reverseGeocodeAddress = async (
   location: WorkLocation,
-  apiKeyOverride?: string
+  apiKeyOverride?: string,
+  preferences: { language?: string; region?: string } = {}
 ): Promise<Place | undefined> => {
   const apiKey = apiKeyOverride || (await getApiKey())
   if (!apiKey) return undefined
@@ -32,8 +33,8 @@ export const reverseGeocodeAddress = async (
     const params = new URLSearchParams({
       latlng: `${location.latitude},${location.longitude}`,
       key: apiKey,
-      language: 'nl',
-      region: 'be'
+      language: preferences.language || 'nl',
+      region: preferences.region || 'be'
     })
     const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?${params}`)
     if (!response.ok) {
@@ -51,7 +52,9 @@ const reverseGeocode = async (
   location: WorkLocation,
   apiKey: string
 ): Promise<TimelinePlace | undefined> => {
-  const address = await reverseGeocodeAddress(location, apiKey)
+  const address = await reverseGeocodeAddress(location, apiKey, {
+    region: appSettings.addressCountry?.toLowerCase()
+  })
   if (!address) return undefined
   return {
     id: address.id,
@@ -93,7 +96,7 @@ export const findNearbyPlace = async (location: WorkLocation): Promise<TimelineP
         maxResultCount: 1,
         rankPreference: 'DISTANCE',
         languageCode: 'nl',
-        regionCode: 'BE',
+        regionCode: appSettings.addressCountry || 'BE',
         locationRestriction: {
           circle: {
             center: {
