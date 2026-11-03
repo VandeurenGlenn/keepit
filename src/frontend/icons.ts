@@ -21,6 +21,14 @@ export default html` <custom-icon-set>
     <span name="login">@symbol-login</span>
     <span name="logout">@symbol-logout</span>
     <span name="cloud_upload">@symbol-cloud_upload</span>
+    <span name="cloud_done">@symbol-cloud_done</span>
+    <span name="cloud_sync">@symbol-cloud_sync</span>
+    <span name="progress_activity">@symbol-progress_activity</span>
+    <span name="refresh">@symbol-refresh</span>
+    <span name="history">@symbol-history</span>
+    <span name="event_busy">@symbol-event_busy</span>
+    <span name="admin_panel_settings">@symbol-admin_panel_settings</span>
+    <span name="my_location">@symbol-my_location</span>
 
     <span name="cameraswitch">@symbol-cameraswitch</span>
 
@@ -37,6 +45,8 @@ export default html` <custom-icon-set>
     <span name="calendar_month">@symbol-calendar_month</span>
     <span name="chevron_left">@symbol-chevron_left</span>
     <span name="chevron_right">@symbol-chevron_right</span>
+    <span name="timer">@symbol-timer</span>
+    <span name="unarchive">@symbol-unarchive</span>
     <span name="play_arrow">@symbol-play_arrow</span>
     <span name="stop_circle">@symbol-stop_circle</span>
     <span name="search">@symbol-search</span>

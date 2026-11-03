@@ -133,7 +133,7 @@ export class JobView extends LiteElement {
         display: flex;
         flex-direction: column;
         width: 100%;
-        height: 100%;
+        min-height: 100%;
         max-width: 1180px;
         padding: 22px;
         box-sizing: border-box;
@@ -1239,9 +1239,24 @@ export class JobView extends LiteElement {
         }
 
         .job-hero {
-          align-items: flex-start;
+          align-items: stretch;
+          flex-direction: column;
           padding: 18px;
           border-radius: 19px;
+        }
+
+        .job-identity {
+          align-items: flex-start;
+        }
+
+        .job-actions {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          width: 100%;
+        }
+
+        .job-actions .section-action {
+          justify-content: center;
         }
 
         .job-icon {

@@ -220,7 +220,7 @@ export class AppShell extends LiteElement {
       if (params.selected) {
         promises.push(
           api.getQuote(params.selected).then((quote) => {
-            this.quote = quote
+            this.quote = { ...quote, id: quote.id || params.selected }
           })
         )
       } else {
@@ -261,6 +261,10 @@ export class AppShell extends LiteElement {
 
     this.selected = path
     this.lastRouteHash = hash
+    requestAnimationFrame(() => {
+      const main = this.shadowRoot?.querySelector<HTMLElement>('main')
+      if (main) main.scrollTop = 0
+    })
   }
 
   beforeRender(): void {
@@ -763,9 +767,13 @@ export class AppShell extends LiteElement {
     }
 
     if (path === 'quote') {
+      const selectedQuoteId = new URLSearchParams(hash.split('?')[1] || '').get('selected')
+      if ((selectedQuoteId && this.quote?.id !== selectedQuoteId) || !this.jobs) {
+        return html` <loading-view type="loading"></loading-view> `
+      }
       return html` <quote-view
         .quote=${this.quote}
-        .jobs=${this.jobs}></quote-view>`
+        .jobs=${this.jobs || {}}></quote-view>`
     }
 
     if (path === 'quotes') {
@@ -1072,7 +1080,7 @@ export class AppShell extends LiteElement {
               <account-bar></account-bar>
             </header>`
           : ''}
-        <flex-container center-center> ${this.renderSelectedView()} </flex-container>
+        <flex-container> ${this.renderSelectedView()} </flex-container>
       </main>
     `
   }

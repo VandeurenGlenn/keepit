@@ -77,7 +77,7 @@ router.get('/:id', (ctx) => {
     ctx.body = { error: 'Offerte niet gevonden' }
     return
   }
-  ctx.body = quote
+  ctx.body = { ...quote, id: quote.id || ctx.params.id }
 })
 
 router.post('/', async (ctx) => {
