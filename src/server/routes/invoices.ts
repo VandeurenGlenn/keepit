@@ -1,6 +1,6 @@
 import { Router } from '@koa/router'
 import { opendir, mkdir } from 'fs/promises'
-import { invoices, invoicesStore, hours, hoursStore, companies, jobs } from '../database/database.js'
+import { invoices, invoicesStore, hours, hoursStore, companies, jobs, quotes } from '../database/database.js'
 import multer from '@koa/multer'
 import { Invoice, InvoiceHourLine, MaterialLine } from '../../types/index.js'
 import { readDescoCatalog, syncDescoCatalogWithTracking } from '../helpers/desco.js'
@@ -20,6 +20,7 @@ import {
 } from '../helpers/material-preferences.js'
 import { databasePath } from '../helpers/paths.js'
 import { collectRemainingMaterials, findMaterialOverbilling } from '../helpers/billable-materials.js'
+import { createQuoteConversionQueue, findQuoteInvoiceId } from '../helpers/quote-invoices.js'
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -369,7 +370,37 @@ router.post('/materials/alelek/sync-scraper', async (ctx) => {
   }
 })
 
-router.post('/', async (ctx) => {
+const queueQuoteConversion = createQuoteConversionQueue()
+const unsavedQuoteInvoices = new Set<string>()
+
+function markInvoiceHours(uuid: string, invoice: Invoice): boolean {
+  let changed = false
+  for (const { userId, prestationIds } of invoice.hours || []) {
+    for (const prestationId of prestationIds || []) {
+      const prestation = hours[userId]?.[prestationId]
+      if (!prestation || prestation.jobId !== invoice.job || prestation.invoiceId || prestation.invoicedAt) continue
+      prestation.invoiceId = uuid
+      prestation.invoicedAt = Date.parse(invoice.createdAt) || Date.now()
+      changed = true
+    }
+  }
+  return changed
+}
+
+async function saveQuoteInvoice(uuid: string) {
+  unsavedQuoteInvoices.add(uuid)
+  await invoicesStore.put(invoices)
+  await hoursStore.put(hours)
+  unsavedQuoteInvoices.delete(uuid)
+}
+
+router.post('/', async (ctx, next) => {
+  const body = ctx.request.body as { quoteId?: unknown } | undefined
+  const quoteId = typeof body?.quoteId === 'string' ? body.quoteId.trim() : ''
+  if (!quoteId) return next()
+  ctx.state.conversionQuoteId = quoteId
+  return queueQuoteConversion(quoteId, next)
+}, async (ctx) => {
   const body = (ctx.request.body || {}) as {
     name?: string
     description?: string
@@ -387,8 +418,43 @@ router.post('/', async (ctx) => {
     vatRate?: number
     kind?: 'standard' | 'interim' | 'final'
   }
-  const { name, description, invoiceImages, company, job, user, notes } = body
-  const materials = normalizeMaterials(body.materials)
+  const quoteId = ctx.state.conversionQuoteId as string | undefined
+  const quote = quoteId && Object.hasOwn(quotes, quoteId) ? quotes[quoteId] : undefined
+  if (quoteId && !quote) {
+    ctx.status = 404
+    ctx.body = { error: 'Offerte niet gevonden.' }
+    return
+  }
+  if (quote) {
+    const existingId = findQuoteInvoiceId(quoteId, quote, invoices)
+    if (existingId) {
+      const content = invoices[existingId]
+      const repairedHours = markInvoiceHours(existingId, content)
+      if (repairedHours || unsavedQuoteInvoices.has(existingId)) await saveQuoteInvoice(existingId)
+      ctx.body = { content, uuid: existingId, reused: true }
+      return
+    }
+    if (!body.company || !Object.hasOwn(companies, body.company) || companies[body.company].relationshipType === 'supplier') {
+      ctx.status = 400
+      ctx.body = { error: 'Kies een geldige klant voor deze offerte.' }
+      return
+    }
+    if (!Object.hasOwn(jobs, quote.jobId)) {
+      ctx.status = 409
+      ctx.body = { error: 'De job van deze offerte bestaat niet meer.' }
+      return
+    }
+  }
+  const { name, description, invoiceImages, company, job, user, notes } = quote ? {
+    name: quote.name,
+    description: quote.description || quote.notes || quote.name,
+    invoiceImages: [],
+    company: body.company,
+    job: quote.jobId,
+    user: ctx.state.userid,
+    notes: quote.notes
+  } : body
+  const materials = normalizeMaterials(quote ? quote.materials : body.materials)
   const year = new Date().getFullYear()
   if (!name || !description || !invoiceImages || !company || !job || !user) {
     ctx.status = 400
@@ -416,29 +482,25 @@ router.post('/', async (ctx) => {
     notes,
     materials,
     hours: hoursSnapshot,
-    kind: body.kind === 'interim' || body.kind === 'final' ? body.kind : 'standard',
-    quoteId: typeof body.quoteId === 'string' ? body.quoteId : undefined,
-    laborAmount: Math.max(0, Number(body.laborAmount) || 0),
-    discountAmount: Math.max(0, Number(body.discountAmount) || 0),
-    vatRate: Math.min(100, Math.max(0, Number(body.vatRate) || 0))
+    kind: !quote && (body.kind === 'interim' || body.kind === 'final') ? body.kind : 'standard',
+    quoteId,
+    laborAmount: Math.max(0, Number(quote ? quote.laborAmount : body.laborAmount) || 0),
+    discountAmount: Math.max(0, Number(quote ? quote.discountAmount : body.discountAmount) || 0),
+    vatRate: Math.min(100, Math.max(0, Number(quote ? quote.vatRate ?? 21 : body.vatRate) || 0))
   }
 
-  const uuid = body.uuid || crypto.randomUUID()
+  const uuid = (!quote && body.uuid) || crypto.randomUUID()
+  if (Object.hasOwn(invoices, uuid)) {
+    ctx.status = 409
+    ctx.body = { error: 'Er bestaat al een factuur met dit nummer.' }
+    return
+  }
 
   invoices[uuid] = invoice
 
-  for (const line of hoursSnapshot) {
-    const userHours = hours[line.userId]
-    if (!userHours) continue
-    for (const prestationId of line.prestationIds) {
-      const prestation = userHours[prestationId]
-      if (!prestation) continue
-      prestation.invoiceId = uuid
-      prestation.invoicedAt = Date.now()
-    }
-  }
-
-  await Promise.all([invoicesStore.put(invoices), hoursStore.put(hours)])
+  markInvoiceHours(uuid, invoice)
+  if (quote) await saveQuoteInvoice(uuid)
+  else await Promise.all([invoicesStore.put(invoices), hoursStore.put(hours)])
 
   ctx.body = { content: invoice, uuid }
   ctx.status = 200
@@ -467,6 +529,7 @@ router.delete('/:uuid', async (ctx) => {
     }
   }
   delete invoices[uuid]
+  unsavedQuoteInvoices.delete(uuid)
   await Promise.all([invoicesStore.put(invoices), hoursStore.put(hours)])
   ctx.status = 204
 })

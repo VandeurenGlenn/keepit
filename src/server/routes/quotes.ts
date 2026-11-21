@@ -1,11 +1,12 @@
 import { Router } from '@koa/router'
-import { jobs, quotes, quotesStore } from '../database/database.js'
+import { invoices, jobs, quotes, quotesStore } from '../database/database.js'
+import { findQuoteInvoiceId, indexQuoteInvoices } from '../helpers/quote-invoices.js'
 import type { MaterialLine, Quote, QuoteStatus } from '../../types/index.js'
 
 const router = new Router({ prefix: '/api/quotes' })
 const statuses: QuoteStatus[] = ['draft', 'sent', 'approved', 'rejected']
 
-type QuoteInput = Partial<Pick<Quote, 'name' | 'description' | 'jobId' | 'status' | 'materials' | 'notes' | 'validUntil' | 'laborAmount' | 'discountAmount' | 'vatRate' | 'convertedInvoiceId'>>
+type QuoteInput = Partial<Pick<Quote, 'name' | 'description' | 'jobId' | 'status' | 'materials' | 'notes' | 'validUntil' | 'laborAmount' | 'discountAmount' | 'vatRate'>>
 
 const optionalText = (value: unknown, maxLength: number): string | undefined => {
   if (typeof value !== 'string') return undefined
@@ -62,12 +63,18 @@ const quoteFromInput = (input: QuoteInput, current?: Quote): Omit<Quote, 'id' | 
   validUntil: input.validUntil ? new Date(input.validUntil).toISOString().slice(0, 10) : undefined,
   laborAmount: Math.max(0, Number(input.laborAmount) || 0),
   discountAmount: Math.max(0, Number(input.discountAmount) || 0),
-  vatRate: input.vatRate === undefined ? 21 : Number(input.vatRate),
-  convertedInvoiceId: optionalText(input.convertedInvoiceId, 120)
+  vatRate: input.vatRate === undefined ? 21 : Number(input.vatRate)
+})
+
+const presentQuote = (id: string, quote: Quote, index?: Map<string, string>): Quote => ({
+  ...quote,
+  id,
+  convertedInvoiceId: findQuoteInvoiceId(id, quote, invoices, index)
 })
 
 router.get('/', (ctx) => {
-  ctx.body = Object.fromEntries(Object.entries(quotes).map(([id, quote]) => [id, { ...quote, id }]))
+  const index = indexQuoteInvoices(invoices)
+  ctx.body = Object.fromEntries(Object.entries(quotes).map(([id, quote]) => [id, presentQuote(id, quote, index)]))
 })
 
 router.get('/:id', (ctx) => {
@@ -77,7 +84,7 @@ router.get('/:id', (ctx) => {
     ctx.body = { error: 'Offerte niet gevonden' }
     return
   }
-  ctx.body = { ...quote, id: ctx.params.id }
+  ctx.body = presentQuote(ctx.params.id, quote)
 })
 
 router.post('/', async (ctx) => {
@@ -122,7 +129,7 @@ router.patch('/:id', async (ctx) => {
   const updated: Quote = { ...current, ...quoteFromInput(input, current), id, updatedAt: new Date().toISOString() }
   quotes[id] = updated
   await quotesStore.put(quotes)
-  ctx.body = updated
+  ctx.body = presentQuote(id, updated)
 })
 
 router.post('/:id/duplicate', async (ctx) => {

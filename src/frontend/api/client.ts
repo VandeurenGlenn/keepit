@@ -226,6 +226,10 @@ class ApiClient {
     return this.request('GET', `/invoice/${invoiceId}`)
   }
 
+  async convertQuoteToInvoice(quoteId: string, company: string): Promise<{ uuid: string; reused?: boolean }> {
+    return this.request('POST', '/invoices', { quoteId, company })
+  }
+
   async updateInvoice(invoiceId: invoiceId, updates: Partial<Invoice>): Promise<Invoice> {
     return this.request('PATCH', `/invoice/${invoiceId}`, updates)
   }
