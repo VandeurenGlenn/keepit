@@ -59,15 +59,15 @@ const quoteFromInput = (input: QuoteInput, current?: Quote): Omit<Quote, 'id' | 
   status: input.status || current?.status || 'draft',
   materials: normalizeMaterials(input.materials),
   notes: optionalText(input.notes, 5000),
-  validUntil: input.validUntil ? new Date(input.validUntil).toISOString().slice(0, 10) : undefined
-  ,laborAmount: Math.max(0, Number(input.laborAmount) || 0)
-  ,discountAmount: Math.max(0, Number(input.discountAmount) || 0)
-  ,vatRate: Math.min(100, Math.max(0, Number(input.vatRate) || 0))
-  ,convertedInvoiceId: optionalText(input.convertedInvoiceId, 120)
+  validUntil: input.validUntil ? new Date(input.validUntil).toISOString().slice(0, 10) : undefined,
+  laborAmount: Math.max(0, Number(input.laborAmount) || 0),
+  discountAmount: Math.max(0, Number(input.discountAmount) || 0),
+  vatRate: input.vatRate === undefined ? 21 : Number(input.vatRate),
+  convertedInvoiceId: optionalText(input.convertedInvoiceId, 120)
 })
 
 router.get('/', (ctx) => {
-  ctx.body = quotes
+  ctx.body = Object.fromEntries(Object.entries(quotes).map(([id, quote]) => [id, { ...quote, id }]))
 })
 
 router.get('/:id', (ctx) => {
@@ -77,7 +77,7 @@ router.get('/:id', (ctx) => {
     ctx.body = { error: 'Offerte niet gevonden' }
     return
   }
-  ctx.body = { ...quote, id: quote.id || ctx.params.id }
+  ctx.body = { ...quote, id: ctx.params.id }
 })
 
 router.post('/', async (ctx) => {
@@ -118,8 +118,9 @@ router.patch('/:id', async (ctx) => {
     ctx.body = { error }
     return
   }
-  const updated: Quote = { ...current, ...quoteFromInput(input, current), updatedAt: new Date().toISOString() }
-  quotes[current.id] = updated
+  const id = ctx.params.id
+  const updated: Quote = { ...current, ...quoteFromInput(input, current), id, updatedAt: new Date().toISOString() }
+  quotes[id] = updated
   await quotesStore.put(quotes)
   ctx.body = updated
 })
@@ -138,6 +139,7 @@ router.post('/:id/duplicate', async (ctx) => {
     id,
     name: `${current.name} (kopie)`,
     status: 'draft',
+    convertedInvoiceId: undefined,
     createdAt: now,
     updatedAt: now,
     createdBy: ctx.state.userid

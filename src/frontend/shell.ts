@@ -17,6 +17,7 @@ import { flushOfflineActions, getPendingWorkState, initializeOfflineSync, setOff
 import type { ConfirmationOptions } from './helpers/confirmation.js'
 import { confirmAction } from './helpers/confirmation.js'
 import { clearUnsavedChanges, hasUnsavedChanges } from './helpers/unsaved-changes.js'
+import { parseWorkspaceRoute } from './helpers/workspace-route.js'
 
 import './animations/error.js'
 
@@ -49,7 +50,8 @@ export class AppShell extends LiteElement {
   @property({ type: Array, provides: true }) accessor companies
   @property({ type: Array, provides: true }) accessor users
 
-  @property({ type: Object, consumes: true }) accessor error = null
+  @property({ type: Object }) accessor error: { message: string; label: string; href: string } | null = null
+  @property({ type: Boolean }) accessor routeLoading = false
   @property({ type: Boolean, attribute: 'is-menu-open', reflect: true }) accessor isMenuOpen = false
   @property({ type: Boolean, attribute: 'auth-resolving' }) accessor authResolving = false
   @property({ type: Object }) accessor appNotification: AppNotification | undefined
@@ -73,6 +75,7 @@ export class AppShell extends LiteElement {
   subscribedDataTypes = new Set<string>()
   lastRouteHash = ''
   routeGuardBypass = false
+  routeRequest?: AbortController
 
   capturePendingInvite() {
     const query = location.hash.split('?')[1]
@@ -149,122 +152,132 @@ export class AppShell extends LiteElement {
   _onhashchange = async () => {
     const hash = location.hash
     if (this.routeGuardBypass) this.routeGuardBypass = false
-    else if (this.lastRouteHash && hash !== this.lastRouteHash && hasUnsavedChanges()) {
-      history.replaceState(null, '', this.lastRouteHash)
-      if (await confirmAction({ title: 'Wijzigingen niet opgeslagen', message: 'Als je doorgaat, gaan de wijzigingen op deze pagina verloren.', confirmLabel: 'Wijzigingen negeren' })) {
+    else if (this.lastRouteHash !== hash && hasUnsavedChanges()) {
+      const previousHash = this.lastRouteHash
+      history.replaceState(null, '', previousHash || location.pathname + location.search)
+      if (await confirmAction({ title: 'Wijzigingen niet opgeslagen', message: 'Als je doorgaat, gaan de wijzigingen op deze pagina verloren.', confirmLabel: 'Wijzigingen negeren' }) && location.hash === previousHash) {
         clearUnsavedChanges()
         this.routeGuardBypass = true
         location.hash = hash
       }
       return
     }
-    const path = (hash.split('!/')[1] || 'home').split('?')[0]
+    const { path, params, known } = parseWorkspaceRoute(hash)
 
     if (path === 'media' || path === 'projects') {
       location.hash = '#!/home'
       return
     }
 
-    const params =
-      hash
-        .split('?')?.[1]
-        ?.split('&')
-        .reduce<Record<string, string>>(
-          (acc, param) => {
-            const [key, value] = param.split('=')
-            acc[key] = decodeURIComponent(value)
-            return acc
-          },
-          {} as Record<string, string>
-        ) || {}
-
-    if (params.error) {
-      this.error = { message: params.error, label: 'Terug naar home', href: '#!/home' }
-      this.requestRender()
-      return
-    } else {
-      this.error = null
-    }
-
-    if (!(await customElements.get(`${path}-view`))) await import(`./${path}-view.js`)
-
-    const promises = []
-
     if (!this.userSignedIn) return
-
-    if (path === 'invoices') {
-      if (!this.invoices) promises.push(this._load('invoices'))
-      if (!this.jobs) promises.push(this._load('jobs'))
-
-      if (!this.companies) promises.push(this._load('companies'))
-    }
-    if (path === 'invoice') {
-      promises.push(this._load('invoice', params.selected))
-    }
-    if (path === 'jobs') {
-      if (!this.jobs) promises.push(this._load('jobs'))
-      if (!this.companies) promises.push(this._load('companies'))
-    }
-    if (path === 'planning') {
-      if (!this.jobs) promises.push(this._load('jobs'))
-      if (!this.users) promises.push(this._load('users'))
-    }
-
-    if (path === 'backups' && !this.user?.roles?.includes('admin')) {
+    if ((path === 'backups' || path === 'reports') && !this.user?.roles?.includes('admin')) {
       location.hash = '#!/home'
       return
     }
-    if (path === 'quote') {
-      if (!this.jobs) promises.push(this._load('jobs'))
-      if (!this.companies) promises.push(this._load('companies'))
-      if (params.selected) {
-        promises.push(
-          api.getQuote(params.selected).then((quote) => {
-            this.quote = { ...quote, id: quote.id || params.selected }
-          })
-        )
-      } else {
-        this.quote = undefined
+
+    this.routeRequest?.abort()
+    const request = this.routeRequest = new AbortController()
+    const isCurrent = () => !request.signal.aborted && location.hash === hash && this.userSignedIn
+    this.lastRouteHash = hash
+    this.routeLoading = true
+    this.error = null
+    this.selected = path
+    this.isMenuOpen = false
+
+    try {
+      if (params.has('error')) throw new Error(params.get('error') || 'Er ging iets mis.')
+      if (!known) throw new Error('Deze pagina bestaat niet.')
+      if (!customElements.get(`${path}-view`)) await import(`./${path}-view.js`)
+      if (!isCurrent()) return
+      await this.loadRoute(path, params.get('selected'), request.signal, isCurrent)
+    } catch (error) {
+      if (!isCurrent()) return
+      const destinations = {
+        quote: ['Offertes', '#!/quotes'],
+        job: ['Jobs', '#!/jobs'],
+        invoice: ['Facturen', '#!/invoices']
+      }
+      const [label, href] = destinations[path] || ['Home', '#!/home']
+      const message = error instanceof Error && !(error instanceof TypeError)
+        ? error.message
+        : 'Deze pagina kon niet geladen worden. Controleer je verbinding en probeer opnieuw.'
+      this.error = { message, label: `Terug naar ${label}`, href }
+    } finally {
+      if (isCurrent()) {
+        this.routeLoading = false
+        requestAnimationFrame(() => {
+          if (!isCurrent()) return
+          const main = this.shadowRoot?.querySelector<HTMLElement>('main')
+          if (main) main.scrollTop = 0
+        })
       }
     }
+  }
+
+  async loadRoute(path: string, selected: string | null, signal: AbortSignal, isCurrent: () => boolean) {
+    const promises: Promise<void>[] = []
+    const load = (type: string, id?: string) => this._load(type, signal, isCurrent, id)
+    if ((path === 'job' || path === 'invoice') && !selected) {
+      throw new Error(path === 'job' ? 'Geen job geselecteerd.' : 'Geen factuur geselecteerd.')
+    }
+
+    if (path === 'invoices') {
+      if (!this.invoices) promises.push(load('invoices'))
+      if (!this.jobs) promises.push(load('jobs'))
+
+      if (!this.companies) promises.push(load('companies'))
+    }
+    if (path === 'invoice') {
+      promises.push(load('invoice', selected))
+      if (!this.jobs) promises.push(load('jobs'))
+      if (!this.companies) promises.push(load('companies'))
+    }
+    if (path === 'jobs') {
+      if (!this.jobs) promises.push(load('jobs'))
+      if (!this.companies) promises.push(load('companies'))
+    }
+    if (path === 'planning') {
+      if (!this.jobs) promises.push(load('jobs'))
+      if (!this.users) promises.push(load('users'))
+    }
+
+    if (path === 'quote') {
+      if (!this.jobs) promises.push(load('jobs'))
+      if (!this.companies) promises.push(load('companies'))
+      if (selected) promises.push(load('quote', selected))
+      else this.quote = undefined
+    }
     if (path === 'quotes') {
-      promises.push(this._load('quotes'))
-      if (!this.jobs) promises.push(this._load('jobs'))
-      if (!this.companies) promises.push(this._load('companies'))
+      promises.push(load('quotes'))
+      if (!this.jobs) promises.push(load('jobs'))
+      if (!this.companies) promises.push(load('companies'))
     }
     if (path === 'job') {
-      promises.push(this._load('job', params.selected))
-      if (!this.companies) promises.push(this._load('companies'))
-      if (this.user?.roles?.includes('admin') && !this.users) promises.push(this._load('users'))
+      promises.push(load('job', selected))
+      if (!this.companies) promises.push(load('companies'))
+      if (this.user?.roles?.includes('admin') && !this.users) promises.push(load('users'))
     }
     if (path === 'companies') {
-      if (!this.companies) promises.push(this._load('companies'))
+      if (!this.companies) promises.push(load('companies'))
     }
     if (path === 'suppliers') {
-      if (!this.companies) promises.push(this._load('companies'))
+      if (!this.companies) promises.push(load('companies'))
     }
     if (path === 'users' || path === 'reports') {
-      if (!this.users) promises.push(this._load('users'))
-      if (path === 'reports' && !this.jobs) promises.push(this._load('jobs'))
+      if (!this.users) promises.push(load('users'))
+      if (path === 'reports' && !this.jobs) promises.push(load('jobs'))
     }
     if (path === 'home' || path === 'timeline' || path === 'sync') {
-      if (!this.jobs) promises.push(this._load('jobs'))
+      if (!this.jobs) promises.push(load('jobs'))
     }
     if (path === 'checkin') {
-      if (!this.jobs) promises.push(this._load('jobs'))
+      if (!this.jobs) promises.push(load('jobs'))
     }
     if (path === 'checkout') {
-      if (!this.jobs) promises.push(this._load('jobs'))
+      if (!this.jobs) promises.push(load('jobs'))
     }
 
     await Promise.all(promises)
-
-    this.selected = path
-    this.lastRouteHash = hash
-    requestAnimationFrame(() => {
-      const main = this.shadowRoot?.querySelector<HTMLElement>('main')
-      if (main) main.scrollTop = 0
-    })
   }
 
   beforeRender(): void {
@@ -294,6 +307,13 @@ export class AppShell extends LiteElement {
   }
 
   clearStoredAuth() {
+    this.routeRequest?.abort()
+    this.routeLoading = false
+    this.error = null
+    this.lastRouteHash = ''
+    this.selected = undefined
+    this.routeGuardBypass = false
+    clearUnsavedChanges()
     localStorage.removeItem('token')
     localStorage.removeItem('ticket')
     this.googlePromptAttempted = false
@@ -618,10 +638,11 @@ export class AppShell extends LiteElement {
       if (handshakeData === 'NOT_REGISTERED') {
         user.picture = (await this.cacheProfilePicture(user.picture)) || user.picture
         this.user = user
-        location.hash = this.pendingInviteRegistrationHash()
         this.userSignedIn = true
         this.authResolving = false
-        this._onhashchange()
+        const registrationHash = this.pendingInviteRegistrationHash()
+        if (location.hash === registrationHash) void this._onhashchange()
+        else location.hash = registrationHash
         return
       }
 
@@ -649,8 +670,9 @@ export class AppShell extends LiteElement {
 
       if (!location.hash) {
         location.hash = '#!/home'
+      } else {
+        void this._onhashchange()
       }
-      this._onhashchange()
 
       this.initWSClient()
     } catch (error) {
@@ -661,35 +683,36 @@ export class AppShell extends LiteElement {
 
   static styles = [styles]
 
-  async _load(type, uuid?: string) {
+  async _load(type: string, signal: AbortSignal, isCurrent: () => boolean, uuid?: string) {
     if (uuid) this[type] = undefined
-    const response = await fetch(uuid ? `/api/${type}/${uuid}` : `/api/${type}`, {
+    const endpoint = type === 'quote' ? 'quotes' : type
+    const token = localStorage.getItem('token')
+    const response = await fetch(uuid ? `/api/${endpoint}/${encodeURIComponent(uuid)}` : `/api/${endpoint}`, {
       method: 'GET',
-      headers: {
-        Authorization: localStorage.getItem('token')
-      }
+      signal,
+      headers: token ? { Authorization: token } : undefined
     })
     if (!response.ok) {
-      if (response.status === 403 && (await response.json()).error === 'Forbidden, register first') {
-        location.hash = '#!/register'
+      const body = await response.json().catch(() => null)
+      if (response.status === 403 && body?.error === 'Forbidden, register first') {
+        if (isCurrent()) location.hash = this.pendingInviteRegistrationHash()
         return
       }
-      console.error('Error fetching data:', response.statusText)
-      this.error = {
-        message: `${type === 'job' ? 'De job' : 'De gegevens'} kon niet geladen worden.`,
-        label: type === 'job' ? 'Terug naar jobs' : 'Terug naar home',
-        href: type === 'job' ? '#!/jobs' : '#!/home'
+      if (response.status === 404) {
+        const missing = { quote: 'Offerte niet gevonden.', job: 'Job niet gevonden.', invoice: 'Factuur niet gevonden.' }
+        if (missing[type]) throw new Error(missing[type])
       }
-      return
+      throw new Error('De gegevens konden niet geladen worden. Probeer het opnieuw.')
     }
     const data = await response.json()
-    if (!this.subscribedDataTypes.has(type)) {
+    if (!isCurrent()) return
+    if (!uuid && !this.subscribedDataTypes.has(type)) {
       pubsub.subscribe(`${type}.changed`, (value) => {
         this[type] = value
       })
       this.subscribedDataTypes.add(type)
     }
-    this[type] = data
+    this[type] = type === 'quote' ? { ...data, id: uuid } : data
   }
 
   onChange(propertyKey: string, value: any): void {
@@ -698,8 +721,7 @@ export class AppShell extends LiteElement {
   }
 
   renderSelectedView() {
-    const hash = location.hash
-    const path = (hash.split('!/')[1] || 'home').split('?')[0]
+    const path = this.selected
 
     if (this.error) {
       return html`
@@ -762,16 +784,15 @@ export class AppShell extends LiteElement {
       `
     }
 
+    if (this.routeLoading || !path) return html` <loading-view type="loading"></loading-view> `
+
     if (path === 'home') {
       return html` <home-view></home-view> `
     }
 
     if (path === 'quote') {
-      const selectedQuoteId = new URLSearchParams(hash.split('?')[1] || '').get('selected')
-      if ((selectedQuoteId && this.quote?.id !== selectedQuoteId) || !this.jobs) {
-        return html` <loading-view type="loading"></loading-view> `
-      }
       return html` <quote-view
+        @quote-url-replaced=${() => { this.lastRouteHash = location.hash }}
         .quote=${this.quote}
         .jobs=${this.jobs || {}}></quote-view>`
     }
