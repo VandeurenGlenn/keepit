@@ -16,12 +16,6 @@ import '@vandeurenglenn/lite-elements/icon.js'
 import { showToast } from '../helpers/toast.js'
 import { confirmAction } from '../helpers/confirmation.js'
 
-let debounceTimeout: ReturnType<typeof setTimeout>
-function debounce(fn: (...args: any[]) => void, delay = 300) {
-  clearTimeout(debounceTimeout)
-  debounceTimeout = setTimeout(fn, delay)
-}
-
 type MaterialDraft = {
   name: string
   quantity: number
@@ -30,6 +24,7 @@ type MaterialDraft = {
   articleNumber?: string
   productNumber?: string
   packagingQuantity?: number
+  kind?: MaterialLine['kind']
 }
 
 type HoursByUser = Record<string, Prestation[]>
@@ -67,27 +62,25 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   @property({ type: Array }) accessor billableMaterials: MaterialLine[] = []
   @property({ type: String }) accessor invoiceKind: 'standard' | 'interim' | 'final' = 'standard'
   @property({ type: String }) accessor prefillJobId = ''
+  @property({ type: String }) accessor createForJob = ''
   @property({ type: Boolean }) accessor savingInvoice = false
+  @property({ type: Boolean }) accessor billingLoading = false
+  @property({ type: Boolean }) accessor billingLoadFailed = false
 
   @query('chip-field[label="jobs"]') accessor jobChips!: ChipField
   @query('chip-field[label="companies"]') accessor companyChips!: ChipField
 
   currentStream: MediaStream | null = null
   favoriteNames: Set<string> = new Set()
-  private handledCreateRequest = ''
+  private billingRequest = 0
+  private billingJob?: string
 
   dataUrl: string | null = null
 
-  async onChange(propertyKey: string): Promise<void> {
-    if (propertyKey !== 'jobs' && propertyKey !== 'invoices') return
-    const params = new URLSearchParams(globalThis.location.hash.split('?')[1] || '')
-    const jobId = params.get('job') || ''
-    if (params.get('create') !== '1' || !jobId || !this.jobs?.[jobId]) return
-    const requestKey = `${jobId}:${params.get('create')}`
-    if (this.handledCreateRequest === requestKey) return
-    this.handledCreateRequest = requestKey
-    this._addInvoice(jobId, false)
-    history.replaceState(history.state, '', `${location.pathname}${location.search}#!/invoices?job=${encodeURIComponent(jobId)}`)
+  firstRender() {
+    if (this.createForJob && this.jobs?.[this.createForJob]) {
+      void this._addInvoice(this.createForJob, false)
+    }
   }
   static styles = [
     css`
@@ -552,7 +545,8 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       const name = material.name.trim()
       if (!name) continue
 
-      const quantity = Number(material.quantity)
+      const small = material.kind === 'small-materials'
+      const quantity = small ? 1 : Number(material.quantity)
       const unitPrice = material.unitPrice === undefined ? undefined : Number(material.unitPrice)
 
       normalized.push({
@@ -560,6 +554,8 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
         unit: material.unit.trim() || undefined,
         unitPrice: unitPrice !== undefined && Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : undefined,
+        kind: material.kind,
+        smallMaterialAmount: small && Number.isFinite(unitPrice) ? Math.max(0, unitPrice) : undefined,
         articleNumber: material.articleNumber,
         productNumber: material.productNumber,
         packagingQuantity: material.packagingQuantity
@@ -588,6 +584,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
           quantity: Number(material.quantity) > 0 ? Number(material.quantity) : 1,
           unit: material.unit || '',
           unitPrice: material.unitPrice !== undefined ? Number(material.unitPrice) : undefined,
+          kind: material.kind,
           articleNumber: material.articleNumber,
           productNumber: material.productNumber,
           packagingQuantity: material.packagingQuantity
@@ -597,24 +594,36 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   }
 
   async selectInvoiceJob(jobId?: string) {
-    if (!jobId) {
-      this.billableMaterials = []
-      this.resetMaterials()
-      await this.loadBillableHours()
-      return
-    }
+    if (!this.addingInvoice || (this.billingJob === jobId && !this.billingLoadFailed)) return
+    this.billingJob = jobId
+    const request = ++this.billingRequest
+    const current = () => this.isConnected && this.addingInvoice && request === this.billingRequest
+    this.billableMaterials = []
+    this.billableHours = {}
+    this.hourUsers = {}
+    this.openHourUsers = {}
+    this.resetMaterials()
+    this.billingLoadFailed = false
+    this.billingLoading = !!jobId
+    if (!jobId) return
     const linkedCustomer = (this.jobs?.[jobId] as Job | undefined)?.customerId
     if (linkedCustomer && this.companyChips) {
       this.companyChips.selected = [linkedCustomer]
       this.companyChips.requestRender()
       void this.loadMaterialSuggestions(linkedCustomer)
     }
-    const [materials] = await Promise.all([
-      api.getBillableJobMaterials(jobId),
-      this.loadBillableHours(jobId)
-    ])
-    this.billableMaterials = materials
-    this.loadJobMaterials()
+    try {
+      const [materials, hours] = await Promise.all([api.getBillableJobMaterials(jobId), api.getJobHours(jobId, true)])
+      if (!current()) return
+      this.billableMaterials = materials
+      this.billableHours = Object.fromEntries(Object.entries(hours).filter(([, entries]) => entries.length))
+      this.loadJobMaterials()
+      void this.loadHourUsers(Object.keys(this.billableHours), current)
+    } catch {
+      if (current()) this.billingLoadFailed = true
+    } finally {
+      if (current()) this.billingLoading = false
+    }
   }
 
   getMaterialSuggestion(name: string): MaterialLine | undefined {
@@ -692,38 +701,13 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     }
   }
 
-  async loadBillableHours(jobId?: string) {
-    if (!jobId) {
-      this.billableHours = {}
-      this.hourUsers = {}
-      this.openHourUsers = {}
-      return
-    }
-
-    try {
-      this.billableHours = await api.getJobHours(jobId, true)
-
-      const nextUsers: Record<string, User> = {}
-      const userIds = Object.keys(this.billableHours)
-
-      await Promise.all(
-        userIds.map(async (userId) => {
-          try {
-            nextUsers[userId] = await api.getUser(userId)
-          } catch (error) {
-            console.error(`Failed to load user ${userId}:`, error)
-          }
-        })
-      )
-
-      this.hourUsers = nextUsers
-      this.openHourUsers = {}
-    } catch (error) {
-      console.error('Failed to load billable hours:', error)
-      this.billableHours = {}
-      this.hourUsers = {}
-      this.openHourUsers = {}
-    }
+  async loadHourUsers(userIds: string[], current: () => boolean) {
+    const users: Record<string, User> = {}
+    await Promise.all(userIds.map(async (id) => {
+      const user = await api.getUser(id).catch(() => undefined)
+      if (user) users[id] = user
+    }))
+    if (current()) this.hourUsers = users
   }
 
   toggleBillableHours(userId: string) {
@@ -838,6 +822,10 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   }
 
   closeInvoiceForm = () => {
+    ++this.billingRequest
+    this.billingJob = undefined
+    this.billingLoading = false
+    this.billingLoadFailed = false
     this.currentStream?.getTracks().forEach((track) => track.stop())
     this.currentStream = null
     this.addingInvoice = false
@@ -855,6 +843,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   }
 
   _saveInvoice = async () => {
+    if (this.savingInvoice || this.billingLoading || this.billingLoadFailed) return
     const selectedCompany = this.companyChips.selected[0]
     const selectedJob = this.jobChips.selected[0]
     const companies = ((this as any).companies || {}) as Record<string, any>
@@ -862,9 +851,9 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     const materials = this.sanitizedMaterials
     if (!userId) return showToast('Er is geen actieve gebruiker gevonden.')
 
-    if (!this.notes && !selectedJob) return showToast('Kies een job of voeg een notitie toe.')
+    if (!selectedJob) return showToast('Kies een job voor deze factuur.')
     if (!this.notes) this.notes = 'Geen notities'
-    if (!selectedCompany) return showToast('Kies een klant of leverancier.')
+    if (!selectedCompany) return showToast('Kies een klant.')
 
     const _date = new Date()
     const date = _date.toISOString()
@@ -967,7 +956,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
               <button ?disabled=${this.savingInvoice} @click=${() => this.closeInvoiceForm()}>Annuleren</button>
               <button
                 class="primary"
-                ?disabled=${this.savingInvoice}
+                ?disabled=${this.savingInvoice || this.billingLoading || this.billingLoadFailed}
                 @click=${() => this._saveInvoice()}>
                 ${this.savingInvoice ? 'Bewaren…' : 'Factuur bewaren'}
               </button>
@@ -980,17 +969,15 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
           : null}
 
         <div class="capture-form">
+          ${this.billingLoading ? html`<p role="status">Factureerbare uren en materialen laden…</p>` : ''}
+          ${this.billingLoadFailed ? html`<p role="alert">De jobgegevens konden niet geladen worden.
+            <button type="button" @click=${() => void this.selectInvoiceJob(this.billingJob)}>Probeer opnieuw</button>
+          </p>` : ''}
           <chip-field
             label="jobs"
             customEvent
-            multi
-            @selected=${() => {
-              const selectedJob = this.jobChips?.selected?.[0]
-              void this.selectInvoiceJob(selectedJob)
-            }}
-            @selection-changed=${() => {
-              const selectedJob = this.jobChips?.selected?.[0]
-              void this.selectInvoiceJob(selectedJob)
+            @chip-selected=${(event: CustomEvent<string[]>) => {
+              void this.selectInvoiceJob(event.detail[0])
             }}
             @add-chip=${() => {
               this._createJob()
@@ -1008,9 +995,8 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
             @add-chip=${() => {
               ;(this as any)._addCompany()
             }}
-            @selected=${() => {
-              const selectedCompany = this.companyChips?.selected?.[0]
-              void this.loadMaterialSuggestions(selectedCompany)
+            @chip-selected=${(event: CustomEvent<string[]>) => {
+              void this.loadMaterialSuggestions(event.detail[0])
             }}
             .chips=${(
               Object.entries(((this as any).companies || {}) as Record<string, any>) as Array<[string, any]>
@@ -1020,10 +1006,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
                 label: data.name,
                 value: uuid
               }))}
-            @selection-changed=${() => {
-              const selectedCompany = this.companyChips?.selected?.[0]
-              void this.loadMaterialSuggestions(selectedCompany)
-            }}></chip-field>
+            ></chip-field>
 
           <div class="materials-panel">
             <div class="materials-header">
@@ -1074,6 +1057,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
                             type="text"
                             list="material-suggestions-list"
                             placeholder="Materiaal"
+                            ?readonly=${material.kind === 'small-materials'}
                             .value=${material.name}
                             @input=${(event: Event) => {
                               const input = event.target as HTMLInputElement
@@ -1091,6 +1075,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
                           min="0.01"
                           step="0.01"
                           placeholder="Aantal"
+                          ?readonly=${material.kind === 'small-materials'}
                           .value=${String(material.quantity)}
                           @input=${(event: Event) => {
                             const input = event.target as HTMLInputElement
@@ -1099,6 +1084,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
                         <input
                           type="text"
                           placeholder="Eenheid"
+                          ?readonly=${material.kind === 'small-materials'}
                           .value=${material.unit}
                           @input=${(event: Event) => {
                             const input = event.target as HTMLInputElement
@@ -1153,7 +1139,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
               <h3>Factureerbare uren</h3>
             </div>
 
-            ${Object.keys(this.billableHours).length === 0
+            ${this.billingLoading || this.billingLoadFailed ? '' : Object.keys(this.billableHours).length === 0
               ? html`<div class="material-summary">Geen factureerbare uren voor deze job.</div>`
               : html`
                   ${Object.entries(this.billableHours).map(([userId, prestations]) => {
@@ -1204,11 +1190,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
           <md-outlined-text-field
             class="notes-field"
             label="Notities"
-            @input=${(e: Event) =>
-              debounce(() => {
-                const input = e.target as HTMLInputElement
-                this.notes = input.value
-              }, 500)}>
+            @input=${(e: Event) => { this.notes = (e.target as HTMLInputElement).value }}>
           </md-outlined-text-field>
         </div>
       </section>

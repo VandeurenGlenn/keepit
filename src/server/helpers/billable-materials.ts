@@ -9,6 +9,30 @@ export const materialBillingKey = (material: MaterialLine): string => {
   return `name:${normalized(material.name)}|unit:${normalized(material.unit)}`
 }
 
+const billingAmount = (material: MaterialLine): number => {
+  const value = Number(material.kind === 'small-materials'
+    ? material.smallMaterialAmount ?? material.unitPrice
+    : material.quantity)
+  return Number.isFinite(value) ? Math.max(0, value) : 0
+}
+
+export const findMaterialOverbilling = (
+  requested: MaterialLine[],
+  jobMaterials: MaterialLine[],
+  remaining: MaterialLine[]
+): MaterialLine | undefined => {
+  const trackedKeys = new Set(jobMaterials.map(materialBillingKey))
+  const available = new Map(remaining.map((line) => [materialBillingKey(line), billingAmount(line)]))
+  const totals = new Map<string, number>()
+  for (const line of requested) {
+    const key = materialBillingKey(line)
+    if (!trackedKeys.has(key)) continue
+    const total = (totals.get(key) || 0) + billingAmount(line)
+    if (total > (available.get(key) || 0) + 0.000_001) return line
+    totals.set(key, total)
+  }
+}
+
 export const collectRemainingMaterials = (
   jobMaterials: MaterialLine[] = [],
   invoicedMaterials: MaterialLine[] = []

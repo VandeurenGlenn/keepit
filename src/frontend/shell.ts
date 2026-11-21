@@ -814,8 +814,10 @@ export class AppShell extends LiteElement {
       if (!this.invoices) {
         return html` <loading-view type="loading"></loading-view> `
       }
+      const { params } = parseWorkspaceRoute(location.hash)
       return html`
         <invoices-view
+          .createForJob=${params.get('create') === '1' ? params.get('job') || '' : ''}
           .invoices=${this.invoices}
           .jobs=${this.jobs}
           .companies=${this.companies}></invoices-view>

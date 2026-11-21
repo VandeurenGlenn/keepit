@@ -48,7 +48,13 @@ router.get('/:uuid', async (ctx) => {
     ctx.body = { error: 'UUID is required' }
     return
   }
-  ctx.body = invoices[uuid] || {}
+  const invoice = invoices[uuid]
+  if (!invoice) {
+    ctx.status = 404
+    ctx.body = { error: 'Factuur niet gevonden.' }
+    return
+  }
+  ctx.body = invoice
   ctx.status = 200
   ctx.set('Content-Type', 'application/json')
 })

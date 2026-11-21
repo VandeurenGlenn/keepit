@@ -93,8 +93,8 @@ export class ChipField extends LiteElement {
   }
 
   _handleChipSelected(e: Event) {
-    const el = e.composedPath()[0] as ChipElement
-    if (el.disabled) return
+    const el = e.composedPath().find((element): element is ChipElement => element instanceof ChipElement)
+    if (!el || el.disabled || this.disabled) return
 
     if (this.multi) {
       if (!this.selected.includes(el.value)) {
@@ -116,7 +116,7 @@ export class ChipField extends LiteElement {
     this._handleChipSelected(e)
   }
   _handleKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Enter' || e.key === ' ') {
+    if ((e.key === 'Enter' || e.key === ' ') && e.composedPath().some((element) => element instanceof ChipElement)) {
       e.preventDefault()
       this._handleChipSelected(e)
     }

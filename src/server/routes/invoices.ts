@@ -19,7 +19,7 @@ import {
   isFavorite
 } from '../helpers/material-preferences.js'
 import { databasePath } from '../helpers/paths.js'
-import { collectRemainingMaterials, materialBillingKey } from '../helpers/billable-materials.js'
+import { collectRemainingMaterials, findMaterialOverbilling } from '../helpers/billable-materials.js'
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -58,16 +58,20 @@ const normalizeMaterials = (value: unknown): MaterialLine[] => {
     const unitPriceRaw = item?.unitPrice
     const unitPrice =
       unitPriceRaw === undefined || unitPriceRaw === null || unitPriceRaw === '' ? undefined : Number(unitPriceRaw)
+    const validPrice = unitPrice !== undefined && Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : undefined
+    const small = item?.kind === 'small-materials'
+    const fallbackAmount = Number(item?.smallMaterialAmount)
+    const surcharge = validPrice ?? (Number.isFinite(fallbackAmount) && fallbackAmount >= 0 ? fallbackAmount : 0)
 
     if (!name) continue
 
     normalized.push({
       name,
-      quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+      quantity: !small && Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
       unit: unit || undefined,
-      unitPrice: unitPrice !== undefined && Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : undefined,
-      kind: item?.kind === 'small-materials' ? 'small-materials' : 'material',
-      smallMaterialAmount: Number.isFinite(Number(item?.smallMaterialAmount)) ? Number(item.smallMaterialAmount) : undefined,
+      unitPrice: small ? surcharge : validPrice,
+      kind: small ? 'small-materials' : 'material',
+      smallMaterialAmount: small ? surcharge : undefined,
       articleNumber: typeof item?.articleNumber === 'string' ? item.articleNumber.trim() || undefined : undefined,
       productNumber: typeof item?.productNumber === 'string' ? item.productNumber.trim() || undefined : undefined,
       packagingQuantity: Number.isFinite(Number(item?.packagingQuantity)) ? Number(item.packagingQuantity) : undefined,
@@ -392,24 +396,11 @@ router.post('/', async (ctx) => {
     return
   }
   const hoursSnapshot = job ? collectBillableHoursForJob(job) : []
-  const remainingMaterials = billableMaterialsForJob(job)
-  const remainingByKey = new Map(remainingMaterials.map((material) => [materialBillingKey(material), material]))
-  for (const material of materials) {
-    const key = materialBillingKey(material)
-    const jobMaterial = (jobs[job]?.materials || []).find((candidate) => materialBillingKey(candidate) === key)
-    if (!jobMaterial) continue
-    const remaining = remainingByKey.get(key)
-    const requested = material.kind === 'small-materials'
-      ? Number(material.smallMaterialAmount ?? material.unitPrice) || 0
-      : Number(material.quantity) || 0
-    const available = material.kind === 'small-materials'
-      ? Number(remaining?.smallMaterialAmount ?? remaining?.unitPrice) || 0
-      : Number(remaining?.quantity) || 0
-    if (requested > available + 0.000_001) {
-      ctx.status = 409
-      ctx.body = { error: `${material.name} bevat meer dan de nog factureerbare hoeveelheid.` }
-      return
-    }
+  const overbilled = findMaterialOverbilling(materials, jobs[job]?.materials || [], billableMaterialsForJob(job))
+  if (overbilled) {
+    ctx.status = 409
+    ctx.body = { error: `${overbilled.name}: je factureert meer dan er nog beschikbaar is voor deze job.` }
+    return
   }
 
   const invoice: Invoice = {

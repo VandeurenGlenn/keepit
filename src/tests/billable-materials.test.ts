@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 // @ts-ignore -- Node's test runner executes TypeScript source directly.
-import { collectRemainingMaterials } from '../server/helpers/billable-materials.ts'
+import { collectRemainingMaterials, findMaterialOverbilling } from '../server/helpers/billable-materials.ts'
 
 test('tussenfacturen trekken reeds gefactureerde materiaalhoeveelheden af', () => {
   const remaining = collectRemainingMaterials(
@@ -34,4 +34,22 @@ test('latere verhogingen en bijkomend klein materiaal blijven factureerbaar', ()
   )
   assert.equal(remaining.find((item) => item.name === 'Buis')?.quantity, 3)
   assert.equal(remaining.find((item) => item.kind === 'small-materials')?.unitPrice, 15)
+})
+
+test('dubbele factuurregels mogen samen de resterende hoeveelheid niet overschrijden', () => {
+  const cable = { name: 'Kabel', articleNumber: 'ABC', quantity: 10, unit: 'm' }
+  const remaining = collectRemainingMaterials([cable], [{ ...cable, quantity: 4 }])
+  const line = { ...cable, name: 'Andere naam, zelfde artikel', quantity: 4 }
+  assert.equal(findMaterialOverbilling([line, line], [cable], remaining), line)
+  assert.equal(findMaterialOverbilling([{ ...line, quantity: 2 }, line], [cable], remaining), undefined)
+  assert.equal(findMaterialOverbilling([{ name: 'Losse kost', quantity: 1 }], [cable], remaining), undefined)
+})
+
+test('klein materiaal wordt bij tussenfacturen op bedrag gecontroleerd', () => {
+  const surcharge = { name: 'Klein materiaal', kind: 'small-materials' as const, quantity: 1, unitPrice: 25 }
+  const remaining = collectRemainingMaterials([surcharge], [{ ...surcharge, unitPrice: 15 }])
+  const line = { ...surcharge, unitPrice: 6 }
+  assert.equal(findMaterialOverbilling([line, line], [surcharge], remaining), line)
+  assert.equal(findMaterialOverbilling([{ ...line, unitPrice: 10 }], [surcharge], remaining), undefined)
+  assert.equal(findMaterialOverbilling([line], [surcharge], []), line)
 })
