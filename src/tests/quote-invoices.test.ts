@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Invoices, Invoice, Quote } from '../types/index.js'
-import { createQuoteConversionQueue, findQuoteInvoiceId } from '../server/helpers/quote-invoices.ts'
+import { findQuoteInvoiceId } from '../server/helpers/quote-invoices.ts'
+import { createKeyedQueue } from '../server/helpers/keyed-queue.ts'
 
 const quote = { id: 'offer-1', jobId: 'job-1' } as Quote
 const invoice = { quoteId: quote.id, job: quote.jobId } as Invoice
@@ -25,7 +26,7 @@ test('een geldige oude koppeling wordt hergebruikt, een koppeling naar een ander
 
 test('gelijktijdige verzoeken controleren opnieuw na de eerste conversie', async () => {
   const invoices: Invoices = {}
-  const run = createQuoteConversionQueue()
+  const run = createKeyedQueue()
   let creates = 0
   const convert = () => run(quote.id, async () => {
     const existing = findQuoteInvoiceId(quote.id, quote, invoices)
@@ -41,7 +42,7 @@ test('gelijktijdige verzoeken controleren opnieuw na de eerste conversie', async
 
 test('na een fout na het aanmaken hervat een wachtend verzoek met dezelfde factuur', async () => {
   const invoices: Invoices = {}
-  const run = createQuoteConversionQueue()
+  const run = createKeyedQueue()
   const first = run(quote.id, async () => {
     invoices['invoice-1'] = invoice
     throw new Error('Opslaan van uren mislukt')

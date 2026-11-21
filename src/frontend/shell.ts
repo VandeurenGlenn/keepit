@@ -283,7 +283,20 @@ export class AppShell extends LiteElement {
   beforeRender(): void {
     this.registerServiceWorker()
     if(!this.offlineSyncInitialized){this.offlineSyncInitialized=true;initializeOfflineSync()}
-    if(!this.offlineListenerBound){this.offlineListenerBound=true;this.syncPending=getPendingWorkState().pending;window.addEventListener('keepit-sync-status',(event:Event)=>{this.syncPending=(event as CustomEvent).detail?.pending||0})}
+    if (!this.offlineListenerBound) {
+      this.offlineListenerBound = true
+      this.syncPending = getPendingWorkState().pending
+      window.addEventListener('keepit-sync-status', (event: Event) => {
+        this.syncPending = (event as CustomEvent).detail?.pending || 0
+      })
+      window.addEventListener('keepit-checkin-synced', (event: Event) => {
+        const { requestId, prestationId, closed } = (event as CustomEvent).detail
+        if (this.user?.currentPrestationId === `pending:${requestId}`) {
+          this.user = { ...this.user, currentPrestationId: closed ? undefined : prestationId, currentJob: closed ? undefined : this.user.currentJob }
+          pubsub.publishVerbose('user', this.user)
+        }
+      })
+    }
     if(!this.toastListenerBound){this.toastListenerBound=true;window.addEventListener('keepit-toast',(event:Event)=>{this.toast=(event as CustomEvent).detail;if(this.toastTimeout)clearTimeout(this.toastTimeout);this.toastTimeout=setTimeout(()=>{this.toast=undefined},6000)})}
     if(!this.confirmationListenerBound){this.confirmationListenerBound=true;window.addEventListener('keepit-confirm',(event:Event)=>{this.confirmation?.resolve(false);this.confirmation=(event as CustomEvent<ConfirmationRequest>).detail;requestAnimationFrame(()=>this.shadowRoot?.querySelector<HTMLButtonElement>('.confirm-cancel')?.focus())})}
     if (!this.timelinePreferenceListenerBound) {
@@ -533,6 +546,9 @@ export class AppShell extends LiteElement {
         this.users = value
         if (this.user?.id && value[this.user.id]) {
           const user = { ...this.user, ...value[this.user.id] }
+          const pending = getPendingWorkState(value[this.user.id].currentJob, value[this.user.id].currentPrestationId)
+          user.currentJob = pending.currentJob
+          user.currentPrestationId = pending.currentPrestationId
           this.user = user
           pubsub.publishVerbose(`user`, user)
         }
@@ -651,8 +667,9 @@ export class AppShell extends LiteElement {
       const userData = await api.getUser(user.id)
       const mergedUser = { ...user, ...userData }
       setOfflineActionOwner(user.id)
-      const pendingWork=getPendingWorkState()
-      if(pendingWork.currentJob){mergedUser.currentJob=pendingWork.currentJob;mergedUser.currentPrestationId=pendingWork.currentPrestationId}
+      const pendingWork = getPendingWorkState(mergedUser.currentJob, mergedUser.currentPrestationId)
+      mergedUser.currentJob = pendingWork.currentJob
+      mergedUser.currentPrestationId = pendingWork.currentPrestationId
       mergedUser.picture = (await this.cacheProfilePicture(mergedUser.picture)) || mergedUser.picture
       this.user = mergedUser
       this.userSignedIn = true

@@ -63,7 +63,7 @@ router.post('/', async (ctx) => {
   }
   planning[id] = entry
   await planningStore.put(planning)
-  await notifyPlanningUsers(entry, 'created')
+  void notifyPlanningUsers(entry, 'created').catch((error) => console.warn('Planning notification failed', error))
   ctx.status = 201
   ctx.body = entry
 })
@@ -111,7 +111,7 @@ router.delete('/:id', async (ctx) => {
   cancelScheduledPlanningNotification(removed.id)
   delete planning[ctx.params.id]
   await planningStore.put(planning)
-  await notifyPlanningUsers(removed, 'cancelled')
+  void notifyPlanningUsers(removed, 'cancelled').catch((error) => console.warn('Planning cancellation notification failed', error))
   ctx.status = 204
 })
 

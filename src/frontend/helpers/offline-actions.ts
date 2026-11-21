@@ -1,6 +1,6 @@
 import type { WorkLocation } from '../../types/index.js'
 import { api } from '../api/client.js'
-import { claimLegacyActions, legacyOfflineStorageKey, offlineStorageKey, parseStoredActions } from './offline-storage.js'
+import { claimLegacyActions, completeStoredWorkAction, legacyOfflineStorageKey, offlineStorageKey, parseStoredActions } from './offline-storage.js'
 
 export type OfflineAction = {
   id: string
@@ -20,17 +20,15 @@ let initialized = false
 
 const storageKey = () => ownerId ? offlineStorageKey(ownerId) : ''
 
-const read = (): OfflineAction[] => {
-  const key = storageKey()
+const read = (key = storageKey()): OfflineAction[] => {
   if (!key) return []
   return parseStoredActions<OfflineAction>(localStorage.getItem(key))
 }
 
-const write = (actions: OfflineAction[]) => {
-  const key = storageKey()
+const write = (actions: OfflineAction[], key = storageKey()) => {
   if (!key) throw new Error('Offline registraties kunnen pas na aanmelden worden opgeslagen.')
   localStorage.setItem(key, JSON.stringify(actions))
-  window.dispatchEvent(new CustomEvent('keepit-sync-status', { detail: { pending: actions.length, actions } }))
+  if (key === storageKey()) window.dispatchEvent(new CustomEvent('keepit-sync-status', { detail: { pending: actions.length, actions } }))
 }
 
 export const setOfflineActionOwner = (userId?: string) => {
@@ -54,21 +52,20 @@ export const isNetworkFailure = (error: unknown) =>
   || error instanceof TypeError
   || `${(error as Error)?.message || ''}`.toLowerCase().includes('failed to fetch')
 
-export const enqueueOfflineAction = (action: Omit<OfflineAction, 'id' | 'createdAt'>) => {
-  const id = crypto.randomUUID()
-  write([...read(), { ...action, id, createdAt: Date.now() }])
+export const enqueueOfflineAction = (action: Omit<OfflineAction, 'id' | 'createdAt'>, id = crypto.randomUUID()) => {
+  const current = read()
+  if (!current.some((item) => item.id === id)) write([...current, { ...action, id, createdAt: Date.now() }])
   return id
 }
 
-export const getPendingWorkState = () => {
+export const getPendingWorkState = (currentJob?: string, currentPrestationId?: string) => {
   const actions = read()
-  let currentJob: string | undefined
-  let currentPrestationId: string | undefined
   for (const action of actions) {
     if (action.type === 'checkin') {
       currentJob = action.job
       currentPrestationId = `pending:${action.id}`
-    } else if (action.type === 'checkout' && action.job === currentJob) {
+    } else if (action.type === 'checkout' && action.job === currentJob
+      && (!action.prestationId || !currentPrestationId || action.prestationId === currentPrestationId)) {
       currentJob = undefined
       currentPrestationId = undefined
     }
@@ -78,42 +75,49 @@ export const getPendingWorkState = () => {
 
 export const flushOfflineActions = async () => {
   if (flushing || !ownerId || !navigator.onLine) return
+  const key = storageKey()
   flushing = true
-  let actions = read()
   try {
-    for (const action of [...actions]) {
+    while (key === storageKey() && navigator.onLine) {
+      const [action] = read(key)
+      if (!action) break
       try {
+        let prestationId: string | undefined
+        let closed = false
         if (action.type === 'checkin') {
           const result = await api.checkIn(action.job, action.timestamp, action.location, {
             source: 'offline-sync',
             clientRequestId: action.id
           })
-          actions = actions.map((item) =>
-            item.prestationId === `pending:${action.id}` ? { ...item, prestationId: result.id } : item
-          )
+          prestationId = result.id
+          closed = result.checkout !== undefined
         } else {
           await api.checkOut(action.job, action.timestamp, action.location, {
             prestationId: action.prestationId,
             clientRequestId: action.id
           })
         }
-        actions = actions.filter((item) => item.id !== action.id)
-        write(actions)
+        const actions = completeStoredWorkAction(read(key), action.id, prestationId)
+        write(actions, key)
+        if (prestationId && key === storageKey()) {
+          window.dispatchEvent(new CustomEvent('keepit-checkin-synced', { detail: { requestId: action.id, prestationId, closed } }))
+        }
       } catch (error) {
         const message = isNetworkFailure(error)
           ? 'Geen verbinding'
           : ((error as Error)?.message || 'Synchronisatie mislukt')
-        actions = actions.map((item) =>
+        const actions = read(key).map((item) =>
           item.id === action.id
             ? { ...item, attempts: (item.attempts || 0) + 1, lastError: message }
             : item
         )
-        write(actions)
+        write(actions, key)
         break
       }
     }
   } finally {
     flushing = false
+    if (key !== storageKey() && ownerId) queueMicrotask(() => void flushOfflineActions())
   }
 }
 

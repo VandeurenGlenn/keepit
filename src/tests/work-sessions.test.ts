@@ -1,8 +1,19 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { findActiveWorkSession, findOpenPrestationId, hasOverlappingWorkSession } from '../server/helpers/work-sessions.ts'
+import { findActiveWorkSession, findOpenPrestationId, hasOverlappingWorkSession, resolveWorkSessionId } from '../server/helpers/work-sessions.ts'
 
 const base = { description:'',duration:0,serverCheckin:1000,checkin:900,jobId:'job-1' }
+
+test('een lokaal checkout-ID verwijst alleen naar de bijbehorende check-in op dezelfde job', () => {
+  const hours = {
+    old: { ...base, clientRequestId: 'offline-start', checkout: 1100 },
+    newer: { ...base, clientRequestId: 'other-start' }
+  }
+  assert.equal(resolveWorkSessionId('pending:offline-start', 'job-1', hours), 'old')
+  assert.equal(resolveWorkSessionId('pending:offline-start', 'job-2', hours), undefined)
+  assert.equal(resolveWorkSessionId('pending:unknown', 'job-1', hours), undefined)
+  assert.equal(resolveWorkSessionId('newer', 'job-1', hours), 'newer')
+})
 
 test('stop closes the explicitly active manual session instead of the last list entry',()=>{
   const hours = {

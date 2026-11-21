@@ -10,7 +10,7 @@ import { api } from '../api/client.js'
 import '../animations/success.js'
 import '../animations/error.js'
 import { captureWorkLocation } from '../helpers/work-location.js'
-import { enqueueOfflineAction, isNetworkFailure } from '../helpers/offline-actions.js'
+import { enqueueOfflineAction, flushOfflineActions, getOfflineActions, isNetworkFailure } from '../helpers/offline-actions.js'
 import styles from './styles/checkin-view.css' with { type: 'css' }
 
 export class CheckinView extends JobsMixin(LiteElement) {
@@ -38,53 +38,46 @@ export class CheckinView extends JobsMixin(LiteElement) {
   static styles = styles
 
   async _addCheckin() {
-    if (!this.user?.id) {
-      console.error('Missing user id for checkin')
-      return
-    }
-
-    const date = this.dateInput.value
-    const time = this.timeInput.value
-    const checkin = new Date(`${date}T${time}`).getTime()
-
-    this.select.checkValidity() // Ensure the select is valid
-    if (!this.select.reportValidity()) {
-      console.error('Select is not valid')
-      return
-    }
+    const user = this.user
+    if (!user?.id || this.submitting || this.success) return
+    const job = this.select.value
+    if (!this.select.reportValidity()) return
+    const timestamp = new Date(`${this.dateInput.value}T${this.timeInput.value}`).getTime()
+    if (!Number.isFinite(timestamp)) { this.error = 'Kies een geldige datum en tijd.'; return }
+    const requestId = crypto.randomUUID()
     this.error = ''
     this.submitting = true
     try {
-      const workLocation = await captureWorkLocation()
-      const requestId = crypto.randomUUID()
-      const prestation = await api.checkIn(this.select.value, checkin, workLocation, {
-        source: 'manual',
-        clientRequestId: requestId
-      })
-      this.user.currentJob = this.select.value
-      this.user.currentPrestationId = prestation.id
-      this.success = true
-      setTimeout(() => {
-        location.href = '#!/home'
-      }, 1200)
-    } catch (error) {
-      if (isNetworkFailure(error)) {
-        const requestId = enqueueOfflineAction({
-          type: 'checkin',
-          job: this.select.value,
-          timestamp: checkin,
-          location: await captureWorkLocation()
-        })
-        this.user.currentJob = this.select.value
-        this.user.currentPrestationId = `pending:${requestId}`
+      const location = await captureWorkLocation()
+      if (this.user?.id !== user.id) return
+      const queue = () => {
+        enqueueOfflineAction({ type: 'checkin', job, timestamp, location }, requestId)
         this.queued = true
-        this.success = true
-        setTimeout(() => {
-          location.href = '#!/home'
-        }, 1500)
-        return
       }
-      console.error('Checkin failed:', error)
+      let savedId: string | undefined
+      if (!navigator.onLine || getOfflineActions().length) {
+        queue()
+      } else {
+        try {
+          const saved = await api.checkIn(job, timestamp, location, {
+            source: 'manual',
+            clientRequestId: requestId
+          })
+          savedId = saved.id
+        } catch (error) {
+          if (this.user?.id !== user.id || !isNetworkFailure(error)) throw error
+          queue()
+        }
+      }
+      if (this.user?.id !== user.id) return
+      this.user.currentJob = job
+      this.user.currentPrestationId = savedId || `pending:${requestId}`
+      this.success = true
+      if (this.queued) void flushOfflineActions()
+      setTimeout(() => {
+        if (this.isConnected) window.location.hash = '#!/home'
+      }, this.queued ? 1500 : 1200)
+    } catch (error) {
       this.error = error instanceof Error ? error.message : 'Check-in mislukt'
     } finally {
       this.submitting = false

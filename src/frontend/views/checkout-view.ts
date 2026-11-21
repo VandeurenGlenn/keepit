@@ -8,7 +8,7 @@ import { api } from '../api/client.js'
 import '../animations/success.js'
 import { captureWorkLocation } from '../helpers/work-location.js'
 import { User } from '../../types/index.js'
-import { enqueueOfflineAction, isNetworkFailure } from '../helpers/offline-actions.js'
+import { enqueueOfflineAction, flushOfflineActions, getOfflineActions, isNetworkFailure } from '../helpers/offline-actions.js'
 import styles from './styles/checkout-view.css' with { type: 'css' }
 export class CheckoutView extends JobsMixin(LiteElement) {
   @property({ type: Object, consumes: true }) accessor user: (Partial<User> & { id?: string }) | undefined = undefined
@@ -31,54 +31,46 @@ export class CheckoutView extends JobsMixin(LiteElement) {
   static styles = styles
 
   async _addCheckout() {
-    if (!this.user?.id) {
-      console.error('Missing user id for checkout')
-      return
-    }
-
-    const date = this.dateInput.value
-    const time = this.timeInput.value
-    const checkout = new Date(`${date}T${time}`).getTime()
-
-    const activeJobId = this.user.currentJob
-    if (!activeJobId) {
-      this.error = 'Er is geen actieve werkregistratie om te stoppen.'
-      return
-    }
+    const user = this.user
+    if (!user?.id || this.submitting || this.success) return
+    const job = user.currentJob
+    if (!job) { this.error = 'Er is geen actieve werkregistratie om te stoppen.'; return }
+    const prestationId = user.currentPrestationId
+    const timestamp = new Date(`${this.dateInput.value}T${this.timeInput.value}`).getTime()
+    if (!Number.isFinite(timestamp)) { this.error = 'Kies een geldige datum en tijd.'; return }
+    const requestId = crypto.randomUUID()
     this.error = ''
     this.submitting = true
     try {
-      const workLocation = await captureWorkLocation()
-      await api.checkOut(activeJobId, checkout, workLocation, {
-        prestationId: this.user.currentPrestationId,
-        clientRequestId: crypto.randomUUID()
-      })
+      const location = await captureWorkLocation()
+      if (this.user?.id !== user.id) return
+      const queue = () => {
+        enqueueOfflineAction({ type: 'checkout', job, timestamp, location, prestationId }, requestId)
+        this.queued = true
+      }
+      if (!navigator.onLine || getOfflineActions().length || prestationId?.startsWith('pending:')) {
+        queue()
+      } else {
+        try {
+          await api.checkOut(job, timestamp, location, {
+            prestationId,
+            clientRequestId: requestId
+          })
+        } catch (error) {
+          if (this.user?.id !== user.id || !isNetworkFailure(error)) throw error
+          queue()
+        }
+      }
+      if (this.user?.id !== user.id) return
       this.user.currentJob = undefined
       this.user.currentPrestationId = undefined
       this.success = true
+      if (this.queued) void flushOfflineActions()
       setTimeout(() => {
-        location.href = '#!/home'
-      }, 1200)
+        if (this.isConnected) window.location.hash = '#!/home'
+      }, this.queued ? 1500 : 1200)
     } catch (error) {
-      if (isNetworkFailure(error)) {
-        enqueueOfflineAction({
-          type: 'checkout',
-          job: activeJobId,
-          timestamp: checkout,
-          location: await captureWorkLocation(),
-          prestationId: this.user.currentPrestationId
-        })
-        this.user.currentJob = undefined
-        this.user.currentPrestationId = undefined
-        this.queued = true
-        this.success = true
-        setTimeout(() => {
-          location.href = '#!/home'
-        }, 1500)
-        return
-      }
-      console.error('Checkout failed:', error)
-      this.error = error instanceof Error ? error.message : 'Checkout mislukt'
+      this.error = error instanceof Error ? error.message : 'Check-out mislukt'
     } finally {
       this.submitting = false
     }

@@ -1,13 +1,27 @@
 import { Router } from '@koa/router'
+import type { Context, Next } from 'koa'
 import { jobs, jobsStore, hours, hoursStore, users, usersStore } from './../database/database.js'
 import { Prestation, WorkLocation } from '../../types/index.js'
 import { verifyJobLocation } from '../helpers/geo.js'
 import { findNearbyPlace, findPlaceLocation } from '../helpers/places.js'
-import { findActiveWorkSession, findOpenPrestationId, hasOverlappingWorkSession } from '../helpers/work-sessions.js'
+import { findActiveWorkSession, findOpenPrestationId, hasOverlappingWorkSession, resolveWorkSessionId } from '../helpers/work-sessions.js'
+import { createKeyedQueue } from '../helpers/keyed-queue.js'
 
 const router = new Router({
   prefix: '/api/hours'
 })
+const queueWorkChange = createKeyedQueue()
+const serializeOwnWork = (ctx: Context, next: Next) => queueWorkChange(ctx.state.userid, next)
+const serializeEmployeeWork = (ctx: Context, next: Next) => queueWorkChange(ctx.params.userId, next)
+const unsavedWork = new Set<string>()
+
+async function persistWorkChange(userId: string) {
+  unsavedWork.add(userId)
+  const results = await Promise.allSettled([jobsStore.put(jobs), hoursStore.put(hours), usersStore.put(users)])
+  const failure = results.find((result) => result.status === 'rejected')
+  if (failure) throw failure.reason
+  unsavedWork.delete(userId)
+}
 
 type CheckinBody = {
   job?: string
@@ -133,7 +147,7 @@ router.get('/job/:id', async (ctx) => {
   return
 })
 
-router.post('/job/:jobId/:userId', async (ctx) => {
+router.post('/job/:jobId/:userId', serializeEmployeeWork, async (ctx) => {
   const actor = users[ctx.state.userid]
   if (!actor?.roles?.includes('admin')) {
     ctx.status = 403
@@ -205,7 +219,7 @@ router.post('/job/:jobId/:userId', async (ctx) => {
   ctx.body = { id: prestationId, ...prestation }
 })
 
-router.patch('/job/:jobId/:userId/:prestationId', async (ctx) => {
+router.patch('/job/:jobId/:userId/:prestationId', serializeEmployeeWork, async (ctx) => {
   const actor = users[ctx.state.userid]
   const isAdmin = Boolean(actor?.roles?.includes('admin'))
   const isOwnRegistration = ctx.state.userid === ctx.params.userId
@@ -314,7 +328,7 @@ router.get('/me', async (ctx) => {
   }))
 })
 
-router.post('/checkin', async (ctx) => {
+router.post('/checkin', serializeOwnWork, async (ctx) => {
   const body = (ctx.request.body || {}) as CheckinBody
   const { job, checkin } = body
   const userId = ctx.state.userid
@@ -328,23 +342,25 @@ router.post('/checkin', async (ctx) => {
     ctx.body = { error: 'User not found' }
     return
   }
-  if (!jobs[job]) {
-    ctx.status = 404
-    ctx.body = { error: 'Job not found' }
-    return
-  }
-  if (jobs[job].status === 'completed' || jobs[job].archivedAt) {
-    ctx.status = 409
-    ctx.body = { error: 'Deze job is niet meer actief.' }
-    return
-  }
   const clientRequestId = typeof body.clientRequestId === 'string' ? body.clientRequestId.slice(0, 120) : undefined
   if (clientRequestId) {
     const existing = Object.entries(hours[userId] || {}).find(([, item]) => item.clientRequestId === clientRequestId)
     if (existing) {
+      if (unsavedWork.has(userId)) await persistWorkChange(userId)
       ctx.body = { id: existing[0], ...prestationForRoles(existing[1], users[userId]?.roles) }
       return
     }
+  }
+  if (!jobs[job]) {
+    ctx.status = 404
+    ctx.body = { error: 'Job niet gevonden.' }
+    return
+  }
+  const jobIsActive = () => Boolean(jobs[job] && jobs[job].status !== 'completed' && !jobs[job].archivedAt)
+  if (!jobIsActive()) {
+    ctx.status = 409
+    ctx.body = { error: 'Deze job is niet meer actief.' }
+    return
   }
   if (reconcileUserWorkSession(userId)) await usersStore.put(users)
   if (users[userId].currentJob) {
@@ -370,6 +386,11 @@ router.post('/checkin', async (ctx) => {
     checkinLocation ? findNearbyPlace(checkinLocation) : Promise.resolve(undefined),
     getJobLocation(job)
   ])
+  if (!jobIsActive()) {
+    ctx.status = 409
+    ctx.body = { error: 'Deze job is niet meer actief.' }
+    return
+  }
   const prestation: Prestation = {
     description: '',
     duration: 0,
@@ -397,7 +418,7 @@ router.post('/checkin', async (ctx) => {
   jobs[job].hours[userId].push(prestationId)
 
   try {
-    await Promise.all([jobsStore.put(jobs), hoursStore.put(hours), usersStore.put(users)])
+    await persistWorkChange(userId)
     ctx.status = 200
     ctx.set('Content-Type', 'application/json')
     ctx.body = { id: prestationId, ...prestationForRoles(prestation, users[userId]?.roles) }
@@ -410,14 +431,18 @@ router.post('/checkin', async (ctx) => {
   }
 })
 
-router.post('/checkout', async (ctx) => {
+router.post('/checkout', serializeOwnWork, async (ctx) => {
   const body = (ctx.request.body || {}) as CheckoutBody
   const { job, checkout } = body
   const userId = ctx.state.userid
   const checkoutClientRequestId = typeof body.clientRequestId === 'string' ? body.clientRequestId.slice(0, 120) : undefined
   if (checkoutClientRequestId) {
     const existing = Object.entries(hours[userId] || {}).find(([, item]) => item.checkoutClientRequestId === checkoutClientRequestId)
-    if (existing) { ctx.body = { id: existing[0], ...prestationForRoles(existing[1], users[userId]?.roles) }; return }
+    if (existing) {
+      if (unsavedWork.has(userId)) await persistWorkChange(userId)
+      ctx.body = { id: existing[0], ...prestationForRoles(existing[1], users[userId]?.roles) }
+      return
+    }
   }
   if (!job) {
     ctx.status = 400
@@ -435,14 +460,6 @@ router.post('/checkout', async (ctx) => {
     return
   }
 
-  if (users[userId].currentJob !== job) {
-    ctx.status = 400
-    ctx.body = { error: 'User is not currently working on this job' }
-    return
-  }
-
-  jobs[job].updatedAt = new Date().toISOString()
-
   const prestations = jobs[job].hours?.[userId]
   if (!prestations || prestations.length === 0) {
     ctx.status = 404
@@ -451,7 +468,9 @@ router.post('/checkout', async (ctx) => {
   }
 
   const requestedPrestationId = typeof body.prestationId === 'string' ? body.prestationId : undefined
-  const prestationId = requestedPrestationId || getOpenPrestationId(userId, job)
+  const prestationId = requestedPrestationId
+    ? resolveWorkSessionId(requestedPrestationId, job, hours[userId] || {})
+    : getOpenPrestationId(userId, job)
 
   if (!prestationId || !prestations.includes(prestationId)) {
     ctx.status = 404
@@ -460,16 +479,21 @@ router.post('/checkout', async (ctx) => {
   }
 
   const prestation = hours[userId]?.[prestationId]
-  if (!prestation) {
+  if (!prestation || prestation.jobId !== job) {
     ctx.status = 404
     ctx.body = { error: 'Prestation not found' }
     return
   }
 
-  if (prestation.checkout) {
+  if (prestation.checkout !== undefined) {
     if (reconcileUserWorkSession(userId)) await usersStore.put(users)
     ctx.status = 200
     ctx.body = { id: prestationId, ...prestationForRoles(prestation, users[userId]?.roles) }
+    return
+  }
+  if (users[userId].currentJob !== job) {
+    ctx.status = 400
+    ctx.body = { error: 'Je bent niet ingecheckt op deze job.' }
     return
   }
 
@@ -487,14 +511,15 @@ router.post('/checkout', async (ctx) => {
     return
   }
 
+  const checkoutLocation = toLocation(body.location)
+  const [checkoutPlace, jobLocation] = await Promise.all([
+    checkoutLocation ? findNearbyPlace(checkoutLocation) : Promise.resolve(undefined),
+    getJobLocation(job)
+  ])
   prestation.checkout = checkoutTs
   prestation.serverCheckout = Date.now()
   prestation.checkoutClientRequestId = checkoutClientRequestId
-  prestation.checkoutLocation = toLocation(body.location)
-  const [checkoutPlace, jobLocation] = await Promise.all([
-    prestation.checkoutLocation ? findNearbyPlace(prestation.checkoutLocation) : Promise.resolve(undefined),
-    getJobLocation(job)
-  ])
+  prestation.checkoutLocation = checkoutLocation
   prestation.checkoutPlace = checkoutPlace
   prestation.checkoutLocationVerification = verifyJobLocation(prestation.checkoutLocation, jobLocation)
   if (!Number.isNaN(checkinTs)) {
@@ -502,10 +527,10 @@ router.post('/checkout', async (ctx) => {
   }
 
   reconcileUserWorkSession(userId)
+  if (jobs[job]) jobs[job].updatedAt = new Date().toISOString()
 
   try {
-    const promises: Promise<unknown>[] = [jobsStore.put(jobs), hoursStore.put(hours), usersStore.put(users)]
-    await Promise.all(promises)
+    await persistWorkChange(userId)
     ctx.status = 200
     ctx.set('Content-Type', 'application/json')
     ctx.body = { id: prestationId, ...prestationForRoles(prestation, users[userId]?.roles) }

@@ -31,3 +31,11 @@ test('oude ongescope offline uren worden nooit automatisch geclaimd', () => {
   assert.equal(claimed[0].job, 'legacy-job')
   assert.equal(storage.getItem(offline.legacyOfflineStorageKey), null)
 })
+
+test('een stop die tijdens sync is toegevoegd blijft bewaard en krijgt het server-ID', () => {
+  const addedDuringSync = { id: 'next-start' }
+  const queue = [{ id: 'start' }, { id: 'stop', prestationId: 'pending:start' }, addedDuringSync]
+  assert.deepEqual(offline.completeStoredWorkAction(queue, 'start', 'server-start'), [
+    { id: 'stop', prestationId: 'server-start' }, addedDuringSync
+  ])
+})

@@ -20,7 +20,8 @@ import {
 } from '../helpers/material-preferences.js'
 import { databasePath } from '../helpers/paths.js'
 import { collectRemainingMaterials, findMaterialOverbilling } from '../helpers/billable-materials.js'
-import { createQuoteConversionQueue, findQuoteInvoiceId } from '../helpers/quote-invoices.js'
+import { findQuoteInvoiceId } from '../helpers/quote-invoices.js'
+import { createKeyedQueue } from '../helpers/keyed-queue.js'
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -370,7 +371,7 @@ router.post('/materials/alelek/sync-scraper', async (ctx) => {
   }
 })
 
-const queueQuoteConversion = createQuoteConversionQueue()
+const queueQuoteConversion = createKeyedQueue()
 const unsavedQuoteInvoices = new Set<string>()
 
 function markInvoiceHours(uuid: string, invoice: Invoice): boolean {

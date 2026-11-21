@@ -2,6 +2,15 @@ import type { Prestation } from '../../types/index.js'
 
 export type ActiveWorkSession = { id: string; prestation: Prestation }
 
+export function resolveWorkSessionId(id: string, jobId: string, userHours: Record<string, Prestation>): string | undefined {
+  if (!id.startsWith('pending:')) return id
+  const requestId = id.slice('pending:'.length)
+  if (!requestId) return undefined
+  return Object.entries(userHours).find(([, prestation]) =>
+    prestation.jobId === jobId && prestation.clientRequestId === requestId
+  )?.[0]
+}
+
 export const findActiveWorkSession = (
   preferredId: string | undefined,
   userHours: Record<string, Prestation>

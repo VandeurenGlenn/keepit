@@ -1,5 +1,13 @@
 export type StoredAction = { id: string }
 
+export function completeStoredWorkAction<T extends StoredAction & { prestationId?: string }>(
+  current: T[], id: string, prestationId?: string
+): T[] {
+  return current.filter((item) => item.id !== id).map((item) =>
+    prestationId && item.prestationId === `pending:${id}` ? { ...item, prestationId } : item
+  )
+}
+
 export const legacyOfflineStorageKey = 'keepit.offlineActions'
 export const offlineStorageKey = (userId: string) => `keepit.offlineActions.${userId}`
 

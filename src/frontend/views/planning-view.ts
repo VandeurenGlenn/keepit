@@ -47,20 +47,13 @@ export class PlanningView extends LiteElement {
   @property({ type: String }) accessor endTime = '16:30'
   @property({ type: String }) accessor notes = ''
   @property({ type: String }) accessor error = ''
+  @property({ type: String }) accessor loadError = ''
   editorBaseline = ''
+  private entriesRequest = 0
 
   draftSignature(){return JSON.stringify([this.selectedDate,this.selectedJob,[...this.selectedUsers].sort(),this.startTime,this.endTime,this.notes])}
   get editorDirty(){return this.editorOpen&&Boolean(this.editorBaseline)&&this.draftSignature()!==this.editorBaseline}
-  onChange(){queueMicrotask(()=>setUnsavedChanges('planning',this.editorDirty))}
-
-  closeEditorOnNavigation = () => {
-    const path = (location.hash.split('!/')[1] || 'home').split('?')[0]
-    if (path !== 'planning') {
-      this.editorOpen = false
-      this.editingId = ''
-      this.requestRender()
-    }
-  }
+  onChange(){queueMicrotask(()=>{if(this.isConnected)setUnsavedChanges('planning',this.editorDirty)})}
 
   connectedCallback() {
     super.connectedCallback()
@@ -68,6 +61,7 @@ export class PlanningView extends LiteElement {
   }
 
   disconnectedCallback() {
+    this.entriesRequest++
     this.editorOpen = false
     setUnsavedChanges('planning',false)
     super.disconnectedCallback()
@@ -134,8 +128,10 @@ export class PlanningView extends LiteElement {
   }
 
   async loadEntries() {
+    const request = ++this.entriesRequest
+    const isCurrent = () => this.isConnected && request === this.entriesRequest
     this.loading = true
-    this.error = ''
+    this.loadError = ''
     try {
       const days = this.days
       const from = new Date(days[0])
@@ -143,11 +139,15 @@ export class PlanningView extends LiteElement {
       const to = new Date(days[days.length - 1])
       to.setDate(to.getDate() + 1)
       to.setHours(0, 0, 0, 0)
-      this.entries = await api.getPlanning(from.toISOString(), to.toISOString())
+      const entries = await api.getPlanning(from.toISOString(), to.toISOString())
+      if (isCurrent()) this.entries = entries
     } catch (error) {
-      this.error = error instanceof Error ? error.message : 'Planning kon niet geladen worden.'
+      if (isCurrent()) {
+        this.entries = []
+        this.loadError = error instanceof Error ? error.message : 'Planning kon niet geladen worden.'
+      }
     } finally {
-      this.loading = false
+      if (isCurrent()) this.loading = false
     }
   }
 
@@ -444,6 +444,9 @@ export class PlanningView extends LiteElement {
         <button class="primary" @click=${() => this.openNew()}><custom-icon icon="add"></custom-icon><span>Nieuwe planning</span></button>
       </header>
       ${this.error && !this.editorOpen ? html`<div class="page-error">${this.error}</div>` : ''}
+      ${this.loadError ? html`<div class="page-error" role="alert">${this.loadError}
+        <button type="button" @click=${() => void this.loadEntries()}>Opnieuw proberen</button>
+      </div>` : ''}
       <section class="workspace">
         <div class="calendar-panel">
           <header class="calendar-toolbar"><h2 class="month-title">${this.monthLabel}</h2><div class="month-actions"><button class="today" @click=${() => this.goToday()}>Vandaag</button><button class="icon-button" aria-label="Vorige maand" @click=${() => this.changeMonth(-1)}><custom-icon icon="chevron_left"></custom-icon></button><button class="icon-button" aria-label="Volgende maand" @click=${() => this.changeMonth(1)}><custom-icon icon="chevron_right"></custom-icon></button></div></header>
