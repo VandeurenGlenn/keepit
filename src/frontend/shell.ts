@@ -86,8 +86,11 @@ export class AppShell extends LiteElement {
     const inviteEmail = params.get('email')?.trim().toLowerCase()
 
     try {
-      if (inviteId) sessionStorage.setItem('keepit.pendingInviteId', inviteId)
-      if (inviteEmail) sessionStorage.setItem('keepit.pendingInviteEmail', inviteEmail)
+      if (inviteId) {
+        sessionStorage.setItem('keepit.pendingInviteId', inviteId)
+        if (inviteEmail) sessionStorage.setItem('keepit.pendingInviteEmail', inviteEmail)
+        else sessionStorage.removeItem('keepit.pendingInviteEmail')
+      }
     } catch {
       // Session storage can be unavailable in private browsing modes.
     }
@@ -238,7 +241,7 @@ export class AppShell extends LiteElement {
     }
     if (path === 'planning') {
       if (!this.jobs) promises.push(load('jobs'))
-      if (!this.users) promises.push(load('users'))
+      promises.push(load('users'))
     }
 
     if (path === 'quote') {
@@ -264,7 +267,7 @@ export class AppShell extends LiteElement {
       if (!this.companies) promises.push(load('companies'))
     }
     if (path === 'users' || path === 'reports') {
-      if (!this.users) promises.push(load('users'))
+      promises.push(load('users'))
       if (path === 'reports' && !this.jobs) promises.push(load('jobs'))
     }
     if (path === 'home' || path === 'timeline' || path === 'sync') {
@@ -541,20 +544,6 @@ export class AppShell extends LiteElement {
     ])
     globalThis.client = client
     client.addEventListener('open', () => {
-      pubsub.subscribe(`users.changed`, (value) => {
-        if (Array.isArray(value) || !value) return
-        this.users = value
-        if (this.user?.id && value[this.user.id]) {
-          const user = { ...this.user, ...value[this.user.id] }
-          const pending = getPendingWorkState(value[this.user.id].currentJob, value[this.user.id].currentPrestationId)
-          user.currentJob = pending.currentJob
-          user.currentPrestationId = pending.currentPrestationId
-          this.user = user
-          pubsub.publishVerbose(`user`, user)
-        }
-        window.dispatchEvent(new Event('keepit-team-changed'))
-      })
-      pubsub.subscribe(`invites.changed`, () => window.dispatchEvent(new Event('keepit-team-changed')))
       if (!this.notificationListenerBound) {
         pubsub.subscribe(`notifications.${this.user.id}`, (notification) => this.handleAppNotification(notification))
         this.notificationListenerBound = true
@@ -577,6 +566,24 @@ export class AppShell extends LiteElement {
           this.checkUserStatus()
         }
         return
+      } else if (type === 'pubsub' && params.publish === 'users.changed') {
+        // The socket sends only the signed-in user's record, not the team roster.
+        const id = this.user?.id
+        const changed = id && params.value?.[id]
+        if (changed) {
+          const user = { ...this.user, ...changed }
+          const pending = getPendingWorkState(changed.currentJob, changed.currentPrestationId)
+          user.currentJob = pending.currentJob
+          user.currentPrestationId = pending.currentPrestationId
+          this.user = user
+          pubsub.publishVerbose('user', user)
+          if (this.users?.[id]) {
+            this.users = { ...this.users, [id]: { ...this.users[id], name: user.name, roles: user.roles, picture: user.picture } }
+          }
+        }
+        window.dispatchEvent(new Event('keepit-team-changed'))
+      } else if (type === 'pubsub' && params.publish === 'invites.changed') {
+        window.dispatchEvent(new Event('keepit-team-changed'))
       } else if (type === 'pubsub') {
         pubsub.publishVerbose(params.publish, params.value)
       }
@@ -723,7 +730,7 @@ export class AppShell extends LiteElement {
     }
     const data = await response.json()
     if (!isCurrent()) return
-    if (!uuid && !this.subscribedDataTypes.has(type)) {
+    if (!uuid && type !== 'users' && !this.subscribedDataTypes.has(type)) {
       pubsub.subscribe(`${type}.changed`, (value) => {
         this[type] = value
       })

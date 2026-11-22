@@ -16,6 +16,7 @@ export class RegisterView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor user: User
 
   @property({ type: Boolean }) accessor submitting = false
+  @property({ type: Boolean }) accessor invitationRequired = true
 
   @property({ type: String }) accessor registrationError = ''
 
@@ -132,6 +133,15 @@ export class RegisterView extends LiteElement {
     `
   ]
 
+  connectedCallback() {
+    super.connectedCallback()
+    if (!this.getPendingInvite().inviteId) {
+      void api.getRegistrationStatus().then(({ invitationRequired }) => {
+        if (this.isConnected) this.invitationRequired = invitationRequired
+      }).catch(() => undefined)
+    }
+  }
+
   getPendingInvite() {
     const params = new URLSearchParams(location.hash.split('?')[1] || '')
 
@@ -157,7 +167,7 @@ export class RegisterView extends LiteElement {
     const phone = String(telephoneInput?.value || '').trim()
     const place = placeInput?.place
 
-    if (!invite.inviteId) {
+    if (!invite.inviteId && this.invitationRequired) {
       this.registrationError = 'De uitnodigingscode ontbreekt. Open de persoonlijke uitnodigingslink opnieuw.'
       return
     }
@@ -189,7 +199,7 @@ export class RegisterView extends LiteElement {
       } catch {
         // Ignore unavailable session storage.
       }
-      location.hash = '#!/users'
+      location.hash = '#!/home'
       location.reload()
     } catch (error) {
       console.error('Error registering user:', error)

@@ -2,27 +2,33 @@ import { Router } from '@koa/router'
 import { invites, invitesStore, users, usersStore } from '../database/database.js'
 import type { User } from '../../types/index.js'
 import { getConfiguredOwnerEmail } from '../helpers/owner.js'
+import { createKeyedQueue } from '../helpers/keyed-queue.js'
+import { hasRegisteredEmail, normalizeRegistrationEmail } from '../helpers/registration.js'
 
 const router = new Router({ prefix: '/api/register' })
+const register = createKeyedQueue()
 
-router.post('/', async (ctx) => {
+router.get('/', (ctx) => {
+  ctx.body = { invitationRequired: Object.keys(users).length > 0 }
+})
+
+router.post('/', async (_, next) => register('register', next), async (ctx) => {
   const body = (ctx.request.body || {}) as Partial<User> & { inviteId?: string }
-  if (users[ctx.state.userid]) {
-    ctx.status = 400
-    ctx.body = { error: 'User already registered' }
+  if (ctx.state.googleProfile?.email_verified !== true) {
+    ctx.status = 403
+    ctx.body = { error: 'Verified Google email required', message: 'Google kon dit e-mailadres niet verifiëren.' }
+    return
+  }
+  const id = ctx.state.userid as string
+  if (Object.hasOwn(users, id)) {
+    ctx.body = { content: users[id] }
     return
   }
 
   const hasExistingUsers = Object.keys(users).length > 0
 
-  if (ctx.state.googleProfile.email_verified !== true) {
-    ctx.status = 403
-    ctx.body = { error: 'Verified Google email required', message: 'Google kon dit e-mailadres niet verifiëren.' }
-    return
-  }
-
   const inviteId = String(body.inviteId || '').trim()
-  const invite = inviteId ? invites[inviteId] : undefined
+  const invite = inviteId && Object.hasOwn(invites, inviteId) ? invites[inviteId] : undefined
 
   if (hasExistingUsers && !invite) {
     ctx.status = 403
@@ -44,19 +50,17 @@ router.post('/', async (ctx) => {
     return
   }
 
-  const invitedEmail = invite?.email?.trim().toLowerCase()
-  if (invitedEmail && Object.values(users).some((user) => user.email?.trim().toLowerCase() === invitedEmail)) {
+  const invitedEmail = normalizeRegistrationEmail(invite?.email)
+  if (hasRegisteredEmail(users, invitedEmail)) {
     ctx.status = 409
     ctx.body = { error: 'Invitation already used', message: 'Dit werkadres is al aan een Google-account gekoppeld.' }
     return
   }
 
-  const googleEmail = String(ctx.state.googleProfile.email || '')
-    .trim()
-    .toLowerCase()
+  const googleEmail = normalizeRegistrationEmail(ctx.state.googleProfile.email)
   const now = new Date().toISOString()
 
-  users[ctx.state.userid] = {
+  const account: User = {
     name: body.name || ctx.state.googleProfile.name,
     email: invitedEmail || googleEmail,
     googleEmail,
@@ -75,17 +79,31 @@ router.post('/', async (ctx) => {
   )
 
   if (isConfiguredOwner) {
-    users[ctx.state.userid].roles = Array.from(new Set([...(users[ctx.state.userid].roles || []), 'owner', 'admin']))
+    account.roles = Array.from(new Set([...(account.roles || []), 'owner', 'admin']))
   } else if (!hasExistingUsers && !configuredOwnerEmail) {
-    users[ctx.state.userid].roles = ['owner', 'admin']
-  } else if (!users[ctx.state.userid].roles?.length) {
-    users[ctx.state.userid].roles = ['user']
+    account.roles = ['owner', 'admin']
+  } else if (!account.roles?.length) {
+    account.roles = ['user']
   }
 
-  if (invite) delete invites[inviteId]
-
-  await Promise.all([usersStore.put(users), invite ? invitesStore.put(invites) : Promise.resolve()])
-  ctx.body = { content: users[ctx.state.userid] }
+  users[id] = account
+  try {
+    await usersStore.put(users)
+  } catch (error) {
+    delete users[id]
+    console.error('Registration could not be saved:', error)
+    ctx.status = 500
+    ctx.body = { error: 'De registratie kon niet worden opgeslagen. Je uitnodiging blijft geldig; probeer opnieuw.' }
+    return
+  }
+  if (invite) {
+    delete invites[inviteId]
+    await invitesStore.put(invites).catch((error) => {
+      // The user is already durable; any stale invitation is hidden and cannot be used again.
+      console.warn('Could not remove consumed invitation:', error)
+    })
+  }
+  ctx.body = { content: account }
   ctx.status = 201
   ctx.set('Content-Type', 'application/json')
 })

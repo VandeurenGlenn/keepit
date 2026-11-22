@@ -328,6 +328,10 @@ class ApiClient {
     return this.request('POST', '/register', user)
   }
 
+  async getRegistrationStatus(): Promise<{ invitationRequired: boolean }> {
+    return this.request('GET', '/register')
+  }
+
   async reverseGeocode(
     location: WorkLocation,
     preferences?: { countryCode?: string; language?: string }

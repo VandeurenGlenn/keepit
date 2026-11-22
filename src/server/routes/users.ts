@@ -10,6 +10,7 @@ import {
 } from './../database/database.js'
 import { sendInviteMail } from '../helpers/mailer.js'
 import { hasRole } from '../helpers/roles.js'
+import { hasRegisteredEmail, normalizeRegistrationEmail } from '../helpers/registration.js'
 
 const router = new Router({
   prefix: '/api/users'
@@ -31,8 +32,8 @@ router.post('/', async (ctx) => {
     return
   }
 
-  const existingUser = Object.values(users).find((user) => user.email?.trim().toLowerCase() === email)
-  const existingInvite = Object.values(invites).find((invite) => invite.email?.trim().toLowerCase() === email)
+  const existingUser = hasRegisteredEmail(users, email)
+  const existingInvite = Object.values(invites).find((invite) => normalizeRegistrationEmail(invite.email) === email)
   if (existingUser || existingInvite) {
     ctx.status = 400
     ctx.body = { error: 'User already exists', message: 'Dit e-mailadres is al geregistreerd of uitgenodigd' }
@@ -147,7 +148,7 @@ router.get('/', async (ctx) => {
   }
 
   const invitedUsers = Object.fromEntries(
-    Object.entries(invites).map(([uuid, invite]) => {
+    Object.entries(invites).filter(([, invite]) => !hasRegisteredEmail(users, invite.email)).map(([uuid, invite]) => {
       const createdAt = new Date(invite.createdAt || Date.now()).toISOString()
       return [
         uuid,

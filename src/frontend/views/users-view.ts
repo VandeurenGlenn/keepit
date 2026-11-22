@@ -12,8 +12,12 @@ export class UsersView extends LiteElement {
   @property({ type: Boolean }) accessor inviting = false
   @property({ type: String }) accessor inviteEmail = ''
   @property({ type: String }) accessor inviteError = ''
+  @property({ type: Object }) accessor teamUsers: Users | undefined
+  @property({ type: Boolean }) accessor teamLoading = false
+  @property({ type: String }) accessor teamError = ''
 
   invitedUsersLoaded = false
+  private teamRequest = 0
   teamChangeTimer?: ReturnType<typeof setTimeout>
   handleTeamChanged = () => {
     if (!this.canManageRoles()) return
@@ -280,7 +284,11 @@ export class UsersView extends LiteElement {
   ]
 
   get userEntries() {
-    return Object.entries(this.users || {})
+    return Object.entries(this.visibleUsers)
+  }
+
+  get visibleUsers(): Users {
+    return (this.canManageRoles() ? this.teamUsers ?? this.users : this.users) || {}
   }
 
   connectedCallback() {
@@ -289,6 +297,7 @@ export class UsersView extends LiteElement {
   }
 
   disconnectedCallback() {
+    this.teamRequest++
     window.removeEventListener('keepit-team-changed', this.handleTeamChanged)
     if (this.teamChangeTimer) clearTimeout(this.teamChangeTimer)
     super.disconnectedCallback()
@@ -320,21 +329,23 @@ export class UsersView extends LiteElement {
   }
 
   async loadUsersIncludingInvited() {
-    const response = await fetch('/api/users?includeInvited=1', {
-      method: 'GET',
-      headers: {
-        Authorization: localStorage.getItem('token') || ''
-      }
-    })
-
-    if (!response.ok) {
-      this.invitedUsersLoaded = false
-      return
+    if (!this.canManageRoles()) return
+    const request = ++this.teamRequest
+    const current = () => this.isConnected && this.canManageRoles() && request === this.teamRequest
+    this.teamLoading = true
+    this.teamError = ''
+    try {
+      const response = await fetch('/api/users?includeInvited=1', {
+        headers: { Authorization: localStorage.getItem('token') || '' }
+      })
+      if (!response.ok) throw new Error('Team laden mislukt.')
+      const entries = (await response.json()) as Users
+      if (current()) this.teamUsers = entries
+    } catch {
+      if (current()) this.teamError = 'De teamstatus kon niet worden vernieuwd.'
+    } finally {
+      if (current()) this.teamLoading = false
     }
-
-    const teamEntries = (await response.json()) as Users
-    this.users = teamEntries
-    this.requestRender()
   }
 
   currentUserId() {
@@ -342,10 +353,11 @@ export class UsersView extends LiteElement {
   }
 
   setUserRoles(uuid: string, roles: string[]) {
-    this.users = {
-      ...this.users,
+    const users = this.visibleUsers
+    this.teamUsers = {
+      ...users,
       [uuid]: {
-        ...this.users[uuid],
+        ...users[uuid],
         roles
       }
     }
@@ -371,7 +383,7 @@ export class UsersView extends LiteElement {
       throw new Error(data.message || data.error || 'Rol toekennen mislukt')
     }
 
-    const roles = Array.from(new Set([...(this.users[uuid]?.roles || []), role]))
+    const roles = Array.from(new Set([...(this.visibleUsers[uuid]?.roles || []), role]))
     this.setUserRoles(uuid, roles)
   }
 
@@ -388,7 +400,7 @@ export class UsersView extends LiteElement {
       throw new Error(data.message || data.error || 'Rol verwijderen mislukt')
     }
 
-    const roles = (this.users[uuid]?.roles || []).filter((item) => item !== role)
+    const roles = (this.visibleUsers[uuid]?.roles || []).filter((item) => item !== role)
     this.setUserRoles(uuid, roles)
   }
 
@@ -421,6 +433,7 @@ export class UsersView extends LiteElement {
 
   _inviteUser = async (event?: Event) => {
     event?.preventDefault()
+    if (this.inviting) return
     const email = this.inviteEmail.trim().toLowerCase()
     if (!email) return
     this.inviting = true
@@ -475,9 +488,11 @@ export class UsersView extends LiteElement {
       return
     }
 
-    delete this.users[uuid]
-    this.requestRender()
-    showToast('Medewerker verwijderd.')
+    const next = { ...this.visibleUsers }
+    delete next[uuid]
+    this.teamUsers = next
+    void this.loadUsersIncludingInvited()
+    showToast(invitation ? 'Uitnodiging verwijderd.' : 'Medewerker verwijderd.')
   }
 
   renderRoleBadges(roles: string[] = []) {
@@ -576,19 +591,23 @@ export class UsersView extends LiteElement {
           `
         )}
 
-        <div class="top-actions">
+        ${this.canManageRoles() ? html`<div class="top-actions">
           <button
             class="primary"
             @click=${() => this.openInviteDialog()}>
             Nodig gebruiker uit
           </button>
+          <button type="button" ?disabled=${this.teamLoading} @click=${() => void this.loadUsersIncludingInvited()}>
+            ${this.teamLoading ? 'Team laden…' : 'Team vernieuwen'}
+          </button>
           <span class="muted"
             >Uitnodigingen en rolbeheer blijven beperkt tot accounts met admin- of roles-rechten.</span
           >
-        </div>
+        </div>` : ''}
       </section>
 
-      <section class="users-grid">${this.userEntries.map(([key, entry]) => this.renderUserCard(key, entry))}</section>
+      ${this.teamError ? html`<p role="alert">${this.teamError}</p>` : ''}
+      <section class="users-grid" aria-busy=${this.teamLoading}>${this.userEntries.map(([key, entry]) => this.renderUserCard(key, entry))}</section>
       ${this.inviteOpen ? html`<div class="dialog-layer" @click=${(event:Event)=>{if(event.target===event.currentTarget)this.closeInviteDialog()}}><form class="invite-dialog" role="dialog" aria-modal="true" aria-labelledby="invite-title" @submit=${(event:Event)=>this._inviteUser(event)} @keydown=${(event:KeyboardEvent)=>{if(event.key==='Escape')this.closeInviteDialog()}}><h2 id="invite-title">Medewerker uitnodigen</h2><p>De medewerker ontvangt een persoonlijke link om het account met Google te activeren.</p><label for="invite-email">E-mailadres<input id="invite-email" type="email" autocomplete="email" required placeholder="naam@bedrijf.be" .value=${this.inviteEmail} @input=${(event:Event)=>(this.inviteEmail=(event.target as HTMLInputElement).value)} /></label>${this.inviteError?html`<p class="dialog-error" role="alert">${this.inviteError}</p>`:''}<div class="dialog-actions"><button type="button" ?disabled=${this.inviting} @click=${()=>this.closeInviteDialog()}>Annuleren</button><button class="primary" type="submit" ?disabled=${this.inviting}>${this.inviting?'Versturen…':'Uitnodiging versturen'}</button></div></form></div>` : ''}
     `
   }
