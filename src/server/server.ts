@@ -41,6 +41,7 @@ import { readDescoCatalog } from './helpers/desco.js'
 import { readAlelekCatalog } from './helpers/alelek.js'
 import { warmShopSearchIndex } from './helpers/shop-search-index.js'
 import { databaseRoot } from './helpers/paths.js'
+import { restoreGuard } from './helpers/restore-guard.js'
 
 const api = new Koa()
 // Resolve public files from the emitted server bundle, never from process.cwd().
@@ -72,6 +73,24 @@ api.use(async (ctx, next) => {
 
 // middleware
 api.use(bodyParser({ jsonLimit: '25mb' }))
+
+api.use(async (ctx, next) => {
+  if (!/^\/api(?:\/|$)/i.test(ctx.path) || (ctx.method === 'POST' && /^\/api\/backups\/restore\/?$/i.test(ctx.path))) {
+    return next()
+  }
+  const leave = restoreGuard.enterRequest()
+  if (!leave) {
+    ctx.status = 503
+    ctx.set('Retry-After', '5')
+    ctx.body = { error: 'Keepit herstelt een back-up. Probeer het zo opnieuw.' }
+    return
+  }
+  try {
+    await next()
+  } finally {
+    leave()
+  }
+})
 
 // contact form
 api.use(contact)

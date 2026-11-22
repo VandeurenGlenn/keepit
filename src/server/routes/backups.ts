@@ -1,8 +1,11 @@
 import { Router } from '@koa/router'
 import { createReadStream } from 'fs'
-import { automaticRetention, backupMirrorEnabled, createBackup, listBackups, readBackup, resolveBackupFile, validateBackup } from '../helpers/backups.js'
+import { automaticRetention, backupMirrorEnabled, createBackup, listBackups, readBackup, resolveBackupFile, scheduleAutomaticBackup, validateBackup } from '../helpers/backups.js'
 import { operationalData, operationalStores } from '../database/database.js'
 import { hasRole } from '../helpers/roles.js'
+import pubsub from '../helpers/pubsub.js'
+import { persistRestore, restoreGuard } from '../helpers/restore-guard.js'
+import { clearScheduledPlanningNotifications } from '../helpers/planning-notifications.js'
 
 const router = new Router({ prefix: '/api/backups' })
 
@@ -41,29 +44,53 @@ router.post('/restore', async (ctx) => {
     return
   }
 
-  const safetySummary = await createBackup('pre-restore')
-  const safetyBackup = await readBackup(safetySummary.id)
-  try {
-    // Persist every validated dataset before replacing the live in-memory data.
-    // If any write fails, put the complete pre-restore snapshot back.
-    await Promise.all(
-      Object.entries(operationalStores).map(([name, store]) => store.put(backup.datasets[name]))
-    )
-  } catch (error) {
-    await Promise.all(
-      Object.entries(operationalStores).map(([name, store]) => store.put(safetyBackup.datasets[name]))
-    )
-    ctx.status = 500
-    ctx.body = { error: 'Herstellen is mislukt; de oorspronkelijke gegevens zijn teruggezet.' }
+  const restore = restoreGuard.beginRestore()
+  if (!restore) {
+    ctx.status = 409
+    ctx.body = { error: 'Er loopt al een herstel.' }
     return
   }
-
-  for (const [name, target] of Object.entries(operationalData)) {
-    for (const key of Object.keys(target)) delete target[key]
-    for (const [key, value] of Object.entries(backup.datasets[name])) target[key] = value
+  try {
+    await restore.ready
+    let safetyBackup
+    let safetyId: string
+    try {
+      const summary = await createBackup('pre-restore')
+      safetyId = summary.id
+      safetyBackup = await readBackup(safetyId)
+    } catch (error) {
+      console.error('Pre-restore backup failed:', error)
+      ctx.status = 500
+      ctx.body = { error: 'De veiligheidskopie kon niet worden gemaakt. Er zijn geen gegevens vervangen.' }
+      return
+    }
+    const result = await persistRestore(
+      Object.keys(operationalStores), backup.datasets, safetyBackup.datasets,
+      (name, data) => operationalStores[name].put(data, { silent: true })
+    )
+    if (result.restored === false) {
+      const incomplete = result.failedRollback.length > 0
+      if (incomplete) console.error('Incomplete backup rollback:', safetyId, result.failedRollback)
+      ctx.status = 500
+      ctx.body = {
+        error: incomplete
+          ? `Herstel mislukt en de oorspronkelijke gegevens konden niet volledig worden teruggezet. Gebruik veiligheidskopie ${safetyId} en neem contact op met de beheerder.`
+          : 'Herstel mislukt. De oorspronkelijke gegevens zijn teruggezet.',
+        safetyBackupId: safetyId
+      }
+      return
+    }
+    for (const [name, target] of Object.entries(operationalData)) {
+      for (const key of Object.keys(target)) delete target[key]
+      Object.assign(target, backup.datasets[name])
+    }
+    clearScheduledPlanningNotifications()
+    for (const [name, target] of Object.entries(operationalData)) pubsub.publish(`${name}.changed`, target)
+    scheduleAutomaticBackup()
+    ctx.body = { ok: true, restoredAt: new Date().toISOString(), sourceCreatedAt: backup.createdAt }
+  } finally {
+    restore.release()
   }
-
-  ctx.body = { ok: true, restoredAt: new Date().toISOString(), sourceCreatedAt: backup.createdAt }
 })
 
 router.get('/:id', async (ctx) => {

@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'fs/promises'
 import { basename, dirname, resolve } from 'path'
 import { databaseRoot, databasePath } from './paths.js'
+import { restoreGuard } from './restore-guard.js'
 
 export const BACKUP_FORMAT = 'keepit-backup'
 export const BACKUP_VERSION = 1
@@ -71,7 +72,10 @@ const atomicJsonWrite = async (file: string, value: unknown) => {
 const readDataset = async (name: BackupDataset): Promise<Record<string, unknown>> => {
   try {
     const parsed = JSON.parse(await readFile(databasePath(`${name}.json`), 'utf8'))
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(`Gegevensset ${name} heeft geen geldig gegevensformaat`)
+    }
+    return parsed
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
     throw error
@@ -91,7 +95,7 @@ const parseBackup = (value: unknown): KeepitBackup => {
     throw new Error('De gegevens in de back-up ontbreken')
   }
   // Backups created before global app settings existed remain restorable.
-  candidate.datasets.appSettings ||= {}
+  if (!Object.hasOwn(candidate.datasets, 'appSettings')) candidate.datasets.appSettings = {}
   for (const name of BACKUP_DATASETS) {
     const dataset = candidate.datasets[name]
     if (!dataset || typeof dataset !== 'object' || Array.isArray(dataset)) {
@@ -148,10 +152,10 @@ export const resolveBackupFile = (id: string) => {
 
 export const validateBackup = (value: unknown) => parseBackup(value)
 
-export const createBackup = async (reason: BackupReason = 'manual'): Promise<BackupSummary> => {
+const createBackupFile = async (reason: BackupReason): Promise<BackupSummary> => {
   if (activeBackup) {
     await activeBackup
-    return createBackup(reason)
+    return createBackupFile(reason)
   }
   activeBackup = (async () => {
     const createdAt = new Date().toISOString()
@@ -174,6 +178,17 @@ export const createBackup = async (reason: BackupReason = 'manual'): Promise<Bac
     return await activeBackup
   } finally {
     activeBackup = undefined
+  }
+}
+
+export const createBackup = async (reason: BackupReason = 'manual'): Promise<BackupSummary> => {
+  if (reason === 'pre-restore') return createBackupFile(reason)
+  const leave = restoreGuard.enterRequest()
+  if (!leave) throw new Error('Er loopt een back-upherstel.')
+  try {
+    return await createBackupFile(reason)
+  } finally {
+    leave()
   }
 }
 
@@ -206,6 +221,8 @@ export const startAutomaticBackups = async () => {
   if (!latestAutomatic || Date.now() - Date.parse(latestAutomatic.createdAt) > 24 * 60 * 60 * 1000) {
     await createBackup('automatic')
   }
-  const interval = setInterval(() => void createBackup('automatic'), 24 * 60 * 60 * 1000)
+  const interval = setInterval(() => void createBackup('automatic').catch((error) => {
+    console.error('Automatic backup failed:', error instanceof Error ? error.message : String(error))
+  }), 24 * 60 * 60 * 1000)
   interval.unref?.()
 }

@@ -2,6 +2,7 @@ import type { AppNotification, PlanningEntry } from '../../types/index.js'
 import { jobs, notifications, notificationsStore, users } from '../database/database.js'
 import pubsub from './pubsub.js'
 import { sendMail } from './mailer.js'
+import { restoreGuard } from './restore-guard.js'
 
 type Change = 'created' | 'updated' | 'cancelled'
 type PendingPlanningNotification = {
@@ -120,7 +121,7 @@ const emailHtml = (change: Change, entry: PlanningEntry, title: string, message:
   `
 }
 
-export const notifyPlanningUsers = async (
+const writePlanningNotifications = async (
   entry: PlanningEntry,
   change: Change,
   recipients = entry.userIds,
@@ -161,6 +162,16 @@ export const notifyPlanningUsers = async (
   }
 }
 
+export const notifyPlanningUsers = async (...args: Parameters<typeof writePlanningNotifications>) => {
+  const leave = restoreGuard.enterRequest()
+  if (!leave) throw new Error('Er loopt een back-upherstel.')
+  try {
+    await writePlanningNotifications(...args)
+  } finally {
+    leave()
+  }
+}
+
 const entriesMatch = (left: PlanningEntry, right: PlanningEntry) =>
   left.jobId === right.jobId &&
   left.start === right.start &&
@@ -171,6 +182,13 @@ const entriesMatch = (left: PlanningEntry, right: PlanningEntry) =>
 const flushPlanningUpdateNotification = async (id: string) => {
   const pending = pendingPlanningNotifications.get(id)
   if (!pending) return
+  if (restoreGuard.isRestoring()) {
+    pending.timer = setTimeout(() => {
+      void flushPlanningUpdateNotification(id).catch((error) => console.warn('Delayed planning notification failed', error))
+    }, 1000)
+    pending.timer.unref?.()
+    return
+  }
   pendingPlanningNotifications.delete(id)
   if (entriesMatch(pending.previous, pending.latest)) return
 
@@ -204,4 +222,8 @@ export const cancelScheduledPlanningNotification = (id: string) => {
   if (!pending) return
   clearTimeout(pending.timer)
   pendingPlanningNotifications.delete(id)
+}
+
+export const clearScheduledPlanningNotifications = () => {
+  for (const id of pendingPlanningNotifications.keys()) cancelScheduledPlanningNotification(id)
 }

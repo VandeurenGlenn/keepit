@@ -263,8 +263,9 @@ back-up wordt dan atomisch naar beide locaties geschreven en met dezelfde retent
 KEEPIT_BACKUP_MIRROR_DIR=/mnt/keepit-offsite pm2 startOrReload deploy/ecosystem.config.cjs --update-env
 ```
 
-De back-uppagina toont expliciet of deze externe spiegel actief is. Een herstel schrijft eerst alle gevalideerde datasets;
-bij een schrijffout wordt de automatisch gemaakte veiligheidskopie teruggezet voordat de live data wordt vervangen.
+De back-uppagina toont of deze externe spiegel actief is. Tijdens herstel wacht Keepit op lopende API-aanvragen en
+worden nieuwe API-aanvragen tijdelijk geweigerd. Bij een schrijffout probeert Keepit alle oorspronkelijke gegevens terug
+te zetten. Lukt dat niet volledig, dan vermeldt de foutmelding welke veiligheidskopie je nodig hebt.
 
 Standaard staan snapshots in `$HOME/keepit/.database/backups`. Gebruik in productie bij voorkeur een gemount extern volume of NAS:
 
@@ -272,7 +273,9 @@ Standaard staan snapshots in `$HOME/keepit/.database/backups`. Gebruik in produc
 KEEPIT_BACKUP_DIR=/mnt/keepit-backups KEEPIT_BACKUP_RETENTION=60 npm start
 ```
 
-De grote, opnieuw opbouwbare shopcatalogus en binaire productafbeeldingen zijn niet inbegrepen in deze operationele snapshots. Daarvoor blijft `npm run catalog:zip` beschikbaar.
+Deze JSON-snapshots bevatten geen bestanden, zoals werffoto’s en factuurbijlagen. Neem de mappen `media` en `invoices`
+in de datamap apart mee in je bestandsback-up. De opnieuw opbouwbare shopcatalogus en productafbeeldingen vallen ook
+buiten de snapshots; daarvoor blijft `npm run catalog:zip` beschikbaar.
 
 ## CLI
 

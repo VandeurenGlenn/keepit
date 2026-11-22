@@ -29,6 +29,12 @@ test('rejects a backup with a missing dataset', () => {
   assert.throws(() => validateBackup(backup), /hours/)
 })
 
+test('rejects an invalid app settings dataset instead of silently clearing it', () => {
+  const backup = validBackup()
+  backup.datasets.appSettings = null
+  assert.throws(() => validateBackup(backup), /appSettings/)
+})
+
 test('rejects unsupported backup versions', () => {
   const backup = { ...validBackup(), version: 2 }
   assert.throws(() => validateBackup(backup), /niet ondersteund/)
