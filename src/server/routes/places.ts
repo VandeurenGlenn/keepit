@@ -7,8 +7,8 @@ const router = new Router({ prefix: '/api/places' })
 
 router.post('/reverse', async (ctx) => {
   const body = (ctx.request.body || {}) as Partial<WorkLocation> & { countryCode?: string; language?: string }
-  const latitude = Number(body.latitude)
-  const longitude = Number(body.longitude)
+  const latitude = typeof body.latitude === 'number' ? body.latitude : NaN
+  const longitude = typeof body.longitude === 'number' ? body.longitude : NaN
 
   if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
       !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {

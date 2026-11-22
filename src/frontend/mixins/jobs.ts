@@ -124,12 +124,16 @@ export const JobsMixin = (base: typeof LiteElement) =>
 
     _deleteJob = async (uuid) => {
       const previous = this.jobs[uuid]
-      const restoring = previous?.status === 'completed'
+      const restoring = previous?.status === 'completed' || Boolean(previous?.archivedAt)
       try {
         if (!restoring) {
           const check = await api.getJobCompletionCheck(uuid)
+          if (!check.ready) {
+            showToast(`Afronden kan nog niet: ${check.issues.filter((issue) => issue.blocking).map((issue) => issue.message).join(' · ')}.`)
+            return
+          }
           if (check.issues.length) {
-            const confirmed = await confirmAction({ title: check.ready ? 'Job afronden?' : 'Job is nog niet klaar', message: check.issues.map((issue) => `${issue.blocking ? 'Blokkerend' : 'Controle'}: ${issue.message}`).join(' · '), confirmLabel: check.ready ? 'Job afronden' : 'Toch afronden' })
+            const confirmed = await confirmAction({ title: 'Job afronden?', message: check.issues.map((issue) => issue.message).join(' · '), confirmLabel: 'Job afronden' })
             if (!confirmed) return
           }
         }
@@ -141,7 +145,7 @@ export const JobsMixin = (base: typeof LiteElement) =>
         if(!restoring)window.dispatchEvent(new CustomEvent('keepit-toast',{detail:{message:`${previous.name} is gearchiveerd.`,actionLabel:'Ongedaan maken',action:async()=>{const restored=await api.updateJob(uuid,{status:'active',archivedAt:undefined});this.jobs={...this.jobs,[uuid]:restored};this.requestRender()}}}))
       } catch (error) {
         console.error('Error archiving job:', error)
-        window.dispatchEvent(new CustomEvent('keepit-toast',{detail:{message:'De job kon niet bijgewerkt worden.'}}))
+        showToast(error instanceof Error ? error.message : 'De job kon niet bijgewerkt worden.')
       }
     }
 

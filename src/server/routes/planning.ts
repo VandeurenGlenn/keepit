@@ -20,6 +20,9 @@ const validate = (input: PlanningInput): string | undefined => {
   const end = Date.parse(input.end || '')
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 'Kies een geldige begin- en eindtijd'
   if (end <= start) return 'De eindtijd moet na de begintijd liggen'
+  if (end > Date.now() && (jobs[input.jobId].archivedAt || jobs[input.jobId].status === 'completed')) {
+    return 'Heropen deze job voordat je er nieuwe werkuren voor inplant.'
+  }
   if ((input.notes?.length || 0) > 1000) return 'Notities mogen maximaal 1000 tekens bevatten'
 }
 

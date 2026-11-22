@@ -147,7 +147,7 @@ export type JobCompletionCheck = {
 export type WorkReport = {
   from: string
   to: string
-  rows: Array<{ userId: userId; jobId: jobId; prestationId: prestationId; checkin: number; checkout?: number; duration: number; unusual: boolean; future: boolean }>
+  rows: Array<{ userId: userId; jobId: jobId; prestationId: prestationId; checkin: number; checkout?: number; duration: number; sessionDuration?: number; unusual: boolean; future: boolean }>
 }
 
 export interface Company extends BaseInput {

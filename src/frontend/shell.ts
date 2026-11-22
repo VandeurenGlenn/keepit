@@ -576,6 +576,7 @@ export class AppShell extends LiteElement {
           user.currentJob = pending.currentJob
           user.currentPrestationId = pending.currentPrestationId
           this.user = user
+          this.syncTimelineTracker()
           pubsub.publishVerbose('user', user)
           if (this.users?.[id]) {
             this.users = { ...this.users, [id]: { ...this.users[id], name: user.name, roles: user.roles, picture: user.picture } }

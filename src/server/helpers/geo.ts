@@ -55,3 +55,9 @@ export const hasFreshPlaceContent = (
   entry: TimelinePlaceCacheEntry,
   now = Date.now()
 ): boolean => Boolean(entry.place && entry.resolvedAt && now - entry.resolvedAt < PLACE_CONTENT_TTL_MS)
+export function isNewTimelineSample(capturedAt: number, previous: number | undefined, now = Date.now()): boolean {
+  return Number.isFinite(capturedAt) &&
+    capturedAt >= now - 5 * 60_000 && capturedAt <= now + 60_000 &&
+    // An older out-of-range sample should not block tracking after an upgrade.
+    (previous === undefined || previous > now + 60_000 || capturedAt > previous)
+}

@@ -8,8 +8,10 @@ import {
   timelineTrackingStatesStore,
   users
 } from '../database/database.js'
-import { distanceInMeters } from '../helpers/geo.js'
+import { distanceInMeters, isNewTimelineSample } from '../helpers/geo.js'
 import { findNearbyPlace } from '../helpers/places.js'
+import { findOpenPrestationId } from '../helpers/work-sessions.js'
+import { queueTimelineUpdate } from '../helpers/timeline-updates.js'
 import { Prestation, TimelineLocationEvent, TimelinePlace, WorkLocation } from '../../types/index.js'
 
 const router = new Router({ prefix: '/api/timeline' })
@@ -61,9 +63,9 @@ const parseLocation = (value: unknown): WorkLocation | undefined => {
 
 const getActivePrestation = (userId: string, jobId?: string): Prestation | undefined => {
   if (!jobId) return undefined
-  const ids = jobs[jobId]?.hours?.[userId] || []
-  const prestation = ids.length ? hours[userId]?.[ids[ids.length - 1]] : undefined
-  return prestation && !prestation.checkout ? prestation : undefined
+  const userHours = hours[userId] || {}
+  const id = findOpenPrestationId(users[userId]?.currentPrestationId, jobId, jobs[jobId]?.hours?.[userId] || [], userHours)
+  return id ? userHours[id] : undefined
 }
 
 const createEvent = (
@@ -94,7 +96,7 @@ router.get('/me', async (ctx) => {
     .sort((a, b) => b.occurredAt - a.occurredAt)
 })
 
-router.post('/position', async (ctx) => {
+router.post('/position', (ctx, next) => queueTimelineUpdate(ctx.state.userid, next), async (ctx) => {
   const userId = ctx.state.userid
   const user = users[userId]
   if (!user?.preferences?.continuousTimelineLocation) {
@@ -114,6 +116,10 @@ router.post('/position', async (ctx) => {
     ctx.body = { accepted: false, reason: 'low_accuracy' }
     return
   }
+  if (!isNewTimelineSample(location.capturedAt, timelineTrackingStates[userId]?.lastPosition?.capturedAt)) {
+    ctx.body = { accepted: false, reason: 'stale_position' }
+    return
+  }
 
   let state = (timelineTrackingStates[userId] ||= {})
   const gap = state.lastPosition ? location.capturedAt - state.lastPosition.capturedAt : 0
@@ -121,14 +127,15 @@ router.post('/position', async (ctx) => {
     state = timelineTrackingStates[userId] = {}
   }
 
-  const activeJobId = user.currentJob
+  const activePrestation = getActivePrestation(userId, user.currentJob)
+  const activeJobId = activePrestation?.jobId
   let suggestedJob: { id: string; name: string } | undefined
   const movementNotifications: MovementNotification[] = []
   const homeLocation = user.place?.location
     ? { ...user.place.location, capturedAt: location.capturedAt }
     : undefined
 
-  if (!activeJobId) {
+  if (!activeJobId && user.preferences.locationSuggestionNotifications !== false) {
     const nearbyJob = Object.entries(jobs)
       .filter(([, job]) => job.status !== 'completed' && !job.archivedAt && job.place?.location)
       .map(([id, job]) => ({
@@ -192,11 +199,12 @@ router.post('/position', async (ctx) => {
     return
   }
 
-  const activePrestation = getActivePrestation(userId, activeJobId)
   const activeJobStartedAt = activePrestation?.checkin
+  const jobCoordinates = activeJobId ? jobs[activeJobId]?.place?.location : undefined
   const activeJobLocation =
+    (jobCoordinates ? { ...jobCoordinates, capturedAt: activeJobStartedAt ?? location.capturedAt } : undefined) ||
     activePrestation?.checkinLocation ||
-    (state.activeJobId === activeJobId ? state.activeJobLocation : undefined) ||
+    (state.activeJobId === activeJobId && state.activeJobStartedAt === activeJobStartedAt ? state.activeJobLocation : undefined) ||
     location
   const createdEvents: TimelineLocationEvent[] = []
 
@@ -347,7 +355,7 @@ router.post('/position', async (ctx) => {
   }
 })
 
-router.delete('/me', async (ctx) => {
+router.delete('/me', (ctx, next) => queueTimelineUpdate(ctx.state.userid, next), async (ctx) => {
   const userId = ctx.state.userid
   delete timelineLocations[userId]
   delete timelineTrackingStates[userId]

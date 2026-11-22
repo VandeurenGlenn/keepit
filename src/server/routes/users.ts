@@ -10,6 +10,7 @@ import {
 } from './../database/database.js'
 import { sendInviteMail } from '../helpers/mailer.js'
 import { hasRole } from '../helpers/roles.js'
+import { queueTimelineUpdate } from '../helpers/timeline-updates.js'
 import { hasRegisteredEmail, normalizeRegistrationEmail } from '../helpers/registration.js'
 
 const router = new Router({
@@ -67,7 +68,7 @@ router.post('/', async (ctx) => {
   ctx.set('Content-Type', 'application/json')
 })
 
-router.patch('/me/preferences', async (ctx) => {
+router.patch('/me/preferences', (ctx, next) => queueTimelineUpdate(ctx.state.userid, next), async (ctx) => {
   const userId = ctx.state.userid
   const user = users[userId]
   if (!user) {

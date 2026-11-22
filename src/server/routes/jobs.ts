@@ -1,7 +1,8 @@
 import { Router } from '@koa/router'
-import { companies, jobs, jobsStore } from './../database/database.js'
+import { companies, hours, jobs, jobsStore, planning } from './../database/database.js'
 import { Place } from '../../types/index.js'
 import { hasRole } from '../helpers/roles.js'
+import { jobArchiveBlockers } from '../helpers/business-links.js'
 
 const router = new Router({
   prefix: '/api/jobs'
@@ -31,7 +32,7 @@ router.post('/', async (ctx) => {
     ctx.body = { error: 'Missing required fields' }
     return
   }
-  if (customerId && (!companies[customerId] || (companies[customerId].relationshipType || 'customer') !== 'customer')) {
+  if (customerId && (!Object.hasOwn(companies, customerId) || companies[customerId].relationshipType === 'supplier')) {
     ctx.status = 400
     ctx.body = { error: 'Kies een geldige klant.' }
     return
@@ -67,6 +68,12 @@ router.delete('/:uuid', async (ctx) => {
     return
   }
   if (!jobs[uuid]) { ctx.status = 404; ctx.body = { error: 'Job not found' }; return }
+  const blockers = jobArchiveBlockers(uuid, hours, planning)
+  if (blockers.length) {
+    ctx.status = 409
+    ctx.body = { error: `Deze job kan nog niet worden gearchiveerd: ${blockers.map((issue) => issue.message).join(' · ')}.` }
+    return
+  }
   jobs[uuid].status = 'completed'
   jobs[uuid].archivedAt = new Date().toISOString()
   jobs[uuid].updatedAt = new Date().toISOString()

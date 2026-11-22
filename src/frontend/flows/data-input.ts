@@ -10,6 +10,7 @@ import '@material/web/textfield/outlined-text-field.js'
 import type { Place } from '../../types/index.js'
 import { api } from '../api/client.js'
 import { getPlaceSearchSettings } from '../helpers/place-settings.js'
+import { LatestOperation } from '../helpers/latest-operation.js'
 
 declare const google: typeof globalThis.google
 
@@ -33,7 +34,16 @@ export class DataInput extends LiteElement {
   timeout?: ReturnType<typeof setTimeout>
   suggestions: any[] = []
   autocompleteSessionToken?: any
-  searchRequestId = 0
+  private readonly placeOperation = new LatestOperation()
+
+  disconnectedCallback() {
+    this.placeOperation.cancel()
+    clearTimeout(this.timeout)
+    this.locating = false
+    this.autocompleteSessionToken = undefined
+    this.renderSuggestions([])
+    super.disconnectedCallback()
+  }
 
   @query('custom-dropdown') accessor dropdown: CustomDropdown
   @query('custom-selector') accessor selector: CustomSelector
@@ -227,50 +237,53 @@ export class DataInput extends LiteElement {
 
     if (this.type !== 'place') return
 
-    if (this.timeout) clearTimeout(this.timeout)
-    const requestId = ++this.searchRequestId
+    clearTimeout(this.timeout)
+    const signal = this.placeOperation.begin()
+    this.locating = false
+    this.placeMessage = ''
+    this.renderSuggestions([])
+    const input = value.trim()
+    if (!input) {
+      this.autocompleteSessionToken = undefined
+      return
+    }
     this.timeout = setTimeout(async () => {
-      const input = this.value.trim()
-      if (input) {
-        try {
-          const { AutocompleteSessionToken, AutocompleteSuggestion } = await google.maps.importLibrary('places')
-          const preferences = await getPlaceSearchSettings()
-          this.autocompleteSessionToken ||= new AutocompleteSessionToken()
-          const request = {
-            input,
-            sessionToken: this.autocompleteSessionToken,
-            ...(preferences.countryCode ? { includedRegionCodes: [preferences.countryCode] } : {}),
-            language: preferences.language,
-            region: preferences.countryCode
-          }
-          const response = await AutocompleteSuggestion.fetchAutocompleteSuggestions(request as any)
-          if (requestId !== this.searchRequestId) return
-          this.renderSuggestions(response.suggestions)
-          this.placeMessage = response.suggestions.length
-            ? ''
-            : 'Geen adres gevonden. Voeg ook de gemeente of postcode toe.'
-        } catch (error) {
-          if (requestId !== this.searchRequestId) return
-          console.error('Adres zoeken mislukt:', error)
-          this.renderSuggestions([])
-          this.placeMessage = this.currentLocation
-            ? 'Adres zoeken lukt momenteel niet. Probeer opnieuw of gebruik je huidige locatie.'
-            : 'Adres zoeken lukt momenteel niet. Probeer het opnieuw.'
+      try {
+        const { AutocompleteSessionToken, AutocompleteSuggestion } = await google.maps.importLibrary('places')
+        if (signal.aborted) return
+        const preferences = await getPlaceSearchSettings()
+        if (signal.aborted) return
+        this.autocompleteSessionToken ||= new AutocompleteSessionToken()
+        const request = {
+          input,
+          sessionToken: this.autocompleteSessionToken,
+          ...(preferences.restrictedCountryCode ? { includedRegionCodes: [preferences.restrictedCountryCode] } : {}),
+          language: preferences.language,
+          region: preferences.countryCode
         }
-      } else {
-        this.suggestions = []
-        this.autocompleteSessionToken = undefined
-        this.selector.innerHTML = ''
-        this.dropdown.open = false
-        this.placeMessage = ''
+        const response = await AutocompleteSuggestion.fetchAutocompleteSuggestions(request as any)
+        if (signal.aborted) return
+        const suggestions = response.suggestions.filter((suggestion) => suggestion.placePrediction)
+        this.renderSuggestions(suggestions)
+        this.placeMessage = suggestions.length
+          ? ''
+          : 'Geen adres gevonden. Voeg ook de gemeente of postcode toe.'
+      } catch (error) {
+        if (signal.aborted) return
+        console.error('Adres zoeken mislukt:', error)
+        this.renderSuggestions([])
+        this.placeMessage = this.currentLocation
+          ? 'Adres zoeken lukt momenteel niet. Probeer opnieuw of gebruik je huidige locatie.'
+          : 'Adres zoeken lukt momenteel niet. Probeer het opnieuw.'
       }
     }, 300)
   }
 
   renderSuggestions(suggestions: any[]) {
-    const selector = this.selector
-    selector.innerHTML = ''
     this.suggestions = suggestions
+    const selector = this.selector
+    if (!selector || !this.dropdown) return
+    selector.replaceChildren()
 
     suggestions.forEach((suggestion, index) => {
       const placePrediction = suggestion.placePrediction
@@ -295,26 +308,35 @@ export class DataInput extends LiteElement {
   }
 
   select = async (event: CustomEvent) => {
-    let place = this.suggestions[event.detail].placePrediction.toPlace() // Get first predicted place.
-    const fields = await place.fetchFields({
-      fields: ['id', 'displayName', 'formattedAddress', 'location']
-    })
-    const selectedPlace = fields.place
-    this.place = {
-      id: selectedPlace.id,
-      displayName: selectedPlace.displayName,
-      formattedAddress: selectedPlace.formattedAddress,
-      location: selectedPlace.location
-        ? {
-            latitude: selectedPlace.location.lat(),
-            longitude: selectedPlace.location.lng()
-          }
-        : undefined
+    const prediction = this.suggestions[event.detail]?.placePrediction
+    if (!prediction) return
+    const signal = this.placeOperation.begin()
+    clearTimeout(this.timeout)
+    this.locating = false
+    this.renderSuggestions([])
+    this.autocompleteSessionToken = undefined
+    try {
+      const { place } = await prediction.toPlace().fetchFields({
+        fields: ['id', 'displayName', 'formattedAddress', 'location']
+      })
+      if (signal.aborted) return
+      this.applyPlace({
+        id: place.id,
+        displayName: place.displayName,
+        formattedAddress: place.formattedAddress,
+        location: place.location ? { latitude: place.location.lat(), longitude: place.location.lng() } : undefined
+      })
+    } catch {
+      if (!signal.aborted) this.placeMessage = 'Dit adres kon niet worden geladen. Zoek opnieuw of gebruik je huidige locatie als die optie beschikbaar is.'
     }
+  }
 
-    this.value = selectedPlace.displayName
+  private applyPlace(place: Place) {
+    if (!place?.id || !place.formattedAddress) throw new Error('Er is geen volledig adres gevonden.')
+    this.place = place
+    this.value = place.displayName || place.formattedAddress
     this.placeMessage = ''
-    this.suggestions = []
+    this.renderSuggestions([])
     this.autocompleteSessionToken = undefined
     this.dispatchEvent(
       new CustomEvent('data-input-changed', {
@@ -323,7 +345,6 @@ export class DataInput extends LiteElement {
         composed: true
       })
     )
-    this.dropdown.open = false
   }
 
   useCurrentLocation = async () => {
@@ -335,8 +356,9 @@ export class DataInput extends LiteElement {
 
     this.locating = true
     this.placeMessage = ''
-    this.searchRequestId++
-    if (this.timeout) clearTimeout(this.timeout)
+    const signal = this.placeOperation.begin()
+    clearTimeout(this.timeout)
+    this.renderSuggestions([])
     try {
       const location = await new Promise<GeolocationPosition>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -345,27 +367,18 @@ export class DataInput extends LiteElement {
           maximumAge: 60_000
         })
       })
+      if (signal.aborted) return
       const preferences = await getPlaceSearchSettings()
+      if (signal.aborted) return
       const place = await api.reverseGeocode({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
         accuracy: location.coords.accuracy,
         capturedAt: location.timestamp
-      }, preferences)
-      this.place = place
-      this.value = place.displayName
-      this.suggestions = []
-      this.autocompleteSessionToken = undefined
-      this.selector.innerHTML = ''
-      this.dropdown.open = false
-      this.dispatchEvent(
-        new CustomEvent('data-input-changed', {
-          detail: { value: this.value, place: this.place },
-          bubbles: true,
-          composed: true
-        })
-      )
+      }, { countryCode: preferences.countryCode, language: preferences.language }, signal)
+      if (!signal.aborted) this.applyPlace(place)
     } catch (error) {
+      if (signal.aborted) return
       const geolocationError = error as Partial<GeolocationPositionError> | undefined
       if (geolocationError?.code === 1) {
         this.placeMessage = 'Locatietoegang is geweigerd. Sta locatie toe in je browser of zoek het adres.'
@@ -375,7 +388,7 @@ export class DataInput extends LiteElement {
           : 'Je huidige locatie kon niet worden bepaald. Zoek het adres handmatig.'
       }
     } finally {
-      this.locating = false
+      if (!signal.aborted) this.locating = false
     }
   }
   render() {
@@ -386,7 +399,7 @@ export class DataInput extends LiteElement {
           ? html`<label class="select-field">${displayLabel}<select .value=${this.value} @change=${(event: Event) => this._change(event)}>${this.options.map((option) => html`<option value=${option.value}>${option.label}</option>`)}</select></label>`
           : html`<md-outlined-text-field
           @input=${(e) => this._change(e)}
-          .type=${this.type}
+          .type=${this.type === 'place' ? 'text' : this.type}
           .label=${displayLabel}
           .value=${this.value}>
           ${this.type === 'place'

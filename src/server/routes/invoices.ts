@@ -463,6 +463,16 @@ router.post('/', async (ctx, next) => {
     ctx.body = { error: 'Missing required fields' }
     return
   }
+  if (!Object.hasOwn(companies, company) || companies[company].relationshipType === 'supplier') {
+    ctx.status = 400
+    ctx.body = { error: 'Kies een geldige klant voor de factuur.' }
+    return
+  }
+  if (!Object.hasOwn(jobs, job)) {
+    ctx.status = 400
+    ctx.body = { error: 'Kies een bestaande job voor de factuur.' }
+    return
+  }
   const hoursSnapshot = job ? collectBillableHoursForJob(job) : []
   const overbilled = findMaterialOverbilling(materials, jobs[job]?.materials || [], billableMaterialsForJob(job))
   if (overbilled) {

@@ -14,6 +14,7 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
   @property({ type: String }) accessor editCompanyPlaceValue = ''
   @property({ type: Object }) accessor editCompanyPlace: Place | undefined
   @property({ type: Boolean }) accessor savingCompany = false
+  @property({ type: String }) accessor editRelationshipType: 'customer' | 'supplier' = 'customer'
 
   static styles = [
     css`
@@ -278,6 +279,7 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
         font-weight: 700;
       }
       .editor-field input,
+      .editor-field select,
       .editor-field textarea {
         width: 100%;
         padding: 0 12px;
@@ -287,7 +289,7 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
         background: var(--app-panel-strong);
         color: var(--md-sys-color-on-surface);
       }
-      .editor-field input { min-height: 44px; }
+      .editor-field input,.editor-field select { min-height: 44px; }
       .editor-field textarea { min-height: 92px; padding-top: 11px; resize: vertical; }
       .editor-actions { justify-content: flex-end; }
       .editor-actions button {
@@ -340,6 +342,7 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
   startEditingCompany(uuid: string, company: Company) {
     this.editingCompanyId = uuid
     this.editCompanyName = company.name || ''
+    this.editRelationshipType = company.relationshipType || 'customer'
     this.editCompanyDescription = company.description || ''
     this.editCompanyPlace = company.place
     this.editCompanyPlaceValue = company.place?.displayName || company.place?.formattedAddress || ''
@@ -351,24 +354,27 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
   }
 
   async saveCompany() {
+    if (this.savingCompany) return
+    const id = this.editingCompanyId
     const name = this.editCompanyName.trim()
-    if (!this.editingCompanyId || !name || !this.editCompanyPlace?.id) {
+    if (!id || !name || !this.editCompanyPlace?.id) {
       showToast('Vul een naam in en kies het adres uit de resultaten.')
       return
     }
     this.savingCompany = true
     try {
-      const updated = await api.updateCompany(this.editingCompanyId, {
+      const updated = await api.updateCompany(id, {
         name,
         description: this.editCompanyDescription.trim(),
-        place: this.editCompanyPlace
+        place: this.editCompanyPlace,
+        relationshipType: this.editRelationshipType
       })
-      this.companies = { ...this.companies, [this.editingCompanyId]: updated }
+      this.companies = { ...this.companies, [id]: updated }
       this.cancelEditingCompany()
       showToast('Gegevens opgeslagen.')
     } catch (error) {
       console.error('Company update failed', error)
-      showToast('De gegevens konden niet opgeslagen worden.')
+      showToast(error instanceof Error ? error.message : 'De gegevens konden niet opgeslagen worden.')
     } finally {
       this.savingCompany = false
     }
@@ -398,6 +404,9 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
       <section class="editor" role="dialog" aria-modal="true" aria-labelledby="company-editor-title">
         <div class="editor-header"><div><span class="eyebrow">Gegevens aanpassen</span><h2 id="company-editor-title">${this.editCompanyName}</h2></div></div>
         <label class="editor-field">Naam<input .value=${this.editCompanyName} @input=${(event: Event) => (this.editCompanyName = (event.target as HTMLInputElement).value)} /></label>
+        <label class="editor-field">Relatietype<select @change=${(event: Event) => {
+          this.editRelationshipType = (event.target as HTMLSelectElement).value === 'supplier' ? 'supplier' : 'customer'
+        }}><option value="customer" ?selected=${this.editRelationshipType === 'customer'}>Klant</option><option value="supplier" ?selected=${this.editRelationshipType === 'supplier'}>Leverancier</option></select></label>
         <label class="editor-field">Omschrijving<textarea .value=${this.editCompanyDescription} @input=${(event: Event) => (this.editCompanyDescription = (event.target as HTMLTextAreaElement).value)}></textarea></label>
         <data-input
           label="place"
@@ -409,7 +418,7 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
             this.editCompanyPlaceValue = event.detail.value
             this.editCompanyPlace = event.detail.place
           }}></data-input>
-        <div class="editor-actions"><button @click=${() => this.cancelEditingCompany()}>Annuleren</button><button class="save" ?disabled=${this.savingCompany} @click=${() => void this.saveCompany()}>${this.savingCompany ? 'Opslaan…' : 'Opslaan'}</button></div>
+        <div class="editor-actions"><button ?disabled=${this.savingCompany} @click=${() => this.cancelEditingCompany()}>Annuleren</button><button class="save" ?disabled=${this.savingCompany} @click=${() => void this.saveCompany()}>${this.savingCompany ? 'Opslaan…' : 'Opslaan'}</button></div>
       </section>
     </div>`
   }

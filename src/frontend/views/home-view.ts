@@ -3,6 +3,7 @@ import '@vandeurenglenn/lite-elements/icon.js'
 import { api } from '../api/client.js'
 import type { AppSettings, Prestation } from '../../types/index.js'
 import { setCachedAppSettings } from '../helpers/place-settings.js'
+import { showToast } from '../helpers/toast.js'
 
 export class HomeView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor user
@@ -559,16 +560,19 @@ export class HomeView extends LiteElement {
   }
 
   async toggleContinuousTimeline() {
+    if (this.savingPreference) return
     const enabled = !this.user?.preferences?.continuousTimelineLocation
     this.savingPreference = true
     try {
       if (enabled && 'Notification' in window && Notification.permission === 'default') {
-        await Notification.requestPermission()
+        await Notification.requestPermission().catch(() => undefined)
       }
       await api.updateContinuousTimelinePreference(enabled)
       this.user.preferences = { ...this.user.preferences, continuousTimelineLocation: enabled }
       this.requestRender()
       window.dispatchEvent(new CustomEvent('keepit-timeline-preference', { detail: { enabled } }))
+    } catch {
+      showToast('De locatievoorkeur kon niet worden opgeslagen. Probeer opnieuw.')
     } finally {
       this.savingPreference = false
     }
@@ -577,6 +581,7 @@ export class HomeView extends LiteElement {
   async toggleNotificationPreference(
     key: 'planningNotifications' | 'planningEmailNotifications' | 'locationSuggestionNotifications'
   ) {
+    if (this.savingPreference) return
     const enabled = this.user?.preferences?.[key] !== false
     this.savingPreference = true
     try {
@@ -584,6 +589,8 @@ export class HomeView extends LiteElement {
       this.user.preferences = { ...this.user.preferences, ...preferences }
       this.requestRender()
       window.dispatchEvent(new CustomEvent('keepit-timeline-preference'))
+    } catch {
+      showToast('De meldingsvoorkeur kon niet worden opgeslagen. Probeer opnieuw.')
     } finally {
       this.savingPreference = false
     }

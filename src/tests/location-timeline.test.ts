@@ -4,6 +4,7 @@ import assert from 'node:assert'
 // @ts-ignore -- Node requires the source extension here; tests are excluded from the production build.
 import {
   distanceInMeters,
+  isNewTimelineSample,
   findNearestPlaceCacheEntry,
   hasFreshPlaceContent,
   PLACE_CONTENT_TTL_MS,
@@ -14,6 +15,16 @@ const location = (latitude: number, longitude: number) => ({
   latitude,
   longitude,
   capturedAt: Date.now()
+})
+
+test('dubbele, verouderde en toekomstige GPS-metingen worden niet verwerkt', () => {
+  const now = 1_000_000
+  assert.equal(isNewTimelineSample(now, undefined, now), true)
+  assert.equal(isNewTimelineSample(now, now, now), false)
+  assert.equal(isNewTimelineSample(now - 1, now, now), false)
+  assert.equal(isNewTimelineSample(now - 300_001, undefined, now), false)
+  assert.equal(isNewTimelineSample(now + 60_001, undefined, now), false)
+  assert.equal(isNewTimelineSample(now, now + 60_001, now), true)
 })
 
 test('significant location distance calculation', async (t) => {

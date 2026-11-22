@@ -1,5 +1,6 @@
 import { Router } from '@koa/router'
-import { companies, companiesStore, jobs } from '../database/database.js'
+import { companies, companiesStore, invoices, jobs } from '../database/database.js'
+import { companyLinks } from '../helpers/business-links.js'
 import { Company, Place } from '../../types/index.js'
 
 type CreateCompanyBody = {
@@ -23,11 +24,12 @@ router.get('/', async (ctx) => {
 
 router.post('/', async (ctx) => {
   const body = (ctx.request.body || {}) as CreateCompanyBody
-  const { name, description, logo, place } = body
+  const { description, logo, place } = body
+  const name = typeof body.name === 'string' ? body.name.trim() : ''
 
-  if (!name || !place) {
+  if (!name || !place?.id || !place.formattedAddress) {
     ctx.status = 400
-    ctx.body = { error: 'Missing required fields' }
+    ctx.body = { error: 'Vul een naam in en kies een geldig adres.' }
     return
   }
 
@@ -41,6 +43,11 @@ router.post('/', async (ctx) => {
     updatedAt: new Date().toISOString()
   }
   const uuid = body.uuid || crypto.randomUUID()
+  if (typeof uuid !== 'string' || Object.hasOwn(companies, uuid) || uuid in Object.prototype) {
+    ctx.status = 409
+    ctx.body = { error: 'Er bestaat al een relatie met dit ID of het ID is ongeldig.' }
+    return
+  }
 
   companies[uuid] = company
   await companiesStore.put(companies)
@@ -51,7 +58,7 @@ router.post('/', async (ctx) => {
 })
 
 router.patch('/:uuid', async (ctx) => {
-  const current = companies[ctx.params.uuid]
+  const current = Object.hasOwn(companies, ctx.params.uuid) ? companies[ctx.params.uuid] : undefined
   if (!current) {
     ctx.status = 404
     ctx.body = { error: 'Company not found' }
@@ -68,6 +75,11 @@ router.patch('/:uuid', async (ctx) => {
     body.relationshipType === 'supplier' || body.relationshipType === 'customer'
       ? body.relationshipType
       : current.relationshipType
+  if (relationshipType === 'supplier' && current.relationshipType !== 'supplier' && companyLinks(ctx.params.uuid, jobs, invoices).jobs) {
+    ctx.status = 409
+    ctx.body = { error: 'Deze klant is nog gekoppeld aan jobs. Kies daar eerst een andere klant of verwijder de koppeling.' }
+    return
+  }
   const updated = {
     ...current,
     ...(typeof body.name === 'string' && body.name.trim() ? { name: body.name.trim() } : {}),
@@ -89,25 +101,30 @@ router.delete('/:uuid', async (ctx) => {
     ctx.body = { error: 'UUID is required' }
     return
   }
-  if (!companies[uuid]) {
+  if (!Object.hasOwn(companies, uuid)) {
     ctx.status = 404
     ctx.body = { error: 'Company not found' }
     return
   }
-  const linkedJobs = Object.values(jobs).filter((job) => job.customerId === uuid)
-  if (linkedJobs.length) {
+  const links = companyLinks(uuid, jobs, invoices)
+  if (links.jobs || links.invoices) {
     ctx.status = 409
     ctx.body = {
-      error: 'Klant is gekoppeld aan jobs',
-      message: `Deze klant is nog gekoppeld aan ${linkedJobs.length} job${linkedJobs.length === 1 ? '' : 's'}. Ontkoppel die eerst.`
+      error: 'Deze relatie is nog in gebruik.',
+      message: `Verwijderen kan niet: deze relatie is gekoppeld aan ${[
+        links.jobs && `${links.jobs} job${links.jobs === 1 ? '' : 's'}`,
+        links.invoices && `${links.invoices} ${links.invoices === 1 ? 'factuur' : 'facturen'}`
+      ].filter(Boolean).join(' en ')}.`
     }
     return
   }
 
+  const previous = companies[uuid]
   delete companies[uuid]
   try {
     await companiesStore.put(companies)
   } catch (err) {
+    companies[uuid] = previous
     ctx.status = 500
     ctx.body = { error: 'Failed to persist company deletion' }
     return

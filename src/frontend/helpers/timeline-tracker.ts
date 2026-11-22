@@ -21,14 +21,16 @@ const distanceInMeters = (from: WorkLocation, to: WorkLocation): number => {
 export class TimelineTracker {
   private watchId?: number
   private lastSent?: WorkLocation
-  private sending = false
+  private session?: AbortController
+  private sending?: AbortSignal
   suggestionsEnabled = true
 
   start() {
     if (this.watchId !== undefined || !('geolocation' in navigator)) return
+    const session = this.session = new AbortController()
     this.watchId = navigator.geolocation.watchPosition(
-      (position) => void this.handlePosition(position),
-      (error) => console.warn('Timeline location unavailable', error.message),
+      (position) => void this.handlePosition(position, session.signal),
+      (error) => { if (!session.signal.aborted) console.warn('Timeline location unavailable', error.message) },
       {
         enableHighAccuracy: false,
         maximumAge: 60_000,
@@ -38,12 +40,15 @@ export class TimelineTracker {
   }
 
   stop() {
+    this.session?.abort()
+    this.session = undefined
     if (this.watchId !== undefined) navigator.geolocation.clearWatch(this.watchId)
     this.watchId = undefined
     this.lastSent = undefined
   }
 
-  private async handlePosition(position: GeolocationPosition) {
+  private async handlePosition(position: GeolocationPosition, signal: AbortSignal) {
+    if (signal.aborted || this.sending === signal) return
     const location: WorkLocation = {
       latitude: position.coords.latitude,
       longitude: position.coords.longitude,
@@ -51,7 +56,7 @@ export class TimelineTracker {
       speed: position.coords.speed ?? undefined,
       capturedAt: position.timestamp
     }
-    if ((location.accuracy ?? 0) > MAX_ACCURACY_METERS || this.sending) return
+    if ((location.accuracy ?? 0) > MAX_ACCURACY_METERS) return
     if (
       this.lastSent &&
       distanceInMeters(this.lastSent, location) < MIN_SEND_DISTANCE_METERS &&
@@ -60,123 +65,73 @@ export class TimelineTracker {
       return
     }
 
-    this.sending = true
+    this.sending = signal
     try {
-      const result = await api.submitTimelinePosition(location)
+      const result = await api.submitTimelinePosition(location, signal)
+      if (signal.aborted) return
       if (result.accepted) this.lastSent = location
-      if (this.suggestionsEnabled && result.shouldNotifyCheckout && result.currentJob) {
-        await this.showCheckoutNotification(result.currentJob)
-      }
-      if (this.suggestionsEnabled && result.shouldSuggestCheckin && result.suggestedJob) {
-        await this.showCheckinNotification(result.suggestedJob)
-      }
-      if (this.suggestionsEnabled) {
-        for (const notification of result.movementNotifications || []) {
-          await this.showMovementNotification(notification)
-        }
-      }
       if (result.events?.length) {
         window.dispatchEvent(new CustomEvent('keepit-timeline-events', { detail: result.events }))
       }
+      if (result.shouldNotifyCheckout && result.currentJob) {
+        const { id, name } = result.currentJob
+        await this.showSuggestion(signal, 'Voorstel: werk stoppen?',
+          `Je bent vertrokken van ${name}. Keepit heeft niets automatisch gestopt; bevestig zelf je check-out.`,
+          `checkout-${id}`, '#!/checkout', 'Check-out bekijken')
+      }
+      if (result.shouldSuggestCheckin && result.suggestedJob) {
+        const { id, name } = result.suggestedJob
+        await this.showSuggestion(signal, 'Voorstel: werk starten?',
+          `Je lijkt aangekomen bij ${name}. Keepit start niets automatisch; bevestig zelf je check-in.`,
+          `checkin-suggestion-${id}`, `#!/checkin?job=${encodeURIComponent(id)}`, 'Check-in bekijken')
+      }
+      for (const notification of result.movementNotifications || []) {
+        await this.showSuggestion(signal, notification.title, notification.message, notification.tag, notification.url || '#!/home', 'Bekijken')
+      }
     } catch (error) {
-      console.warn('Timeline position could not be synced', error)
+      if (!signal.aborted) console.warn('Timeline position could not be synced', error)
     } finally {
-      this.sending = false
+      if (this.sending === signal) this.sending = undefined
     }
   }
 
-  private async showCheckoutNotification(job: { id: string; name: string }) {
-    const title = 'Voorstel: werk stoppen?'
-    const body = `Je bent vertrokken van ${job.name}. Keepit heeft niets automatisch gestopt; bevestig zelf je check-out.`
-    const target = '#!/checkout'
-    if (!('Notification' in window) || Notification.permission !== 'granted') {
-      this.showInAppSuggestion(`${body}`, 'Check-out bekijken', target)
-      return
+  private async showSuggestion(
+    session: AbortSignal, title: string, message: string, tag: string, target: string, action: string
+  ) {
+    const allowed = () => !session.aborted && this.suggestionsEnabled
+    if (!allowed()) return
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        const registration = await navigator.serviceWorker?.getRegistration()
+        if (!allowed()) return
+        if (registration?.active) {
+          await registration.showNotification(title, {
+            body: message, icon: '/assets/dimac.svg', badge: '/assets/dimac.svg', tag, data: { url: target }
+          })
+          return
+        }
+        const notification = new Notification(title, { body: message, tag })
+        notification.onclick = () => {
+          if (!allowed()) return
+          location.hash = target
+          window.focus()
+        }
+        return
+      } catch {
+        // Some browsers allow notifications only through an active service worker.
+      }
     }
-    const options: NotificationOptions = {
-      body,
-      icon: '/assets/dimac.svg',
-      badge: '/assets/dimac.svg',
-      tag: `checkout-${job.id}`,
-      data: { url: target }
-    }
-    if ('serviceWorker' in navigator) {
-      const registration = await navigator.serviceWorker.ready
-      await registration.showNotification(title, options)
-      return
-    }
-    const notification = new Notification(title, options)
-    notification.onclick = () => {
-      location.hash = target
-      window.focus()
-    }
+    if (allowed()) this.showInAppSuggestion(message, action, target, allowed)
   }
 
-  private async showCheckinNotification(job: { id: string; name: string }) {
-    const title = 'Voorstel: werk starten?'
-    const body = `Je lijkt aangekomen bij ${job.name}. Keepit start niets automatisch; bevestig zelf je check-in.`
-    const target = `#!/checkin?job=${encodeURIComponent(job.id)}`
-    if (!('Notification' in window) || Notification.permission !== 'granted') {
-      this.showInAppSuggestion(body, 'Check-in bekijken', target)
-      return
-    }
-    const options: NotificationOptions = {
-      body,
-      icon: '/assets/dimac.svg',
-      badge: '/assets/dimac.svg',
-      tag: `checkin-suggestion-${job.id}`,
-      data: { url: target }
-    }
-    if ('serviceWorker' in navigator) {
-      const registration = await navigator.serviceWorker.ready
-      await registration.showNotification(title, options)
-      return
-    }
-    const notification = new Notification(title, options)
-    notification.onclick = () => {
-      location.hash = target
-      window.focus()
-    }
-  }
-
-  private async showMovementNotification(notification: {
-    title: string
-    message: string
-    tag: string
-    url?: string
-  }) {
-    const target = notification.url || '#!/home'
-    if (!('Notification' in window) || Notification.permission !== 'granted') {
-      this.showInAppSuggestion(notification.message, 'Bekijken', target)
-      return
-    }
-    const options: NotificationOptions = {
-      body: notification.message,
-      icon: '/assets/dimac.svg',
-      badge: '/assets/dimac.svg',
-      tag: notification.tag,
-      data: { url: target }
-    }
-    if ('serviceWorker' in navigator) {
-      const registration = await navigator.serviceWorker.ready
-      await registration.showNotification(notification.title, options)
-      return
-    }
-    const browserNotification = new Notification(notification.title, options)
-    browserNotification.onclick = () => {
-      location.hash = target
-      window.focus()
-    }
-  }
-
-  private showInAppSuggestion(message: string, actionLabel: string, target: string) {
+  private showInAppSuggestion(message: string, actionLabel: string, target: string, allowed: () => boolean) {
     window.dispatchEvent(
       new CustomEvent('keepit-toast', {
         detail: {
           message,
           actionLabel,
           action: () => {
-            location.hash = target
+            if (allowed()) location.hash = target
           }
         }
       })

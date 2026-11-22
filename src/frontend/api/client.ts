@@ -44,7 +44,7 @@ class ApiClient {
     }
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     const url = `${this.baseUrl}${path}`
     const token = this.getAuthToken()
     const headers: Record<string, string> = {
@@ -57,7 +57,8 @@ class ApiClient {
 
     const options: RequestInit = {
       method,
-      headers
+      headers,
+      signal
     }
 
     if (body) {
@@ -294,7 +295,7 @@ class ApiClient {
     return this.request('PATCH', '/users/me/preferences', preferences)
   }
 
-  async submitTimelinePosition(location: WorkLocation): Promise<{
+  async submitTimelinePosition(location: WorkLocation, signal?: AbortSignal): Promise<{
     accepted: boolean
     events?: TimelineLocationEvent[]
     shouldNotifyCheckout?: boolean
@@ -309,7 +310,7 @@ class ApiClient {
       url?: string
     }>
   }> {
-    return this.request('POST', '/timeline/position', { location })
+    return this.request('POST', '/timeline/position', { location }, signal)
   }
 
   async getMyLocationTimeline(days = 30): Promise<TimelineLocationEvent[]> {
@@ -334,12 +335,13 @@ class ApiClient {
 
   async reverseGeocode(
     location: WorkLocation,
-    preferences?: { countryCode?: string; language?: string }
+    preferences?: { countryCode?: string; language?: string },
+    signal?: AbortSignal
   ): Promise<Place> {
     const response = await this.request<{ content: Place }>('POST', '/places/reverse', {
       ...location,
       ...preferences
-    })
+    }, signal)
     return response.content
   }
 

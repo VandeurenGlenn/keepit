@@ -3,6 +3,7 @@ import { api } from '../api/client.js'
 
 export type PlaceSearchSettings = {
   countryCode?: string
+  restrictedCountryCode?: string
   language: string
 }
 
@@ -27,14 +28,17 @@ export const setCachedAppSettings = (settings: AppSettings) => {
 
 export const getPlaceSearchSettings = async (): Promise<PlaceSearchSettings> => {
   const browser = browserSettings()
+  const request = settingsRequest ||= api.getAppSettings()
   try {
-    settingsRequest ||= api.getAppSettings()
-    cachedAppSettings = await settingsRequest
+    const settings = await request
+    if (request === settingsRequest) cachedAppSettings = settings
   } catch {
-    settingsRequest = undefined
+    if (request === settingsRequest) settingsRequest = undefined
   }
+  const restrictedCountryCode = cachedAppSettings?.addressCountry?.toLowerCase()
   return {
     language: browser.language,
-    countryCode: cachedAppSettings?.addressCountry?.toLowerCase() || browser.countryCode
+    countryCode: restrictedCountryCode || browser.countryCode,
+    restrictedCountryCode
   }
 }

@@ -3,6 +3,7 @@ import { Router } from '@koa/router'
 import { companies, hours, jobs, planning } from './../database/database.js'
 import { jobsStore } from './../database/database.js'
 import { hasRole } from '../helpers/roles.js'
+import { jobArchiveBlockers } from '../helpers/business-links.js'
 
 const router = new Router({
   prefix: '/api/job'
@@ -12,16 +13,14 @@ router.get('/:uuid/completion-check', async (ctx) => {
   const job = jobs[ctx.params.uuid]
   if (!job) { ctx.status = 404; ctx.body = { error: 'Job not found' }; return }
   const prestations = Object.entries(job.hours || {}).flatMap(([userId, ids]) => ids.map((id) => hours[userId]?.[id]).filter(Boolean))
-  const open = prestations.filter((item) => !item.checkout).length
   const uninvoiced = prestations.filter((item) => item.checkout && !item.invoiceId && !item.invoicedAt).length
-  const futurePlanning = Object.values(planning).filter((item) => item.jobId === ctx.params.uuid && Date.parse(item.end) > Date.now()).length
+  const blockers = jobArchiveBlockers(ctx.params.uuid, hours, planning)
   const issues = [
-    open ? { kind: 'open-hours' as const, message: `${open} openstaande urenregistratie(s)`, blocking: true } : undefined,
+    ...blockers,
     uninvoiced ? { kind: 'uninvoiced-hours' as const, message: `${uninvoiced} nog niet gefactureerde urenregistratie(s)`, blocking: false } : undefined,
     !job.materials?.length ? { kind: 'materials' as const, message: 'Geen materialen geregistreerd', blocking: false } : undefined,
     !job.notes?.length ? { kind: 'notes' as const, message: 'Geen notities toegevoegd', blocking: false } : undefined,
-    !job.images?.length ? { kind: 'images' as const, message: 'Geen werffoto’s toegevoegd', blocking: false } : undefined,
-    futurePlanning ? { kind: 'planning' as const, message: `${futurePlanning} toekomstige planning(en)`, blocking: true } : undefined
+    !job.images?.length ? { kind: 'images' as const, message: 'Geen werffoto’s toegevoegd', blocking: false } : undefined
   ].filter(Boolean)
   ctx.body = { ready: !issues.some((item) => item?.blocking), issues }
 })
@@ -62,6 +61,15 @@ router.patch('/:uuid', async (ctx) => {
     : ['materials', 'materialDiscountPercent', 'notes', 'images']
   const updates = Object.fromEntries(Object.entries(payload).filter(([key]) => allowed.includes(key)))
   if (!Object.keys(updates).length) { ctx.status = 403; ctx.body = { error: 'Geen toegelaten wijzigingen' }; return }
+  if (updates.status === 'completed' || updates.archivedAt) {
+    const blockers = jobArchiveBlockers(uuid, hours, planning)
+    if (blockers.length) {
+      ctx.status = 409
+      ctx.body = { error: `Deze job kan nog niet worden gearchiveerd: ${blockers.map((issue) => issue.message).join(' · ')}.` }
+      return
+    }
+  }
+  if (updates.status === 'active') updates.archivedAt = undefined
   if ('place' in updates) {
     const place = updates.place as { id?: unknown; formattedAddress?: unknown } | undefined
     if (!place?.id || !place.formattedAddress) {
@@ -72,7 +80,7 @@ router.patch('/:uuid', async (ctx) => {
   }
   if ('customerId' in updates) {
     const customerId = String(updates.customerId || '').trim()
-    if (customerId && (!companies[customerId] || (companies[customerId].relationshipType || 'customer') !== 'customer')) {
+    if (customerId && (!Object.hasOwn(companies, customerId) || companies[customerId].relationshipType === 'supplier')) {
       ctx.status = 400
       ctx.body = { error: 'Kies een geldige klant.' }
       return
