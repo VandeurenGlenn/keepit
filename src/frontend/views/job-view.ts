@@ -4,6 +4,7 @@ import { Companies, Job, MaterialLine, Place, Prestation, ShopProduct, User } fr
 import { api } from '../api/client.js'
 import { setUnsavedChanges } from '../helpers/unsaved-changes.js'
 import { showToast } from '../helpers/toast.js'
+import { mergeMaterialRows } from '../helpers/material-merge.js'
 import '../flows/data-input.js'
 
 function msToTime(ms: number): string {
@@ -125,7 +126,7 @@ export class JobView extends LiteElement {
   get materialState(){return JSON.stringify({materials:this.sanitizedMaterials,discountPercent:this.normalizedMaterialDiscountPercent})}
   get jobDirty(){return this.materialState!==this.materialBaseline||(this.editingDetails&&JSON.stringify([this.detailName.trim(),this.detailDescription.trim(),this.detailPlace?.id||'',this.detailCustomerId])!==this.detailBaseline)}
   get customerOptions(){return [['','Geen klant gekoppeld'],...Object.entries(this.companies||{}).filter(([,company])=>(company.relationshipType||'customer')==='customer').sort(([,left],[,right])=>(left.name||'').localeCompare(right.name||'','nl')).map(([id,company])=>[id,company.name||'Naamloze klant'])] as Array<[string,string]>}
-  disconnectedCallback(){setUnsavedChanges('job',false);super.disconnectedCallback()}
+  disconnectedCallback(){this.closeMaterialPickerPanel();setUnsavedChanges('job',false);super.disconnectedCallback()}
 
   static styles = [
     css`
@@ -1698,12 +1699,15 @@ export class JobView extends LiteElement {
   }
 
   closeMaterialPickerPanel() {
+    this.materialPickerLoadToken++
     this.materialPickerOpen = false
     if (this.materialPickerSearchTimer) clearTimeout(this.materialPickerSearchTimer)
   }
 
   handleMaterialPickerSearch(event: Event) {
     this.materialPickerQuery = (event.target as HTMLInputElement).value
+    this.materialPickerLoadToken++
+    this.materialPickerLoading = true
     if (this.materialPickerSearchTimer) clearTimeout(this.materialPickerSearchTimer)
     this.materialPickerSearchTimer = setTimeout(() => void this.loadMaterialPickerProducts(), 220)
   }
@@ -1712,6 +1716,7 @@ export class JobView extends LiteElement {
     const token = ++this.materialPickerLoadToken
     const query = this.materialPickerQuery.trim()
     this.materialPickerLoading = true
+    this.materialPickerMessage = ''
     try {
       let response = await api.getShopProducts(query || undefined, {
         limit: 24,
@@ -1746,32 +1751,9 @@ export class JobView extends LiteElement {
 
   mergeMaterials(incoming: MaterialLine[]) {
     const surcharge = this.materials.find((material) => material.kind === 'small-materials')
-    const merged = this.materials.filter((material) => material.kind !== 'small-materials' && material.name.trim())
-    for (const material of incoming) {
-      const index = merged.findIndex(
-        (existing) =>
-          (material.articleNumber && existing.articleNumber === material.articleNumber) ||
-          (material.productNumber && existing.productNumber === material.productNumber) ||
-          existing.name.trim().toLowerCase() === material.name.trim().toLowerCase()
-      )
-      const draft: MaterialDraft = {
-        name: material.name,
-        quantity: Number(material.quantity) > 0 ? Number(material.quantity) : 1,
-        unit: material.unit || '',
-        unitPrice: material.unitPrice,
-        articleNumber: material.articleNumber,
-        productNumber: material.productNumber,
-        packagingQuantity: material.packagingQuantity,
-        description: material.description,
-        image: material.image,
-        technicalData: material.technicalData
-      }
-      if (index >= 0) {
-        merged[index] = { ...merged[index], ...draft, quantity: merged[index].quantity + draft.quantity }
-      } else {
-        merged.push(draft)
-      }
-    }
+    const current = this.materials.filter((material) => material.kind !== 'small-materials' && material.name.trim())
+    const drafts: MaterialDraft[] = incoming.map((material) => ({ ...material, unit: material.unit || '' }))
+    const merged = mergeMaterialRows(current, drafts)
     if (surcharge) merged.push(surcharge)
     this.materials = merged.length ? merged : [{ name: '', quantity: 1, unit: '', unitPrice: undefined }]
   }
@@ -1812,19 +1794,22 @@ export class JobView extends LiteElement {
   }
 
   async importSupplierCart() {
+    if (this.cartImporting) return
     const text = this.cartImportText.trim()
     if (!text) {
       this.materialPickerMessage = 'Plak winkelwagenregels of kies eerst een CSV/TXT-bestand.'
       return
     }
     this.cartImporting = true
+    const source = this.cartImportSource
     this.cartImportUnmatched = []
     try {
-      const result = await api.importShopCart(this.cartImportSource, text)
+      const result = await api.importShopCart(source, text)
+      if (!this.isConnected) return
       this.mergeMaterials(result.materials)
-      result.materials.forEach((material) => void api.addToHistory(material))
+      result.materials.forEach((material) => void api.addToHistory(material).catch(() => undefined))
       this.cartImportUnmatched = result.unmatched || []
-      this.materialPickerMessage = `${result.materials.length} materiaalregels uit ${this.cartImportSource === 'desco' ? 'Desco' : 'Alelek'} toegevoegd. Sla de materiaallijst nog op.`
+      this.materialPickerMessage = `${result.materials.length} materiaalregels uit ${source === 'desco' ? 'Desco' : 'Alelek'} toegevoegd. Sla de materiaallijst nog op.`
     } catch (error) {
       console.error('Failed to import supplier cart:', error)
       this.materialPickerMessage = 'De winkelwagen kon niet geïmporteerd worden.'

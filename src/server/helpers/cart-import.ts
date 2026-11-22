@@ -29,11 +29,22 @@ const splitRow = (line: string, delimiter: string): string[] => {
 
 const detectDelimiter = (line: string): string => {
   const delimiters = ['\t', ';', ',']
-  return delimiters.sort((left, right) => line.split(right).length - line.split(left).length)[0]
+  return delimiters.sort((left, right) => splitRow(line, right).length - splitRow(line, left).length)[0]
 }
 
 const headerIndex = (headers: string[], patterns: RegExp[]): number =>
   headers.findIndex((header) => patterns.some((pattern) => pattern.test(normalize(header))))
+
+function uniqueIndex(products: ShopProduct[], field: 'articleNumber' | 'productNumber' | 'name') {
+  const index = new Map<string, ShopProduct | null>()
+  for (const product of products) {
+    const key = normalize(product[field] || '')
+    if (!key) continue
+    if (!index.has(key)) index.set(key, product)
+    else if (index.get(key)?.id !== product.id) index.set(key, null)
+  }
+  return index
+}
 
 export const importCartText = (
   text: string,
@@ -41,12 +52,9 @@ export const importCartText = (
   products: ShopProduct[]
 ): { materials: MaterialLine[]; unmatched: string[] } => {
   const sourceProducts = products.filter((product) => product.source === source)
-  const byArticle = new Map(
-    sourceProducts.filter((product) => product.articleNumber).map((product) => [normalize(product.articleNumber!), product])
-  )
-  const byProduct = new Map(
-    sourceProducts.filter((product) => product.productNumber).map((product) => [normalize(product.productNumber!), product])
-  )
+  const byArticle = uniqueIndex(sourceProducts, 'articleNumber')
+  const byProduct = uniqueIndex(sourceProducts, 'productNumber')
+  const byName = uniqueIndex(sourceProducts, 'name')
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -55,44 +63,36 @@ export const importCartText = (
 
   const delimiter = detectDelimiter(lines[0])
   const possibleHeaders = splitRow(lines[0], delimiter)
-  const articleIndex = headerIndex(possibleHeaders, [/artikel/, /article/, /^artnr$/, /^sku$/])
-  const productIndex = headerIndex(possibleHeaders, [/product/, /productnummer/, /fabrikantnummer/])
-  const nameIndex = headerIndex(possibleHeaders, [/naam/, /name/, /omschrijving/, /description/])
-  const quantityIndex = headerIndex(possibleHeaders, [/aantal/, /quantity/, /^qty$/])
+  const articleIndex = headerIndex(possibleHeaders, [/^(artikel(?:nummer|nr|code)?|artnr|article(?:number|no|code)?|sku)$/])
+  const productIndex = headerIndex(possibleHeaders, [/^(product(?:nummer|nr|code|number)|fabrikantnummer|mpn)$/])
+  const nameIndex = headerIndex(possibleHeaders, [/^(productnaam|naam|name|omschrijving|description|productdescription|artikelomschrijving)$/])
+  const quantityIndex = headerIndex(possibleHeaders, [/^(aantal|quantity|qty)$/])
   const hasHeader = [articleIndex, productIndex, nameIndex, quantityIndex].some((index) => index >= 0)
   const imported = new Map<string, MaterialLine>()
   const unmatched: string[] = []
 
   for (const line of hasHeader ? lines.slice(1) : lines) {
     const cells = splitRow(line, delimiter)
-    const candidates = [
-      articleIndex >= 0 ? cells[articleIndex] : '',
-      productIndex >= 0 ? cells[productIndex] : '',
-      ...cells
-    ].filter(Boolean)
-    let product: ShopProduct | undefined
-
-    for (const candidate of candidates) {
-      const key = normalize(candidate)
-      product = byArticle.get(key) || byProduct.get(key)
-      if (product) break
-    }
-
-    if (!product && nameIndex >= 0 && cells[nameIndex]) {
-      const name = normalize(cells[nameIndex])
-      product = sourceProducts.find((item) => {
-        const productName = normalize(item.name)
-        return productName === name || (name.length >= 8 && productName.includes(name))
-      })
-    }
-
-    if (!product) {
-      const normalizedLine = normalize(line)
-      product = sourceProducts.find((item) => {
-        const article = item.articleNumber ? normalize(item.articleNumber) : ''
-        const productNumber = item.productNumber ? normalize(item.productNumber) : ''
-        return Boolean((article && normalizedLine.includes(article)) || (productNumber && normalizedLine.includes(productNumber)))
-      })
+    let product: ShopProduct | null | undefined
+    if (hasHeader) {
+      const article = normalize(cells[articleIndex] || '')
+      const productNumber = normalize(cells[productIndex] || '')
+      if (article) {
+        product = byArticle.get(article)
+        if (product && productNumber && normalize(product.productNumber || '') !== productNumber) product = undefined
+      } else if (productNumber) {
+        product = byProduct.get(productNumber)
+      } else {
+        product = byName.get(normalize(cells[nameIndex] || ''))
+      }
+    } else {
+      const first = cells[0].split(/\s+(?:aantal|qty|quantity)\b/i)[0]
+      const key = normalize(first)
+      const article = byArticle.get(key)
+      const numbered = byProduct.get(key)
+      if (article !== null && numbered !== null && !(article && numbered && article.id !== numbered.id)) {
+        product = article || numbered || byName.get(key)
+      }
     }
 
     if (!product) {
@@ -102,11 +102,15 @@ export const importCartText = (
 
     const quantityText = quantityIndex >= 0 ? cells[quantityIndex] : line.match(/(?:aantal|qty|quantity)\s*[:x]?\s*(\d+(?:[.,]\d+)?)/i)?.[1]
     const quantity = Number(String(quantityText || '1').replace(',', '.'))
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      unmatched.push(line)
+      continue
+    }
     const key = product.id
     const existing = imported.get(key)
     imported.set(key, {
       name: product.name,
-      quantity: (existing?.quantity || 0) + (Number.isFinite(quantity) && quantity > 0 ? quantity : 1),
+      quantity: (existing?.quantity || 0) + quantity,
       unit: product.unit,
       unitPrice: product.price,
       articleNumber: product.articleNumber,

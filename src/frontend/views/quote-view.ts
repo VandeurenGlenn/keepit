@@ -4,6 +4,7 @@ import type { Jobs,MaterialLine,Quote,QuoteStatus,ShopProduct } from '../../type
 import { api } from '../api/client.js'
 import { showToast } from '../helpers/toast.js'
 import { setUnsavedChanges } from '../helpers/unsaved-changes.js'
+import { mergeMaterialRows } from '../helpers/material-merge.js'
 const labels:Record<QuoteStatus,string>={draft:'Concept',sent:'Verzonden',approved:'Goedgekeurd',rejected:'Afgewezen'}
 const euro=new Intl.NumberFormat('nl-BE',{style:'currency',currency:'EUR'})
 export class QuoteView extends LiteElement{
@@ -18,11 +19,11 @@ export class QuoteView extends LiteElement{
  quoteMarker(quote:Quote){return quote.id||`${quote.createdAt||''}:${quote.updatedAt||''}:${quote.name}`}
  syncQuote(quote=this.quote){if(quote&&this.quoteMarker(quote)!==this.synced)this.load(quote)}
  onChange(key:string,value:unknown){if(key==='quote'&&value)this.syncQuote(value as Quote);queueMicrotask(()=>{if(this.isConnected)setUnsavedChanges('quote',this.dirty)})}
- disconnectedCallback(){setUnsavedChanges('quote',false);super.disconnectedCallback()}
+ disconnectedCallback(){this.token++;clearTimeout(this.timer);setUnsavedChanges('quote',false);super.disconnectedCallback()}
  load(q:Quote){this.synced=this.quoteMarker(q);this.name=q.name;this.selectedJob=q.jobId;this.status=q.status;this.notes=q.notes||'';this.validUntil=q.validUntil||'';this.materials=structuredClone(q.materials||[]);this.laborAmount=q.laborAmount||0;this.discountAmount=q.discountAmount||0;this.vatRate=q.vatRate??21}
  get materialTotal(){return this.materials.reduce((sum,item)=>sum+item.quantity*(item.unitPrice||0),0)}get subtotal(){return this.materialTotal+this.laborAmount}get net(){return Math.max(0,this.subtotal-this.discountAmount)}get vat(){return this.net*this.vatRate/100}get total(){return this.net+this.vat}
  get dirty(){if(!this.quote)return Boolean(this.selectedJob||this.materials.length||this.notes||this.laborAmount||this.discountAmount);return this.name.trim()!==this.quote.name||this.selectedJob!==this.quote.jobId||this.status!==this.quote.status||this.notes.trim()!==(this.quote.notes||'')||this.validUntil!==(this.quote.validUntil||'')||this.laborAmount!==(this.quote.laborAmount||0)||this.discountAmount!==(this.quote.discountAmount||0)||this.vatRate!==(this.quote.vatRate??21)||JSON.stringify(this.materials)!==JSON.stringify(this.quote.materials||[])}
- merge(incoming:MaterialLine[]){const next=[...this.materials];for(const item of incoming){const index=next.findIndex(current=>(item.articleNumber&&current.articleNumber===item.articleNumber)||current.name.trim().toLowerCase()===item.name.trim().toLowerCase());if(index>=0)next[index]={...next[index],quantity:next[index].quantity+item.quantity};else next.push({...item})}this.materials=next}
+ merge(incoming:MaterialLine[]){this.materials=mergeMaterialRows(this.materials,incoming)}
  addManual(){const name=this.description.trim();if(!name||this.quantity<=0||this.unitPrice<0)return showToast('Controleer omschrijving, aantal en prijs.');this.merge([{name,quantity:this.quantity,unitPrice:this.unitPrice}]);this.description='';this.quantity=1;this.unitPrice=0}
  update(index:number,key:'quantity'|'unitPrice',value:number){this.materials=this.materials.map((item,current)=>current===index?{...item,[key]:Number.isFinite(value)&&value>=0?value:0}:item)}
  async save(){
@@ -47,10 +48,10 @@ export class QuoteView extends LiteElement{
    }finally{this.saving=false}
  }
  async openPicker(){this.previousFocus=document.activeElement as HTMLElement;this.pickerOpen=true;requestAnimationFrame(()=>this.shadowRoot?.querySelector<HTMLInputElement>('.tools input')?.focus());await this.loadProducts()}
- closePicker(){this.pickerOpen=false;this.token++;requestAnimationFrame(()=>this.previousFocus?.focus())}
- search(event:Event){this.pickerQuery=(event.target as HTMLInputElement).value;if(this.timer)clearTimeout(this.timer);this.timer=setTimeout(()=>void this.loadProducts(),220)}
- async loadProducts(){const token=++this.token;this.pickerLoading=true;try{const result=await api.getShopProducts(this.pickerQuery.trim()||undefined,{limit:24,popular:!this.pickerQuery.trim()});if(token===this.token)this.products=result.products}catch(error){console.error(error);showToast('Materialen laden mislukt.')}finally{if(token===this.token)this.pickerLoading=false}}
- addProduct(product:ShopProduct){const quantity=this.quantities[product.id]||1;this.merge([{name:product.name,quantity,unit:product.unit,unitPrice:product.price,articleNumber:product.articleNumber,productNumber:product.productNumber,description:product.description,image:product.image}]);void api.addToHistory({name:product.name,quantity,unit:product.unit,unitPrice:product.price,articleNumber:product.articleNumber});showToast(`${product.name} toegevoegd.`)}
+ closePicker(){this.pickerOpen=false;this.token++;clearTimeout(this.timer);requestAnimationFrame(()=>this.previousFocus?.focus())}
+ search(event:Event){this.pickerQuery=(event.target as HTMLInputElement).value;this.token++;this.pickerLoading=true;if(this.timer)clearTimeout(this.timer);this.timer=setTimeout(()=>void this.loadProducts(),220)}
+ async loadProducts(){const token=++this.token;this.pickerLoading=true;try{const result=await api.getShopProducts(this.pickerQuery.trim()||undefined,{limit:24,popular:!this.pickerQuery.trim()});if(token===this.token)this.products=result.products}catch(error){if(token!==this.token)return;this.products=[];console.error(error);showToast('Materialen laden mislukt.')}finally{if(token===this.token)this.pickerLoading=false}}
+ addProduct(product:ShopProduct){const quantity=this.quantities[product.id]||1;this.merge([{name:product.name,quantity,unit:product.unit,unitPrice:product.price,articleNumber:product.articleNumber,productNumber:product.productNumber,packagingQuantity:product.packagingQuantity,description:product.description,image:product.image}]);void api.addToHistory({name:product.name,quantity,unit:product.unit,unitPrice:product.price,articleNumber:product.articleNumber});showToast(`${product.name} toegevoegd.`)}
  async importCart(){if(!this.importText.trim())return showToast('Plak eerst winkelwagenregels.');this.importing=true;try{const result=await api.importShopCart(this.importSource,this.importText.trim());this.merge(result.materials);this.unmatched=result.unmatched;showToast(`${result.materials.length} regels geïmporteerd.`)}catch(error){console.error(error);showToast('Importeren mislukt.')}finally{this.importing=false}}
  pickerKey(event:KeyboardEvent){if(event.key==='Escape'){event.preventDefault();this.closePicker();return}if(event.key!=='Tab')return;const items=Array.from(this.shadowRoot?.querySelectorAll<HTMLElement>('.picker button,.picker input,.picker select,.picker textarea,.picker summary')||[]).filter(item=>!item.hasAttribute('disabled'));if(!items.length)return;const first=items[0],last=items.at(-1)!;if(event.shiftKey&&this.shadowRoot?.activeElement===first){event.preventDefault();last.focus()}else if(!event.shiftKey&&this.shadowRoot?.activeElement===last){event.preventDefault();first.focus()}}
  formatDate(value?:string){if(!value)return '—';const date=new Date(value.length===10?`${value}T12:00:00`:value);return Number.isFinite(date.getTime())?date.toLocaleDateString('nl-BE'):'—'}

@@ -24,14 +24,18 @@ Een productieconfig voor `https://keepit.dimac.be` staat in
 `127.0.0.1:5678` en behandelt `/ws` afzonderlijk met de vereiste websocket-upgrade en het
 `Sec-WebSocket-Protocol` ticket.
 
-Pas indien nodig het domein, de interne poort en de Let's Encrypt-certificaatpaden aan. Installeer en controleer de
-config daarna op de server:
+Pas indien nodig het domein, de interne poort en de Let's Encrypt-certificaatpaden aan. De certificaten moeten
+al bestaan. Voer bij de eerste installatie en na updates dit commando uit op de Linux-server:
 
 ```bash
-sudo cp deploy/nginx/keepit.conf /etc/nginx/conf.d/keepit.conf
-sudo nginx -t
-sudo systemctl reload nginx
+sudo bash deploy/install-nginx.sh
 ```
+
+Het script controleert of nginx het bestand echt laadt, herlaadt alleen bij een wijziging en zet de vorige
+config terug bij een fout. Is er al een aangepaste `/etc/nginx/conf.d/keepit.conf`? Vergelijk die eerst met de
+repo en gebruik daarna alleen indien gewenst `sudo bash deploy/install-nginx.sh --adopt`. Een tweede Keepit-site
+in bijvoorbeeld `sites-enabled` wordt niet automatisch gewijzigd. Is de juiste versie al handmatig gekopieerd
+maar nog niet geladen? Gebruik dan `--reload`.
 
 De browser gebruikt automatisch `wss://<huidig-domein>/ws` op HTTPS en heeft daardoor geen interne hostnaam of poort
 nodig.
@@ -259,7 +263,7 @@ automatisch archief van de laatste 24 uur is. Standaard blijven de laatste 30 au
 Admins kunnen via **Organisatie → Back-ups** een archief maken, downloaden, uploaden of rechtstreeks op de server
 selecteren voor herstel. Vóór ieder herstel maakt Keepit een veiligheidskopie met de huidige bestanden.
 Oudere JSON-back-ups blijven bruikbaar: zij herstellen alleen gegevens en laten de huidige bestanden ongemoeid.
-Pas de [nginx-configuratie](deploy/nginx/keepit.conf) toe om archieven tot 2 GB te kunnen uploaden.
+Voer `sudo bash deploy/install-nginx.sh` uit om de nginx-configuratie voor archieven tot 2 GB toe te passen.
 
 Voor bescherming tegen verlies van de volledige VPS of schijf stel je een map op een afzonderlijk gemount volume in. Elke
 back-up wordt dan atomisch naar beide locaties geschreven en met dezelfde retentie opgeruimd:

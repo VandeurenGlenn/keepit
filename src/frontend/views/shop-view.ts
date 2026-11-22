@@ -8,6 +8,8 @@ export class ShopView extends LiteElement {
   @property({ type: String }) accessor searchQuery = ''
   @property({ type: Array }) accessor products: ShopProduct[] = []
   @property({ type: Boolean }) accessor loading = true
+  @property({ type: Boolean }) accessor productLoadFailed = false
+  @property({ type: Boolean }) accessor ordering = false
   @property({ type: Array }) accessor autocompleteSuggestions: string[] = []
   @property({ type: Object }) accessor cart: Map<string, number> = new Map()
   @property({ type: Object }) accessor draftQuantities: Map<string, number> = new Map()
@@ -19,6 +21,7 @@ export class ShopView extends LiteElement {
   @property({ type: Object }) accessor selectedProduct: ShopProduct | undefined
 
   favoriteNames: Set<string> = new Set()
+  private readonly cartProducts = new Map<string, ShopProduct>()
   private readonly lazyProductState: KeyedLazyRepeatState = createKeyedLazyRepeatState()
   private currentLoadToken = 0
   private autocompleteLoadToken = 0
@@ -895,12 +898,21 @@ export class ShopView extends LiteElement {
   async connectedCallback() {
     super.connectedCallback()
     this.searchQuery = new URLSearchParams(location.hash.split('?')[1] || '').get('search') || ''
+    void this.refreshFavorites()
     await this.loadProducts()
+  }
+
+  disconnectedCallback() {
+    clearTimeout(this.autocompleteTimer)
+    this.autocompleteLoadToken++
+    this.currentLoadToken++
+    super.disconnectedCallback()
   }
 
   async loadProducts(search = this.searchQuery.trim(), loadToken = ++this.currentLoadToken) {
     if (loadToken !== this.currentLoadToken) return
     this.loading = true
+    this.productLoadFailed = false
 
     try {
       const initialLimit = this.getInitialProductLimit()
@@ -914,15 +926,12 @@ export class ShopView extends LiteElement {
 
       this.products = firstPage.products || []
       this.totalProducts = firstPage.total
-
-      // Load favorites
-      const favorites = await api.getFavorites()
-      if (loadToken !== this.currentLoadToken) return
-      this.favoriteNames = new Set(favorites.map((m) => m.name))
     } catch (error) {
       if (loadToken !== this.currentLoadToken) return
       console.error('Failed to load products:', error)
       this.products = []
+      this.totalProducts = 0
+      this.productLoadFailed = true
     } finally {
       if (loadToken === this.currentLoadToken) {
         this.loading = false
@@ -1000,6 +1009,8 @@ export class ShopView extends LiteElement {
     const input = event.target as HTMLInputElement | null
     this.searchQuery = input?.value || ''
     const loadToken = ++this.currentLoadToken
+    ++this.autocompleteLoadToken
+    this.autocompleteSuggestions = []
     this.loading = true
 
     if (this.autocompleteTimer) {
@@ -1089,7 +1100,7 @@ export class ShopView extends LiteElement {
     )
   }
 
-  clearFilters() {
+  clearFilters = () => {
     this.sourceFilter = 'all'
     this.categoryFilter = 'all'
     this.priceFilter = 'all'
@@ -1102,8 +1113,10 @@ export class ShopView extends LiteElement {
   }
 
   addToCartWithQuantity(product: ShopProduct, quantity: number) {
-    const nextQuantity = Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1
+    if (this.ordering) return
+    const nextQuantity = Number.isFinite(quantity) ? Math.max(1, Math.floor(quantity)) : 1
     const nextCart = new Map(this.cart)
+    this.cartProducts.set(product.id, product)
     nextCart.set(product.id, (nextCart.get(product.id) || 0) + nextQuantity)
     this.cart = nextCart
     // Track in history
@@ -1137,19 +1150,22 @@ export class ShopView extends LiteElement {
   }
 
   removeFromCart(productId: string) {
+    if (this.ordering) return
     const nextCart = new Map(this.cart)
     nextCart.delete(productId)
+    this.cartProducts.delete(productId)
     this.cart = nextCart
   }
 
   updateQuantity(productId: string, quantity: number) {
-    const nextQuantity = Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1
+    if (this.ordering || !this.cart.has(productId)) return
+    const nextQuantity = Number.isFinite(quantity) ? Math.max(1, Math.floor(quantity)) : 1
     const nextCart = new Map(this.cart)
     nextCart.set(productId, nextQuantity)
     this.cart = nextCart
   }
 
-  toggleCart() {
+  toggleCart = () => {
     this.showCart = !this.showCart
   }
 
@@ -1162,7 +1178,7 @@ export class ShopView extends LiteElement {
   }
 
   getCartItem(productId: string): ShopProduct | undefined {
-    return this.products.find((product) => product.id === productId)
+    return this.cartProducts.get(productId)
   }
 
   getCartTotal(): number {
@@ -1184,12 +1200,14 @@ export class ShopView extends LiteElement {
     return count
   }
 
-  async checkout() {
+  checkout = async () => {
+    if (this.ordering || !this.cart.size) return
     const items = Array.from(this.cart.entries()).map(([productId, quantity]) => ({
       productId,
       quantity
     }))
 
+    this.ordering = true
     try {
       const result = await api.createShopOrder({
         items,
@@ -1199,6 +1217,7 @@ export class ShopView extends LiteElement {
       if (result.ok) {
         showToast(`Bestelling #${result.orderId} is aangemaakt.`)
         this.cart = new Map()
+        this.cartProducts.clear()
         this.showCart = false
       } else {
         showToast('De bestelling kon niet aangemaakt worden.')
@@ -1206,6 +1225,8 @@ export class ShopView extends LiteElement {
     } catch (error) {
       console.error('Checkout error:', error)
       showToast('De bestelling kon niet afgerond worden.')
+    } finally {
+      this.ordering = false
     }
   }
 
@@ -1587,6 +1608,8 @@ export class ShopView extends LiteElement {
           @scroll=${this.handleProductScroll}>
           ${this.loading
             ? html`<div class="loading">Producten laden...</div>`
+            : this.productLoadFailed
+              ? html`<div class="empty" role="alert">De producten konden niet geladen worden. <button class="filter-reset" type="button" @click=${() => void this.loadProducts()}>Opnieuw proberen</button></div>`
             : filteredProducts.length === 0
               ? html`<div class="empty">Geen producten gevonden met deze zoekopdracht en filters.</div>`
               : html` <div class="products-grid">${this.renderProducts(filteredProducts)}</div> `}
@@ -1598,9 +1621,10 @@ export class ShopView extends LiteElement {
       <div class="cart-modal ${this.showCart ? 'open' : ''}">
         <div class="cart-content">
           <div class="cart-header">
-            <h2>Shopping Cart</h2>
+            <h2>Winkelwagen</h2>
             <button
               class="close-button"
+              aria-label="Winkelwagen sluiten"
               @click=${this.toggleCart}>
               ✕
             </button>
@@ -1619,6 +1643,7 @@ export class ShopView extends LiteElement {
                           class="cart-item-qty"
                           type="number"
                           min="1"
+                          ?disabled=${this.ordering}
                           .value=${String(quantity)}
                           @change=${(event: Event) => {
                             const input = event.target as HTMLInputElement | null
@@ -1626,8 +1651,9 @@ export class ShopView extends LiteElement {
                           }} />
                         <button
                           class="remove-btn"
+                          ?disabled=${this.ordering}
                           @click=${() => this.removeFromCart(productId)}>
-                          Remove
+                          Verwijderen
                         </button>
                       </div>
                     `
@@ -1635,8 +1661,9 @@ export class ShopView extends LiteElement {
                 <div class="cart-total">Totaal: €${this.getCartTotal().toFixed(2)}</div>
                 <button
                   class="checkout-button"
+                  ?disabled=${this.ordering}
                   @click=${this.checkout}>
-                  Bestellen
+                  ${this.ordering ? 'Bestelling verwerken…' : 'Bestellen'}
                 </button>
               `}
         </div>
