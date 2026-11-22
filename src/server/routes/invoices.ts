@@ -1,5 +1,6 @@
 import { Router } from '@koa/router'
 import { opendir, mkdir } from 'fs/promises'
+import { relative, sep } from 'node:path'
 import { invoices, invoicesStore, hours, hoursStore, companies, jobs, quotes } from '../database/database.js'
 import multer from '@koa/multer'
 import { Invoice, InvoiceHourLine, MaterialLine } from '../../types/index.js'
@@ -542,7 +543,7 @@ router.post('/upload', upload.array('files'), async (ctx) => {
     ctx.body = { error: 'No files uploaded' }
     return
   }
-  ctx.body = files.map((file) => file.path)
+  ctx.body = files.map((file) => relative(databasePath('invoices'), file.path).split(sep).join('/'))
   ctx.status = 200
   ctx.set('Content-Type', 'application/json')
 })

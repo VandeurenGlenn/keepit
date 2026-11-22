@@ -252,9 +252,14 @@ Bestellingen worden opgeslagen in `.database/shopOrders.json`.
 
 ## Operationele back-ups
 
-Keepit maakt automatisch een consistente JSON-back-up van de unieke bedrijfsgegevens: uren, jobs, planning, klanten en leveranciers, offertes, factuurgegevens, gebruikers, bestellingen, meldingen en tijdlijngegevens. Na wijzigingen wordt een snapshot met korte vertraging gemaakt en bij het opstarten minstens eenmaal per 24 uur. Standaard blijven de laatste 30 automatische en 10 handmatige back-ups bewaard.
+Keepit maakt automatisch een `.tar`-back-up van de bedrijfsgegevens, werffoto’s en factuurbijlagen. Na wijzigingen
+maakt Keepit maximaal eenmaal per uur een automatisch archief. Bij opstarten wordt ook een archief gemaakt als er geen
+automatisch archief van de laatste 24 uur is. Standaard blijven de laatste 30 automatische en 10 handmatige back-ups bewaard.
 
-Admins kunnen via **Organisatie → Back-ups** een snapshot maken, downloaden of een eerder gedownload bestand herstellen. Vóór ieder herstel maakt Keepit eerst een extra veiligheidskopie.
+Admins kunnen via **Organisatie → Back-ups** een archief maken, downloaden, uploaden of rechtstreeks op de server
+selecteren voor herstel. Vóór ieder herstel maakt Keepit een veiligheidskopie met de huidige bestanden.
+Oudere JSON-back-ups blijven bruikbaar: zij herstellen alleen gegevens en laten de huidige bestanden ongemoeid.
+Pas de [nginx-configuratie](deploy/nginx/keepit.conf) toe om archieven tot 2 GB te kunnen uploaden.
 
 Voor bescherming tegen verlies van de volledige VPS of schijf stel je een map op een afzonderlijk gemount volume in. Elke
 back-up wordt dan atomisch naar beide locaties geschreven en met dezelfde retentie opgeruimd:
@@ -273,9 +278,8 @@ Standaard staan snapshots in `$HOME/keepit/.database/backups`. Gebruik in produc
 KEEPIT_BACKUP_DIR=/mnt/keepit-backups KEEPIT_BACKUP_RETENTION=60 npm start
 ```
 
-Deze JSON-snapshots bevatten geen bestanden, zoals werffoto’s en factuurbijlagen. Neem de mappen `media` en `invoices`
-in de datamap apart mee in je bestandsback-up. De opnieuw opbouwbare shopcatalogus en productafbeeldingen vallen ook
-buiten de snapshots; daarvoor blijft `npm run catalog:zip` beschikbaar.
+De opnieuw opbouwbare shopcatalogus en productafbeeldingen vallen buiten de bedrijfsback-ups;
+daarvoor blijft `npm run catalog:zip` beschikbaar.
 
 ## CLI
 

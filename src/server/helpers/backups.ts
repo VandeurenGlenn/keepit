@@ -1,7 +1,8 @@
-import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'fs/promises'
+import { copyFile, mkdir, readFile, readdir, rename, stat, unlink } from 'fs/promises'
 import { basename, dirname, resolve } from 'path'
 import { databaseRoot, databasePath } from './paths.js'
 import { restoreGuard } from './restore-guard.js'
+import { writeBackupArchive } from './backup-archive.js'
 
 export const BACKUP_FORMAT = 'keepit-backup'
 export const BACKUP_VERSION = 1
@@ -40,13 +41,14 @@ export interface BackupSummary {
   createdAt: string
   reason: BackupReason
   sizeBytes: number
+  includesAttachments: boolean
 }
 
 const backupRoot = process.env.KEEPIT_BACKUP_DIR ? resolve(process.env.KEEPIT_BACKUP_DIR) : resolve(databaseRoot, 'backups')
 const configuredMirrorRoot = process.env.KEEPIT_BACKUP_MIRROR_DIR?.trim()
 const backupMirrorRoot = configuredMirrorRoot ? resolve(configuredMirrorRoot) : undefined
 export const backupMirrorEnabled = Boolean(backupMirrorRoot && backupMirrorRoot !== backupRoot)
-const backupNamePattern = /^keepit-backup-[0-9TZ-]+-(automatic|manual|pre-restore)\.json$/
+const backupNamePattern = /^keepit-backup-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)-(automatic|manual|pre-restore)\.(json|tar)$/
 const configuredRetention = Number(process.env.KEEPIT_BACKUP_RETENTION)
 export const automaticRetention = Number.isInteger(configuredRetention) && configuredRetention > 0
   ? configuredRetention
@@ -54,14 +56,16 @@ export const automaticRetention = Number.isInteger(configuredRetention) && confi
 const manualRetention = 10
 let activeBackup: Promise<BackupSummary> | undefined
 let scheduledBackup: ReturnType<typeof setTimeout> | undefined
+let lastAutomaticArchive = 0
+const automaticArchiveInterval = 60 * 60_000
 
 const safeTimestamp = (date: Date) => date.toISOString().replaceAll(':', '-').replaceAll('.', '-')
 
-const atomicJsonWrite = async (file: string, value: unknown) => {
+const atomicBackupWrite = async (file: string, write: (temporary: string) => Promise<void>) => {
   await mkdir(dirname(file), { recursive: true })
   const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`
   try {
-    await writeFile(temporary, JSON.stringify(value, null, 2), 'utf8')
+    await write(temporary)
     await rename(temporary, file)
   } catch (error) {
     await unlink(temporary).catch(() => undefined)
@@ -114,7 +118,15 @@ const summaryFor = async (id: string): Promise<BackupSummary> => {
   const file = resolveBackupFile(id)
   const [metadata, contents] = await Promise.all([stat(file), readFile(file, 'utf8')])
   const backup = parseBackup(JSON.parse(contents))
-  return { id, createdAt: backup.createdAt, reason: backup.reason, sizeBytes: metadata.size }
+  return { id, createdAt: backup.createdAt, reason: backup.reason, sizeBytes: metadata.size, includesAttachments: false }
+}
+
+export const getBackupSummary = async (id: string): Promise<BackupSummary> => {
+  const file = resolveBackupFile(id)
+  if (!id.endsWith('.tar')) return summaryFor(id)
+  const [, timestamp, reason] = id.match(backupNamePattern)!
+  const createdAt = timestamp.replace(/T(\d\d)-(\d\d)-(\d\d)-(\d\d\d)Z$/, 'T$1:$2:$3.$4Z')
+  return { id, createdAt, reason: reason as BackupReason, sizeBytes: (await stat(file)).size, includesAttachments: true }
 }
 
 const rotate = async () => {
@@ -133,7 +145,7 @@ const rotate = async () => {
     await mkdir(backupMirrorRoot, { recursive: true })
     const names = (await readdir(backupMirrorRoot)).filter((name) => backupNamePattern.test(name)).sort().reverse()
     const removeMirrorOverflow = async (reason: BackupReason, keep: number) => {
-      const overflow = names.filter((name) => name.endsWith(`-${reason}.json`)).slice(keep)
+      const overflow = names.filter((name) => name.match(backupNamePattern)?.[2] === reason).slice(keep)
       await Promise.all(overflow.map((name) => unlink(resolve(backupMirrorRoot, name)).catch(() => undefined)))
     }
     await Promise.all([
@@ -152,25 +164,27 @@ export const resolveBackupFile = (id: string) => {
 
 export const validateBackup = (value: unknown) => parseBackup(value)
 
-const createBackupFile = async (reason: BackupReason): Promise<BackupSummary> => {
+export async function captureBackup(reason: BackupReason): Promise<KeepitBackup> {
+  const entries = await Promise.all(BACKUP_DATASETS.map(async (name) => [name, await readDataset(name)] as const))
+  return {
+    format: BACKUP_FORMAT, version: BACKUP_VERSION, createdAt: new Date().toISOString(), reason,
+    datasets: Object.fromEntries(entries) as KeepitBackup['datasets']
+  }
+}
+
+const createBackupFile = async (reason: BackupReason, snapshot?: KeepitBackup): Promise<BackupSummary> => {
   if (activeBackup) {
-    await activeBackup
-    return createBackupFile(reason)
+    await activeBackup.catch(() => undefined)
+    return createBackupFile(reason, snapshot)
   }
   activeBackup = (async () => {
-    const createdAt = new Date().toISOString()
-    const entries = await Promise.all(BACKUP_DATASETS.map(async (name) => [name, await readDataset(name)] as const))
-    const backup: KeepitBackup = {
-      format: BACKUP_FORMAT,
-      version: BACKUP_VERSION,
-      createdAt,
-      reason,
-      datasets: Object.fromEntries(entries) as KeepitBackup['datasets']
-    }
-    const id = `keepit-backup-${safeTimestamp(new Date(createdAt))}-${reason}.json`
-    await atomicJsonWrite(resolve(backupRoot, id), backup)
-    if (backupMirrorEnabled && backupMirrorRoot) await atomicJsonWrite(resolve(backupMirrorRoot, id), backup)
-    const result = await summaryFor(id)
+    const backup = snapshot ?? await captureBackup(reason)
+    const id = `keepit-backup-${safeTimestamp(new Date(backup.createdAt))}-${reason}.tar`
+    const file = resolveBackupFile(id)
+    await atomicBackupWrite(file, (temporary) => writeBackupArchive(temporary, databaseRoot, backup))
+    if (backupMirrorEnabled && backupMirrorRoot) await atomicBackupWrite(resolve(backupMirrorRoot, id), (temporary) => copyFile(file, temporary))
+    const result = await getBackupSummary(id)
+    if (reason === 'automatic') lastAutomaticArchive = Date.parse(result.createdAt)
     await rotate()
     return result
   })()
@@ -181,8 +195,8 @@ const createBackupFile = async (reason: BackupReason): Promise<BackupSummary> =>
   }
 }
 
-export const createBackup = async (reason: BackupReason = 'manual'): Promise<BackupSummary> => {
-  if (reason === 'pre-restore') return createBackupFile(reason)
+export const createBackup = async (reason: BackupReason = 'manual', snapshot?: KeepitBackup): Promise<BackupSummary> => {
+  if (reason === 'pre-restore') return createBackupFile(reason, snapshot)
   const leave = restoreGuard.enterRequest()
   if (!leave) throw new Error('Er loopt een back-upherstel.')
   try {
@@ -195,7 +209,7 @@ export const createBackup = async (reason: BackupReason = 'manual'): Promise<Bac
 export const listBackups = async (): Promise<BackupSummary[]> => {
   await mkdir(backupRoot, { recursive: true })
   const names = (await readdir(backupRoot)).filter((name) => backupNamePattern.test(name))
-  const summaries = await Promise.all(names.map((name) => summaryFor(name).catch(() => undefined)))
+  const summaries = await Promise.all(names.map((name) => getBackupSummary(name).catch(() => undefined)))
   return summaries
     .filter((item): item is BackupSummary => Boolean(item))
     .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
@@ -212,12 +226,13 @@ export const scheduleAutomaticBackup = () => {
     void createBackup('automatic').catch((error) => {
       console.error('Automatic backup failed:', error instanceof Error ? error.message : String(error))
     })
-  }, 5_000)
+  }, Math.max(5000, lastAutomaticArchive + automaticArchiveInterval - Date.now()))
   scheduledBackup.unref?.()
 }
 
 export const startAutomaticBackups = async () => {
-  const latestAutomatic = (await listBackups()).find((item) => item.reason === 'automatic')
+  const latestAutomatic = (await listBackups()).find((item) => item.reason === 'automatic' && item.includesAttachments)
+  lastAutomaticArchive = latestAutomatic ? Date.parse(latestAutomatic.createdAt) : 0
   if (!latestAutomatic || Date.now() - Date.parse(latestAutomatic.createdAt) > 24 * 60 * 60 * 1000) {
     await createBackup('automatic')
   }

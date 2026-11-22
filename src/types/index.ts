@@ -368,6 +368,7 @@ export interface BackupSummary {
   createdAt: string
   reason: BackupReason
   sizeBytes: number
+  includesAttachments: boolean
 }
 
 export interface KeepitBackup {

@@ -226,6 +226,15 @@ class ApiClient {
     return this.request('GET', `/invoice/${invoiceId}`)
   }
 
+  async downloadInvoiceAttachment(invoiceId: string, index: number): Promise<Blob> {
+    const token = this.getAuthToken()
+    const response = await fetch(`${this.baseUrl}/invoice/${encodeURIComponent(invoiceId)}/attachment/${index}`, {
+      headers: token ? { Authorization: token } : undefined
+    })
+    if (!response.ok) throw new Error('De factuurbijlage kon niet worden gedownload.')
+    return response.blob()
+  }
+
   async convertQuoteToInvoice(quoteId: string, company: string): Promise<{ uuid: string; reused?: boolean }> {
     return this.request('POST', '/invoices', { quoteId, company })
   }
@@ -463,6 +472,30 @@ class ApiClient {
 
   async restoreBackup(backup: KeepitBackup, confirmation: string): Promise<{ ok: boolean; restoredAt: string }> {
     return this.request('POST', '/backups/restore', { backup, confirmation })
+  }
+
+  async restoreStoredBackup(backupId: string, confirmation: string): Promise<{ ok: boolean; restoredAttachments?: boolean }> {
+    return this.request('POST', '/backups/restore', { backupId, confirmation })
+  }
+
+  async restoreBackupArchive(file: File, confirmation: string): Promise<{ ok: boolean; restoredAttachments?: boolean }> {
+    const token = this.getAuthToken()
+    const response = await fetch(`${this.baseUrl}/backups/restore`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: token } : {}),
+        'Content-Type': 'application/x-tar',
+        'X-Keepit-Confirmation': confirmation
+      },
+      body: file
+    })
+    const result = await response.json().catch(() => null)
+    if (!response.ok || !result?.ok) {
+      throw new Error(result?.error || (response.status === 413
+        ? 'Het bestand overschrijdt de uploadlimiet van de server.'
+        : 'Het back-uparchief kon niet worden hersteld.'))
+    }
+    return result
   }
 
   async downloadBackup(id: string): Promise<Blob> {

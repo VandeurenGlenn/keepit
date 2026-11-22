@@ -1,10 +1,43 @@
 import { Router } from '@koa/router'
+import { createReadStream } from 'node:fs'
+import { realpath, stat } from 'node:fs/promises'
+import { sep } from 'node:path'
 
 import { invoices, invoicesStore } from '../database/database.js'
 import { MaterialLine } from '../../types/index.js'
+import { databasePath } from '../helpers/paths.js'
+import { invoiceAttachmentPath } from '../helpers/invoice-attachment.js'
 
 const router = new Router({
   prefix: '/api/invoice'
+})
+
+router.get('/:uuid/attachment/:index', async (ctx) => {
+  const index = Number(ctx.params.index)
+  const invoice = Object.hasOwn(invoices, ctx.params.uuid) ? invoices[ctx.params.uuid] : undefined
+  const reference = Number.isSafeInteger(index) && index >= 0 ? invoice?.invoiceImages?.[index] : undefined
+  const attachment = invoiceAttachmentPath(reference)
+  if (attachment) {
+    try {
+      const root = await realpath(databasePath('invoices'))
+      const file = await realpath(databasePath('invoices', attachment.year, 'images', attachment.filename))
+      if (file.startsWith(root + sep)) {
+        const info = await stat(file)
+        if (info.isFile()) {
+          ctx.type = 'application/octet-stream'
+          ctx.attachment(attachment.filename)
+          ctx.length = info.size
+          ctx.set('Cache-Control', 'private, no-store')
+          ctx.body = createReadStream(file)
+          return
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+  ctx.status = 404
+  ctx.body = { error: 'Factuurbijlage niet gevonden.' }
 })
 
 const normalizeMaterials = (value: unknown): MaterialLine[] => {
