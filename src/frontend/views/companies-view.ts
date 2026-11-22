@@ -8,6 +8,16 @@ import '../flows/data-input.js'
 
 export class CompaniesView extends CompaniesMixin(LiteElement) {
   @property({ type: String }) accessor searchQuery = ''
+  @property({ type: String }) accessor selectedCompanyId = ''
+
+  connectedCallback() {
+    super.connectedCallback()
+    this.selectedCompanyId = new URLSearchParams(location.hash.split('?')[1]).get('selected') || ''
+  }
+
+  clearCompanySelection() {
+    this.selectedCompanyId = ''
+  }
   @property({ type: String }) accessor editingCompanyId = ''
   @property({ type: String }) accessor editCompanyName = ''
   @property({ type: String }) accessor editCompanyDescription = ''
@@ -427,6 +437,7 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
     const query = this.searchQuery.trim().toLowerCase()
     const entries = (Object.entries(this.companies || {}) as Array<[string, any]>)
       .filter(([, company]) => (company.relationshipType || 'customer') === 'customer')
+      .filter(([id]) => !this.selectedCompanyId || id === this.selectedCompanyId)
       .filter(
         ([, company]) =>
           !query || `${company.name} ${company.place?.formattedAddress || ''}`.toLowerCase().includes(query)
@@ -456,8 +467,9 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
           type="search"
           placeholder="Zoek op naam of adres…"
           .value=${this.searchQuery}
-          @input=${(event: Event) => (this.searchQuery = (event.target as HTMLInputElement).value)} />
+          @input=${(event: Event) => { this.clearCompanySelection(); this.searchQuery = (event.target as HTMLInputElement).value }} />
       </div>
+      ${this.selectedCompanyId ? html`<button type="button" class="icon-action" style="width:auto;padding:0 12px" @click=${() => this.clearCompanySelection()}>Toon alle klanten</button>` : ''}
       <div class="list-heading">
         <h2>Klanten</h2>
         <span class="count">${entries.length} resultaten</span>

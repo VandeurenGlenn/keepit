@@ -862,3 +862,41 @@ flex-container.wide-workspace {
     min-height: 0;
   }
 }
+.notification-toast {
+  position: fixed;
+  z-index: 1500;
+  right: 20px;
+  bottom: 20px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  width: min(420px, calc(100vw - 24px));
+  box-sizing: border-box;
+  max-height: min(50vh, 320px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-panel);
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: var(--app-shadow-soft);
+}
+.notification-icon { color: var(--app-accent); }
+.notification-copy { display: grid; gap: 6px; overflow-wrap: anywhere; }
+.notification-copy > span { color: var(--md-sys-color-on-surface-variant); font-size: .85rem; }
+.notification-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+.notification-toast button {
+  font: inherit;
+  min-height: 36px;
+  padding: 5px 9px;
+  color: inherit;
+  background: var(--app-panel-strong);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-control);
+  cursor: pointer;
+}
+.notification-toast button:disabled { opacity: .55; cursor: wait; }
+.notification-close { display: grid; place-items: center; min-width: 36px; }
+@media (max-width: 960px) {
+  .notification-toast { right: 12px; bottom: 82px; }
+}

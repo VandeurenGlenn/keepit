@@ -1,5 +1,6 @@
 import { LiteElement, css, html, property } from '@vandeurenglenn/lite'
 import { api } from '../api/client.js'
+import { LatestOperation } from '../helpers/latest-operation.js'
 
 type Result = { id: string; type: string; title: string; subtitle?: string; href: string; icon: string }
 
@@ -9,7 +10,9 @@ export class GlobalSearch extends LiteElement {
   @property({ type: Array }) accessor results: Result[] = []
   @property({ type: Boolean }) accessor loading = false
   timer?: ReturnType<typeof setTimeout>
-  searchToken = 0
+  private readonly operation = new LatestOperation()
+  @property({ type: Number }) accessor failures = 0
+  @property({ type: Boolean }) accessor enabled = false
   previouslyFocused?: HTMLElement
 
   static styles = [css`
@@ -17,12 +20,43 @@ export class GlobalSearch extends LiteElement {
   `]
 
   connectedCallback(){super.connectedCallback();window.addEventListener('keepit-open-search',this.show);window.addEventListener('keydown',this.keydown)}
-  disconnectedCallback(){window.removeEventListener('keepit-open-search',this.show);window.removeEventListener('keydown',this.keydown);super.disconnectedCallback()}
-  show=()=>{if(!this.open)this.previouslyFocused=document.activeElement as HTMLElement;this.open=true;this.query='';this.results=[];this.loading=false;this.searchToken+=1;requestAnimationFrame(()=>this.shadowRoot?.querySelector<HTMLInputElement>('input')?.focus())}
-  close=()=>{this.open=false;this.searchToken+=1;requestAnimationFrame(()=>this.previouslyFocused?.focus())}
-  keydown=(event:KeyboardEvent)=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();this.show()}else if(event.key==='Escape'&&this.open)this.close()}
-  search(event:Event){this.query=(event.target as HTMLInputElement).value;if(this.timer)clearTimeout(this.timer);const query=this.query.trim();const token=++this.searchToken;if(query.length<2){this.results=[];this.loading=false;return}this.loading=true;this.timer=setTimeout(async()=>{try{const [core,products]=await Promise.all([api.globalSearch(query),api.getShopProducts(query,{limit:5})]);if(token!==this.searchToken)return;this.results=[...core.results,...products.products.map((product)=>({id:product.id,type:'Materiaal',title:product.name,subtitle:product.articleNumber||product.source,href:`#!/shop?search=${encodeURIComponent(query)}`,icon:'inventory2'}))]}catch{if(token===this.searchToken)this.results=[]}finally{if(token===this.searchToken)this.loading=false}},220)}
+  disconnectedCallback(){this.operation.cancel();clearTimeout(this.timer);window.removeEventListener('keepit-open-search',this.show);window.removeEventListener('keydown',this.keydown);super.disconnectedCallback()}
+  show=()=>{if(!this.enabled)return;if(!this.open){this.previouslyFocused=(this.getRootNode() as ShadowRoot).activeElement as HTMLElement;this.query='';this.results=[];this.failures=0;this.loading=false;this.open=true}requestAnimationFrame(()=>this.shadowRoot?.querySelector<HTMLInputElement>('input')?.focus())}
+  close=()=>{this.open=false;this.operation.cancel();clearTimeout(this.timer);requestAnimationFrame(()=>this.previouslyFocused?.focus())}
+  keydown=(event:KeyboardEvent)=>{if(!this.enabled)return;if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();this.show()}else if(event.key==='Escape'&&this.open)this.close()}
+  search(event: Event) {
+    this.query = (event.target as HTMLInputElement).value
+    clearTimeout(this.timer)
+    const signal = this.operation.begin()
+    const query = this.query.trim().slice(0, 120)
+    this.results = []
+    this.failures = 0
+    this.loading = query.length >= 2
+    if (!this.loading) return
+    this.timer = setTimeout(() => {
+      let remaining = 2
+      let core: Result[] = []
+      let shop: Result[] = []
+      const run = async (load: () => Promise<void>) => {
+        try { await load() } catch { if (!signal.aborted) this.failures++ }
+        finally {
+          if (!signal.aborted) {
+            this.results = [...core, ...shop]
+            this.loading = --remaining > 0
+          }
+        }
+      }
+      void run(async () => { core = (await api.globalSearch(query, signal)).results })
+      void run(async () => {
+        const response = await api.getShopProducts(query, { limit: 5 }, signal)
+        shop = response.products.map((product) => ({
+          id: product.id, type: 'Materiaal', title: product.name, subtitle: product.articleNumber || product.source,
+          href: `#!/shop?${new URLSearchParams({ search: query, selected: product.id })}`, icon: 'inventory2'
+        }))
+      })
+    }, 220)
+  }
   dialogKeydown(event:KeyboardEvent){const input=this.shadowRoot?.querySelector<HTMLInputElement>('input');const results=Array.from(this.shadowRoot?.querySelectorAll<HTMLElement>('.result')||[]);if(event.key==='ArrowDown'){event.preventDefault();const index=results.indexOf(this.shadowRoot?.activeElement as HTMLElement);(results[index+1]||results[0])?.focus();return}if(event.key==='ArrowUp'){event.preventDefault();const index=results.indexOf(this.shadowRoot?.activeElement as HTMLElement);(index>0?results[index-1]:input)?.focus();return}if(event.key==='Tab'){const focusable=[input,...results].filter(Boolean) as HTMLElement[];const first=focusable[0],last=focusable[focusable.length-1];if(event.shiftKey&&this.shadowRoot?.activeElement===first){event.preventDefault();last?.focus()}else if(!event.shiftKey&&this.shadowRoot?.activeElement===last){event.preventDefault();first?.focus()}}}
-  render(){return html`<button class="backdrop" tabindex="-1" aria-label="Zoeken sluiten" @click=${this.close}></button><section class="dialog" role="dialog" aria-modal="true" aria-label="Zoeken in Keepit" @keydown=${(event:KeyboardEvent)=>this.dialogKeydown(event)}><div class="search"><custom-icon icon="search"></custom-icon><input type="search" aria-label="Zoeken in Keepit" placeholder="Zoek jobs, klanten, materiaal…" .value=${this.query} @input=${(event:Event)=>this.search(event)} /><span class="key">ESC</span></div><div class="results" aria-live="polite">${this.loading?html`<div class="empty">Zoeken…</div>`:this.query.trim().length<2?html`<div class="empty">Typ minstens twee tekens. Gebruik ⌘K om overal te zoeken.</div>`:this.results.length?this.results.map((item)=>html`<a class="result" href=${item.href} @click=${this.close}><span class="icon"><custom-icon icon=${item.icon}></custom-icon></span><span class="copy"><strong>${item.title}</strong><span>${item.subtitle||item.type}</span></span><span class="type">${item.type}</span></a>`):html`<div class="empty">Geen resultaten voor “${this.query}”.</div>`}</div></section>`}
+  render(){return html`<button class="backdrop" tabindex="-1" aria-label="Zoeken sluiten" @click=${this.close}></button><section class="dialog" role="dialog" aria-modal="true" aria-label="Zoeken in Keepit" @keydown=${(event:KeyboardEvent)=>this.dialogKeydown(event)}><div class="search"><custom-icon icon="search"></custom-icon><input type="search" aria-label="Zoeken in Keepit" placeholder="Zoek jobs, klanten, materiaal…" .value=${this.query} @input=${(event:Event)=>this.search(event)} /><span class="key">ESC</span></div><div class="results" aria-live="polite">${this.query.trim().length<2?html`<div class="empty">Typ minstens twee tekens. Gebruik ⌘K om overal te zoeken.</div>`:this.results.length?this.results.map((item)=>html`<a class="result" href=${item.href} @click=${this.close}><span class="icon"><custom-icon icon=${item.icon}></custom-icon></span><span class="copy"><strong>${item.title}</strong><span>${item.subtitle||item.type}</span></span><span class="type">${item.type}</span></a>`):this.loading?html`<div class="empty">Zoeken…</div>`:this.failures===2?html`<div class="empty" role="alert">Zoeken lukt momenteel niet. Probeer het opnieuw.</div>`:this.failures?html`<div class="empty">Een deel van de zoekresultaten is niet beschikbaar.</div>`:html`<div class="empty">Geen resultaten voor “${this.query}”.</div>`}${this.results.length && this.failures ? html`<div class="empty">Een deel van de zoekresultaten kon niet geladen worden.</div>` : ''}</div></section>`}
 }
 customElements.define('global-search',GlobalSearch)

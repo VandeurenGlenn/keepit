@@ -15,6 +15,7 @@ export class UsersView extends LiteElement {
   @property({ type: Object }) accessor teamUsers: Users | undefined
   @property({ type: Boolean }) accessor teamLoading = false
   @property({ type: String }) accessor teamError = ''
+  @property({ type: String }) accessor selectedTeamUser = ''
 
   invitedUsersLoaded = false
   private teamRequest = 0
@@ -293,6 +294,7 @@ export class UsersView extends LiteElement {
 
   connectedCallback() {
     super.connectedCallback()
+    this.selectedTeamUser = new URLSearchParams(location.hash.split('?')[1]).get('selected') || ''
     window.addEventListener('keepit-team-changed', this.handleTeamChanged)
   }
 
@@ -607,7 +609,8 @@ export class UsersView extends LiteElement {
       </section>
 
       ${this.teamError ? html`<p role="alert">${this.teamError}</p>` : ''}
-      <section class="users-grid" aria-busy=${this.teamLoading}>${this.userEntries.map(([key, entry]) => this.renderUserCard(key, entry))}</section>
+      ${this.selectedTeamUser ? html`<button type="button" @click=${() => { this.selectedTeamUser = '' }}>Toon heel het team</button>` : ''}
+      <section class="users-grid" aria-busy=${this.teamLoading}>${this.userEntries.filter(([id]) => !this.selectedTeamUser || id === this.selectedTeamUser).map(([key, entry]) => this.renderUserCard(key, entry))}</section>
       ${this.inviteOpen ? html`<div class="dialog-layer" @click=${(event:Event)=>{if(event.target===event.currentTarget)this.closeInviteDialog()}}><form class="invite-dialog" role="dialog" aria-modal="true" aria-labelledby="invite-title" @submit=${(event:Event)=>this._inviteUser(event)} @keydown=${(event:KeyboardEvent)=>{if(event.key==='Escape')this.closeInviteDialog()}}><h2 id="invite-title">Medewerker uitnodigen</h2><p>De medewerker ontvangt een persoonlijke link om het account met Google te activeren.</p><label for="invite-email">E-mailadres<input id="invite-email" type="email" autocomplete="email" required placeholder="naam@bedrijf.be" .value=${this.inviteEmail} @input=${(event:Event)=>(this.inviteEmail=(event.target as HTMLInputElement).value)} /></label>${this.inviteError?html`<p class="dialog-error" role="alert">${this.inviteError}</p>`:''}<div class="dialog-actions"><button type="button" ?disabled=${this.inviting} @click=${()=>this.closeInviteDialog()}>Annuleren</button><button class="primary" type="submit" ?disabled=${this.inviting}>${this.inviting?'Versturen…':'Uitnodiging versturen'}</button></div></form></div>` : ''}
     `
   }

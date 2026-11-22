@@ -184,7 +184,7 @@ class ApiClient {
   }
 
   async markNotificationRead(id: string): Promise<void> {
-    return this.request('PATCH', `/notifications/${id}/read`)
+    return this.request('PATCH', `/notifications/${encodeURIComponent(id)}/read`)
   }
 
   // Quotes API
@@ -385,7 +385,8 @@ class ApiClient {
       category?: string
       price?: string
       favoritesOnly?: boolean
-    }
+    },
+    signal?: AbortSignal
   ): Promise<{ total: number; products: ShopProduct[] }> {
     const params = new URLSearchParams()
 
@@ -399,7 +400,7 @@ class ApiClient {
     if (options?.favoritesOnly) params.set('favoritesOnly', 'true')
 
     const query = params.size > 0 ? `?${params.toString()}` : ''
-    return this.request('GET', `/shop/products${query}`)
+    return this.request('GET', `/shop/products${query}`, undefined, signal)
   }
 
   async importShopCart(
@@ -513,8 +514,8 @@ class ApiClient {
     return response.blob()
   }
 
-  async globalSearch(query: string): Promise<{ results: Array<{ id: string; type: string; title: string; subtitle?: string; href: string; icon: string }> }> {
-    return this.request('GET', `/search?q=${encodeURIComponent(query)}`)
+  async globalSearch(query: string, signal?: AbortSignal): Promise<{ results: Array<{ id: string; type: string; title: string; subtitle?: string; href: string; icon: string }> }> {
+    return this.request('GET', `/search?q=${encodeURIComponent(query)}`, undefined, signal)
   }
 
   async getControlCenter(): Promise<{ summary: { activeJobs: number; todayPlanning: number; draftQuotes: number; invoices: number }; alerts: Array<{ id: string; kind: string; title: string; detail: string; href: string; severity: 'warning'|'critical' }> }> {

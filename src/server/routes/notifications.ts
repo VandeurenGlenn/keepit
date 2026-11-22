@@ -6,7 +6,7 @@ const router = new Router({ prefix: '/api/notifications' })
 router.get('/', async (ctx) => {
   const unreadOnly = ctx.query.unread === 'true'
   const items = notifications[ctx.state.userid] || []
-  ctx.body = items.filter((item) => !unreadOnly || !item.readAt).slice(-50).reverse()
+  ctx.body = items.filter((item) => !unreadOnly || !item.readAt).slice(unreadOnly ? -100 : -50).reverse()
 })
 
 router.patch('/:id/read', async (ctx) => {

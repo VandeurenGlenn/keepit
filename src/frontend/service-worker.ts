@@ -47,13 +47,16 @@ worker.addEventListener('fetch', (event) => {
 
 worker.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const target = event.notification.data?.url || '#!/checkout'
-  const targetUrl = new URL(target, worker.location.origin).href
+  const target = event.notification.data?.url
+  if (typeof target !== 'string' || !target.startsWith('#!/')) return
+  const targetUrl = new URL(target, worker.registration.scope).href
   event.waitUntil(
     worker.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      const existing = clients[0]
+      const existing = clients.find((client) => client.url.startsWith(worker.registration.scope))
       if (existing) {
-        return existing.navigate(targetUrl).then((client) => client?.focus())
+        return existing.focus().then(() => {
+          existing.postMessage({ type: 'keepit-notification-open', target, id: event.notification.data?.notificationId, userId: event.notification.data?.userId })
+        }).catch(() => worker.clients.openWindow(targetUrl))
       }
       return worker.clients.openWindow(targetUrl)
     })

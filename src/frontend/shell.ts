@@ -13,6 +13,7 @@ import './elements/global-search.js'
 import { api } from './api/client.js'
 import { TimelineTracker } from './helpers/timeline-tracker.js'
 import type { AppNotification } from '../types/index.js'
+import { mergeUnreadNotifications, notificationTarget } from './helpers/notification-queue.js'
 import { flushOfflineActions, getPendingWorkState, initializeOfflineSync, setOfflineActionOwner } from './helpers/offline-actions.js'
 import type { ConfirmationOptions } from './helpers/confirmation.js'
 import { confirmAction } from './helpers/confirmation.js'
@@ -54,7 +55,9 @@ export class AppShell extends LiteElement {
   @property({ type: Boolean }) accessor routeLoading = false
   @property({ type: Boolean, attribute: 'is-menu-open', reflect: true }) accessor isMenuOpen = false
   @property({ type: Boolean, attribute: 'auth-resolving' }) accessor authResolving = false
-  @property({ type: Object }) accessor appNotification: AppNotification | undefined
+  @property({ type: Array }) accessor unreadNotifications: AppNotification[] = []
+  @property({ type: Boolean }) accessor notificationBusy = false
+  get appNotification() { return this.unreadNotifications[0] }
   @property({ type: Number }) accessor syncPending = 0
   @property({ type: Object }) accessor toast: {message:string;actionLabel?:string;action?:()=>void}|undefined
   @property({ type: Object }) accessor confirmation: ConfirmationRequest | undefined
@@ -67,6 +70,7 @@ export class AppShell extends LiteElement {
   timelinePreferenceListenerBound = false
   serviceWorkerRegistered = false
   notificationListenerBound = false
+  private dismissedNotificationIds = new Set<string>()
   offlineSyncInitialized = false
   offlineListenerBound = false
   toastListenerBound = false
@@ -285,6 +289,16 @@ export class AppShell extends LiteElement {
 
   beforeRender(): void {
     this.registerServiceWorker()
+    if (!this.notificationListenerBound) {
+      this.notificationListenerBound = true
+      window.addEventListener('focus', () => void this.loadUnreadNotifications())
+      navigator.serviceWorker?.addEventListener('message', (event) => {
+        if (!this.userSignedIn || event.data?.type !== 'keepit-notification-open') return
+        if (event.data.userId && event.data.userId !== this.user?.id) return
+        const target = notificationTarget(event.data.target)
+        if (target) location.hash = target
+      })
+    }
     if(!this.offlineSyncInitialized){this.offlineSyncInitialized=true;initializeOfflineSync()}
     if (!this.offlineListenerBound) {
       this.offlineListenerBound = true
@@ -336,8 +350,9 @@ export class AppShell extends LiteElement {
     this.authResolving = false
     this.user = undefined
     this.userSignedIn = false
-    this.appNotification = undefined
-    this.notificationListenerBound = false
+    this.unreadNotifications = []
+    this.notificationBusy = false
+    this.dismissedNotificationIds.clear()
     this.timelineTracker.stop()
     setOfflineActionOwner()
     this.requestRender()
@@ -544,17 +559,14 @@ export class AppShell extends LiteElement {
     ])
     globalThis.client = client
     client.addEventListener('open', () => {
-      if (!this.notificationListenerBound) {
-        pubsub.subscribe(`notifications.${this.user.id}`, (notification) => this.handleAppNotification(notification))
-        this.notificationListenerBound = true
-      }
-      setTimeout(() => {
+      if (this.user?.id) {
         client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: 'users.changed' } }))
         if (this.user?.roles?.some((role) => role === 'admin' || role === 'roles')) {
           client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: 'invites.changed' } }))
         }
         client.send(JSON.stringify({ type: 'pubsub', params: { subscribe: `notifications.${this.user.id}` } }))
-      }, 50)
+        void this.loadUnreadNotifications()
+      }
     })
 
     client.addEventListener('message', (event) => {
@@ -566,6 +578,8 @@ export class AppShell extends LiteElement {
           this.checkUserStatus()
         }
         return
+      } else if (type === 'pubsub' && params.publish === `notifications.${this.user?.id}`) {
+        void this.handleAppNotification(params.value)
       } else if (type === 'pubsub' && params.publish === 'users.changed') {
         // The socket sends only the signed-in user's record, not the team roster.
         const id = this.user?.id
@@ -599,50 +613,73 @@ export class AppShell extends LiteElement {
     })
   }
 
-  async handleAppNotification(notification: AppNotification) {
-    if (!notification) return
-    this.appNotification = notification
-    this.requestRender()
+  private mergeNotifications(incoming: AppNotification[]) {
+    const id = this.user?.id
+    if (!id || !this.userSignedIn) return
+    this.unreadNotifications = mergeUnreadNotifications(this.unreadNotifications, incoming, id, this.dismissedNotificationIds)
+  }
 
-    if ('Notification' in window && Notification.permission === 'granted') {
-      const options: NotificationOptions = {
-        body: notification.message,
-        icon: '/assets/dimac.svg',
-        badge: '/assets/dimac.svg',
-        tag: notification.id,
-        data: { url: notification.url }
-      }
-      if ('serviceWorker' in navigator) {
-        const registration = await navigator.serviceWorker.ready
-        await registration.showNotification(notification.title, options)
-      } else {
+  async handleAppNotification(notification: AppNotification) {
+    if (!notification?.id || notification.userId !== this.user?.id || !this.userSignedIn) return
+    if (this.dismissedNotificationIds.has(notification.id) || this.unreadNotifications.some((item) => item.id === notification.id)) return
+    this.mergeNotifications([notification])
+
+    const target = notificationTarget(notification.url)
+    if (!target || !('Notification' in window) || Notification.permission !== 'granted') return
+    const options: NotificationOptions = {
+      body: notification.message, icon: '/assets/dimac.svg', badge: '/assets/dimac.svg',
+      tag: notification.id, data: { url: target, notificationId: notification.id, userId: notification.userId }
+    }
+    try {
+      const registration = await navigator.serviceWorker?.getRegistration()
+      if (!this.userSignedIn || notification.userId !== this.user?.id ||
+        !this.unreadNotifications.some((item) => item.id === notification.id)) return
+      if (registration?.active) await registration.showNotification(notification.title, options)
+      else {
         const browserNotification = new Notification(notification.title, options)
         browserNotification.onclick = () => {
-          location.hash = notification.url
+          if (!this.userSignedIn || this.user?.id !== notification.userId) return
           window.focus()
+          location.hash = target
         }
       }
+    } catch {
+      // The notification stays visible in Keepit if browser delivery fails.
     }
   }
 
   async dismissAppNotification(navigate = false) {
     const notification = this.appNotification
-    if (!notification) return
-    this.appNotification = undefined
-    await api.markNotificationRead(notification.id).catch(() => undefined)
-    if (navigate) location.hash = notification.url
+    if (!notification || this.notificationBusy) return
+    this.notificationBusy = true
+    try {
+      await api.markNotificationRead(notification.id)
+      if (!this.userSignedIn || notification.userId !== this.user?.id) return
+      this.dismissedNotificationIds.add(notification.id)
+      this.unreadNotifications = this.unreadNotifications.filter((item) => item.id !== notification.id)
+      const target = notificationTarget(notification.url)
+      if (navigate && target) location.hash = target
+    } catch {
+      if (notification.userId === this.user?.id) {
+        window.dispatchEvent(new CustomEvent('keepit-toast', { detail: { message: 'De melding kon niet als gelezen worden gemarkeerd. Probeer opnieuw.' } }))
+      }
+    } finally {
+      if (notification.userId === this.user?.id) this.notificationBusy = false
+    }
   }
 
   async enableAppNotifications() {
     if (!('Notification' in window)) return
-    await Notification.requestPermission()
+    await Notification.requestPermission().catch(() => undefined)
     this.requestRender()
   }
 
   async loadUnreadNotifications() {
+    const userId = this.user?.id
+    if (!this.userSignedIn || !userId) return
     try {
       const unread = await api.getNotifications(true)
-      if (unread[0]) await this.handleAppNotification(unread[0])
+      if (this.user?.id === userId) this.mergeNotifications(unread)
     } catch (error) {
       console.warn('Notifications could not be loaded', error)
     }
@@ -957,7 +994,7 @@ export class AppShell extends LiteElement {
     return html`
       <!-- @build-info -->
       ${icons}
-      <global-search></global-search>
+      ${this.userSignedIn ? html`<global-search .enabled=${true}></global-search>` : ''}
       ${this.toast?html`<section class="app-toast" role="status"><span>${this.toast.message}</span>${this.toast.action?html`<button @click=${async()=>{await this.toast?.action?.();this.toast=undefined}}>${this.toast.actionLabel||'Ongedaan maken'}</button>`:''}<button class="toast-close" aria-label="Melding sluiten" @click=${()=>this.toast=undefined}><custom-icon icon="close"></custom-icon></button></section>`:''}
       ${this.confirmation?html`<div class="confirm-layer" @keydown=${(event:KeyboardEvent)=>this.handleConfirmationKeydown(event)}><button class="confirm-backdrop" aria-label="Annuleren" tabindex="-1" @click=${()=>this.resolveConfirmation(false)}></button><section class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message"><span class="confirm-icon"><custom-icon icon="warning"></custom-icon></span><div class="confirm-copy"><h2 id="confirm-title">${this.confirmation.title}</h2><p id="confirm-message">${this.confirmation.message}</p></div><div class="confirm-actions"><button class="confirm-cancel" @click=${()=>this.resolveConfirmation(false)}>${this.confirmation.cancelLabel||'Annuleren'}</button><button class="confirm-primary" @click=${()=>this.resolveConfirmation(true)}>${this.confirmation.confirmLabel||'Verwijderen'}</button></div></section></div>`:''}
       ${this.userSignedIn && this.appNotification
@@ -966,10 +1003,11 @@ export class AppShell extends LiteElement {
             aria-live="polite">
             <span class="notification-icon"><custom-icon icon="calendar_month"></custom-icon></span>
             <div class="notification-copy">
-              <strong>${this.appNotification.title}</strong>
+              <strong>${this.appNotification.title}${this.unreadNotifications.length > 1 ? ` · +${this.unreadNotifications.length - 1} ongelezen` : ''}</strong>
               <span>${this.appNotification.message}</span>
               <div class="notification-actions">
                 <button
+                  ?disabled=${this.notificationBusy}
                   @click=${() => this.dismissAppNotification(true)}>
                   Bekijk planning
                 </button>
@@ -985,6 +1023,7 @@ export class AppShell extends LiteElement {
             <button
               class="notification-close"
               aria-label="Melding sluiten"
+              ?disabled=${this.notificationBusy}
               @click=${() => this.dismissAppNotification()}>
               <custom-icon icon="close"></custom-icon>
             </button>

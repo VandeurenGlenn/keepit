@@ -897,9 +897,12 @@ export class ShopView extends LiteElement {
 
   async connectedCallback() {
     super.connectedCallback()
-    this.searchQuery = new URLSearchParams(location.hash.split('?')[1] || '').get('search') || ''
+    const params = new URLSearchParams(location.hash.split('?')[1])
+    this.searchQuery = params.get('search') || ''
     void this.refreshFavorites()
     await this.loadProducts()
+    const selected = this.products.find((product) => product.id === params.get('selected'))
+    if (selected && this.isConnected) this.openProduct(selected)
   }
 
   disconnectedCallback() {
