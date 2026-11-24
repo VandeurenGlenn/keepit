@@ -103,6 +103,8 @@ export class AppShell extends LiteElement {
   }
 
   pendingInviteRegistrationHash() {
+    const { path, params } = parseWorkspaceRoute(location.hash)
+    if (path === 'register' && params.get('uuid')?.trim()) return location.hash
     try {
       const inviteId = sessionStorage.getItem('keepit.pendingInviteId')
       const inviteEmail = sessionStorage.getItem('keepit.pendingInviteEmail')
@@ -902,7 +904,11 @@ export class AppShell extends LiteElement {
     }
 
     if (path === 'register') {
-      return html` <register-view></register-view> `
+      return html`<register-view @keepit-registration-account-change=${() => {
+        this.capturePendingInvite()
+        globalThis.google?.accounts?.id?.disableAutoSelect?.()
+        this.clearStoredAuth()
+      }}></register-view>`
     }
     if (path === 'users') {
       return html` <users-view></users-view> `
@@ -1043,13 +1049,14 @@ export class AppShell extends LiteElement {
   }
 
   render() {
+    const showWorkspace = this.userSignedIn && this.selected !== 'register'
     return html`
       <!-- @build-info -->
       ${icons}
-      ${this.userSignedIn ? html`<global-search .enabled=${true}></global-search>` : ''}
+      ${showWorkspace ? html`<global-search .enabled=${true}></global-search>` : ''}
       ${this.toast?html`<section class="app-toast" role="status"><span>${this.toast.message}</span>${this.toast.action?html`<button @click=${async()=>{await this.toast?.action?.();this.toast=undefined}}>${this.toast.actionLabel||'Ongedaan maken'}</button>`:''}<button class="toast-close" aria-label="Melding sluiten" @click=${()=>this.toast=undefined}><custom-icon icon="close"></custom-icon></button></section>`:''}
       ${this.confirmation?html`<div class="confirm-layer" @keydown=${(event:KeyboardEvent)=>this.handleConfirmationKeydown(event)}><button class="confirm-backdrop" aria-label="Annuleren" tabindex="-1" @click=${()=>this.resolveConfirmation(false)}></button><section class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message"><span class="confirm-icon"><custom-icon icon="warning"></custom-icon></span><div class="confirm-copy"><h2 id="confirm-title">${this.confirmation.title}</h2><p id="confirm-message">${this.confirmation.message}</p></div><div class="confirm-actions"><button class="confirm-cancel" @click=${()=>this.resolveConfirmation(false)}>${this.confirmation.cancelLabel||'Annuleren'}</button><button class="confirm-primary" @click=${()=>this.resolveConfirmation(true)}>${this.confirmation.confirmLabel||'Verwijderen'}</button></div></section></div>`:''}
-      ${this.userSignedIn && this.appNotification
+      ${showWorkspace && this.appNotification
         ? html`<section
             class="notification-toast"
             aria-live="polite">
@@ -1086,7 +1093,7 @@ export class AppShell extends LiteElement {
         load-symbols="false"
         load-fonts="false"></custom-theme>
 
-      ${this.userSignedIn
+      ${showWorkspace
         ? html`<custom-icon-button
             class="menu-toggle"
             icon="menu"
@@ -1095,7 +1102,7 @@ export class AppShell extends LiteElement {
             aria-expanded=${this.isMenuOpen ? 'true' : 'false'}
             @click=${(event: Event) => this._toggleMenu(event.currentTarget as HTMLElement)}></custom-icon-button>`
         : ''}
-      ${this.userSignedIn
+      ${showWorkspace
         ? html`<button
               class="drawer-backdrop"
               aria-label="Menu sluiten"
@@ -1139,6 +1146,7 @@ export class AppShell extends LiteElement {
                     class=${this.selected === 'timeline' ? 'nav-item active' : 'nav-item'}
                     ><custom-icon icon="timeline"></custom-icon>Mijn tijdlijn</a
                   >
+                  ${this.navLink('sync', 'cloud_sync', 'Synchronisatie')}
                 </section>
                 <section
                   class="nav-section"
@@ -1201,7 +1209,7 @@ export class AppShell extends LiteElement {
             </aside>`
         : ''}
 
-      ${this.userSignedIn ? html`<nav class="mobile-bottom-nav" aria-label="Snelle navigatie" ?inert=${this.isNarrow && this.isMenuOpen}>
+      ${showWorkspace ? html`<nav class="mobile-bottom-nav" aria-label="Snelle navigatie" ?inert=${this.isNarrow && this.isMenuOpen}>
         ${this.navLink('home', 'home', 'Home')}
         ${this.navLink('jobs', 'work', 'Jobs', 'job')}
         <a class="work-action" href=${this.user?.currentJob ? '#!/checkout' : '#!/checkin'}
@@ -1214,10 +1222,12 @@ export class AppShell extends LiteElement {
         </button>
       </nav>` : ''}
 
-      <main ?inert=${this.isNarrow && this.isMenuOpen}>
-        ${this.userSignedIn
+      <main ?inert=${showWorkspace && this.isNarrow && this.isMenuOpen}>
+        ${showWorkspace
         ? html`<header>
-              ${this.syncPending?html`<a class="offline-status" href="#!/sync"><custom-icon icon="cloud_upload"></custom-icon>${this.syncPending} wacht${this.syncPending===1?'':'en'} op synchronisatie</a>`:''}
+              ${this.syncPending ? html`<a class="offline-status" href="#!/sync" aria-label=${`Synchronisatie: ${this.syncPending} wachtend`}>
+                <custom-icon icon="cloud_upload"></custom-icon><span>${this.syncPending}<span class="offline-label"> wachtend</span></span>
+              </a>` : ''}
               <button class="global-search-trigger" aria-label="Zoeken" @click=${()=>window.dispatchEvent(new Event('keepit-open-search'))}><custom-icon icon="search"></custom-icon><span>Zoeken</span><kbd>⌘ K</kbd></button>
               <account-bar></account-bar>
             </header>`

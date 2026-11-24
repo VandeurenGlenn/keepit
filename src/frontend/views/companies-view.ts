@@ -1,12 +1,16 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
 import { CompaniesMixin } from '../mixins/companies.js'
-import type { Company, Place } from '../../types/index.js'
+import type { Companies, Company, Place } from '../../types/index.js'
 import { api } from '../api/client.js'
 import { showToast } from '../helpers/toast.js'
+import { directorySearch } from '../helpers/directory-search.js'
 import '../flows/data-input.js'
 
 export class CompaniesView extends CompaniesMixin(LiteElement) {
+  protected get relationshipType(): 'customer' | 'supplier' { return 'customer' }
+  private editTrigger?: HTMLElement
+  private originalPlaceValue = ''
   @property({ type: String }) accessor searchQuery = ''
   @property({ type: String }) accessor selectedCompanyId = ''
 
@@ -346,28 +350,49 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
         .editor-layer { align-items: end; padding: 0; }
         .editor { width: 100%; max-height: 92dvh; border-radius: var(--app-radius-dialog) var(--app-radius-dialog) 0 0; }
       }
+      .page-header::before { display:none; }
+      .page-header { box-shadow:none; }
+      .eyebrow,.company-icon { color:var(--app-accent-label); }
+      .company-card { grid-template-columns:40px minmax(0,1fr) auto; }
+      .company-copy h3,.company-copy p { white-space:normal; overflow-wrap:anywhere; }
+      .company-copy .description { font-size:.75rem; }
+      .icon-action { width:42px; height:42px; }
+      .directory-reset { min-height:40px; align-self:start; padding:0 12px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel); color:inherit; cursor:pointer; }
+      .empty { display:grid; justify-items:center; gap:9px; }
+      @media(max-width:480px) {
+        .company-card { grid-template-columns:36px minmax(0,1fr); padding:11px; gap:9px; }
+        .company-icon { width:36px; height:36px; }
+        .card-actions { grid-column:2; }
+        .search,.editor-field input,.editor-field select,.editor-field textarea { font-size:16px; }
+      }
+      .related-link { display:inline-flex; align-items:center; min-height:36px; color:var(--app-accent-label); font-size:.76rem; }
     `
   ]
 
-  startEditingCompany(uuid: string, company: Company) {
+  startEditingCompany(uuid: string, company: Company, trigger?: HTMLElement) {
+    this.editTrigger = trigger
     this.editingCompanyId = uuid
     this.editCompanyName = company.name || ''
     this.editRelationshipType = company.relationshipType || 'customer'
     this.editCompanyDescription = company.description || ''
     this.editCompanyPlace = company.place
     this.editCompanyPlaceValue = company.place?.displayName || company.place?.formattedAddress || ''
+    this.originalPlaceValue = this.editCompanyPlaceValue
+    void this.rendered.then(() => this.shadowRoot?.querySelector<HTMLInputElement>('.editor input')?.focus())
   }
 
   cancelEditingCompany() {
     this.editingCompanyId = ''
     this.editCompanyPlace = undefined
+    void this.rendered.then(() => this.editTrigger?.focus())
   }
 
   async saveCompany() {
     if (this.savingCompany) return
     const id = this.editingCompanyId
     const name = this.editCompanyName.trim()
-    if (!id || !name || !this.editCompanyPlace?.id) {
+    const placeChanged = this.editCompanyPlaceValue.trim() !== this.originalPlaceValue.trim()
+    if (!id || !name || (placeChanged && !this.editCompanyPlace?.id)) {
       showToast('Vul een naam in en kies het adres uit de resultaten.')
       return
     }
@@ -376,7 +401,7 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
       const updated = await api.updateCompany(id, {
         name,
         description: this.editCompanyDescription.trim(),
-        place: this.editCompanyPlace,
+        place: this.editCompanyPlace?.id && this.editCompanyPlace.formattedAddress ? this.editCompanyPlace : undefined,
         relationshipType: this.editRelationshipType
       })
       this.companies = { ...this.companies, [id]: updated }
@@ -396,9 +421,11 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
       <div class="company-copy">
         <h3>${company.name || (relationshipType === 'supplier' ? 'Naamloze leverancier' : 'Naamloze klant')}</h3>
         <p>${company.place?.formattedAddress || 'Geen adres ingesteld'}</p>
+        ${company.description ? html`<p class="description">${company.description}</p>` : ''}
+        ${relationshipType === 'customer' ? html`<a class="related-link" href=${`#!/jobs?customer=${encodeURIComponent(uuid)}`}>Jobs bekijken</a>` : ''}
       </div>
       <div class="card-actions">
-        <button class="icon-action" aria-label="${company.name} bewerken" @click=${() => this.startEditingCompany(uuid, company)}>
+        <button class="icon-action" title="Bewerken" aria-label="${company.name} bewerken" @click=${(event: Event) => this.startEditingCompany(uuid, company, event.currentTarget as HTMLElement)}>
           <custom-icon icon="edit"></custom-icon>
         </button>
         <button class="icon-action delete" aria-label="${company.name} verwijderen" @click=${() => this._deleteCompany(uuid, relationshipType)}>
@@ -411,8 +438,10 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
   renderCompanyEditor() {
     if (!this.editingCompanyId) return ''
     return html`<div class="editor-layer" role="presentation">
-      <section class="editor" role="dialog" aria-modal="true" aria-labelledby="company-editor-title">
-        <div class="editor-header"><div><span class="eyebrow">Gegevens aanpassen</span><h2 id="company-editor-title">${this.editCompanyName}</h2></div></div>
+      <section class="editor" role="dialog" aria-modal="true" aria-labelledby="company-editor-title" @keydown=${(event: KeyboardEvent) => {
+        if (event.key === 'Escape' && !this.savingCompany && !event.defaultPrevented) this.cancelEditingCompany()
+      }}>
+        <div class="editor-header"><div><span class="eyebrow">${this.relationshipType === 'supplier' ? 'Leverancier' : 'Klant'}</span><h2 id="company-editor-title">Gegevens bewerken</h2></div></div>
         <label class="editor-field">Naam<input .value=${this.editCompanyName} @input=${(event: Event) => (this.editCompanyName = (event.target as HTMLInputElement).value)} /></label>
         <label class="editor-field">Relatietype<select @change=${(event: Event) => {
           this.editRelationshipType = (event.target as HTMLSelectElement).value === 'supplier' ? 'supplier' : 'customer'
@@ -434,51 +463,40 @@ export class CompaniesView extends CompaniesMixin(LiteElement) {
   }
 
   render() {
-    const query = this.searchQuery.trim().toLowerCase()
-    const entries = (Object.entries(this.companies || {}) as Array<[string, any]>)
-      .filter(([, company]) => (company.relationshipType || 'customer') === 'customer')
-      .filter(([id]) => !this.selectedCompanyId || id === this.selectedCompanyId)
-      .filter(
-        ([, company]) =>
-          !query || `${company.name} ${company.place?.formattedAddress || ''}`.toLowerCase().includes(query)
-      )
-      .sort(([, left], [, right]) => (left.name || '').localeCompare(right.name || '', 'nl'))
+    const supplier = this.relationshipType === 'supplier'
+    const title = supplier ? 'Leveranciers' : 'Klanten'
+    const singular = supplier ? 'leverancier' : 'klant'
+    const matches = directorySearch(this.searchQuery)
+    const all = Object.entries((this.companies || {}) as Companies).filter(([, company]) => (company.relationshipType || 'customer') === this.relationshipType)
+    const entries = all.filter(([id, company]) =>
+      (!this.selectedCompanyId || id === this.selectedCompanyId) &&
+      matches(company.name, company.place?.formattedAddress, company.description)
+    ).sort(([, left], [, right]) => (left.name || '').localeCompare(right.name || '', 'nl-BE'))
+    const reset = () => { this.clearCompanySelection(); this.searchQuery = '' }
     return html`
       <header class="page-header">
         <div class="page-heading">
-          <span class="page-icon"><custom-icon icon="source_environment"></custom-icon></span>
-          <div>
-            <span class="eyebrow">Klantenbeheer</span>
-            <h1>Klanten</h1>
-            <p class="subtitle">${entries.length} klanten en locaties</p>
-          </div>
+          <span class="page-icon"><custom-icon icon=${supplier ? 'local_shipping' : 'source_environment'}></custom-icon></span>
+          <div><span class="eyebrow">${supplier ? 'Inkoop' : 'Relatiebeheer'}</span><h1>${title}</h1>
+            <p class="subtitle">${supplier ? 'Leveranciers en afhaallocaties' : 'Klantgegevens en werflocaties'}</p></div>
         </div>
-        <button
-          class="primary"
-          ?disabled=${this.creatingCompany}
-          @click=${() => this._addCompany('customer')}>
-          <custom-icon icon="add"></custom-icon><span>Nieuwe klant</span>
+        <button type="button" class="primary" aria-label=${'Nieuwe ' + singular} ?disabled=${this.creatingCompany} @click=${() => this._addCompany(this.relationshipType)}>
+          <custom-icon icon="add"></custom-icon><span>Nieuwe ${singular}</span>
         </button>
       </header>
       <div class="search-wrap">
-        <custom-icon icon="search"></custom-icon
-        ><input
-          class="search"
-          type="search"
-          placeholder="Zoek op naam of adres…"
-          .value=${this.searchQuery}
-          @input=${(event: Event) => { this.clearCompanySelection(); this.searchQuery = (event.target as HTMLInputElement).value }} />
+        <custom-icon icon="search"></custom-icon>
+        <input class="search" type="search" aria-label=${title + ' zoeken'} placeholder="Zoek op naam, adres of omschrijving…"
+          .value=${this.searchQuery} @input=${(event: Event) => { this.clearCompanySelection(); this.searchQuery = (event.target as HTMLInputElement).value }}>
       </div>
-      ${this.selectedCompanyId ? html`<button type="button" class="icon-action" style="width:auto;padding:0 12px" @click=${() => this.clearCompanySelection()}>Toon alle klanten</button>` : ''}
-      <div class="list-heading">
-        <h2>Klanten</h2>
-        <span class="count">${entries.length} resultaten</span>
-      </div>
+      ${this.selectedCompanyId ? html`<button type="button" class="directory-reset" @click=${reset}>Toon alle ${title.toLowerCase()}</button>` : ''}
+      <div class="list-heading"><h2>Overzicht</h2><span class="count" aria-live="polite">${entries.length} van ${all.length}</span></div>
       ${entries.length
-        ? html`<section class="companies-grid">
-            ${entries.map(([uuid, company]) => this.renderCompanyCard(uuid, company, 'customer'))}
-          </section>`
-        : html`<div class="empty">Geen klanten gevonden.</div>`}
+        ? html`<section class="companies-grid" aria-label=${title}>${entries.map(([id, company]) => this.renderCompanyCard(id, company, this.relationshipType))}</section>`
+        : html`<div class="empty"><strong>${all.length ? 'Geen resultaten' : `Nog geen ${title.toLowerCase()}`}</strong>
+            <p>${all.length ? 'Pas je zoekopdracht aan of toon alles.' : `Voeg een ${singular} toe met de knop bovenaan.`}</p>
+            ${all.length ? html`<button type="button" class="directory-reset" @click=${reset}>Wis selectie</button>` : ''}
+          </div>`}
       ${this.renderCompanyEditor()}
     `
   }

@@ -1,50 +1,56 @@
 import { LiteElement, css, html, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
 import type { Jobs } from '../../types/index.js'
-import { claimUnscopedOfflineActions, getOfflineActions, getUnscopedOfflineActions, retryOfflineActions, type OfflineAction } from '../helpers/offline-actions.js'
+import { claimUnscopedOfflineActions, getOfflineSyncStatus, getUnscopedOfflineActions, retryOfflineActions, type OfflineAction } from '../helpers/offline-actions.js'
 import { showToast } from '../helpers/toast.js'
 import { confirmAction } from '../helpers/confirmation.js'
 
 export class SyncView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor jobs: Jobs = {}
   @property({ type: Array }) accessor actions: OfflineAction[] = []
-  @property({ type: Boolean }) accessor retrying = false
+  @property({ type: Boolean }) accessor syncing = false
+  @property({ type: Boolean }) accessor online = navigator.onLine
   @property({ type: Number }) accessor unscopedCount = 0
 
-  listener = (event: Event) => {
-    this.actions = (event as CustomEvent).detail?.actions || getOfflineActions()
+  listener = () => {
+    const status = getOfflineSyncStatus()
+    this.actions = status.actions
+    this.syncing = status.syncing
+    this.online = navigator.onLine
     this.unscopedCount = getUnscopedOfflineActions().length
   }
 
   connectedCallback() {
     super.connectedCallback()
-    this.actions = getOfflineActions()
-    this.unscopedCount = getUnscopedOfflineActions().length
+    this.listener()
     window.addEventListener('keepit-sync-status', this.listener)
+    window.addEventListener('online', this.listener)
+    window.addEventListener('offline', this.listener)
   }
 
   disconnectedCallback() {
     window.removeEventListener('keepit-sync-status', this.listener)
+    window.removeEventListener('online', this.listener)
+    window.removeEventListener('offline', this.listener)
     super.disconnectedCallback()
   }
 
   async retry() {
-    this.retrying = true
+    if (this.syncing || !this.online || !this.actions.length) return
     try {
       await retryOfflineActions()
-      this.actions = getOfflineActions()
-      showToast(this.actions.length ? 'Niet alles kon synchroniseren.' : 'Alle registraties zijn gesynchroniseerd.')
-    } finally { this.retrying = false }
+    } catch { showToast('Synchronisatie kon niet worden gestart. Probeer opnieuw.') }
   }
 
   async claimLegacy() {
     const confirmed = await confirmAction({ title: 'Oude registraties herstellen?', message: `Koppel ${this.unscopedCount} oude offline registratie(s) op dit toestel aan jouw account. Doe dit alleen als jij deze uren hebt ingevoerd.`, confirmLabel: 'Aan mij koppelen' })
     if (!confirmed) return
-    const count = claimUnscopedOfflineActions()
-    this.actions = getOfflineActions()
-    this.unscopedCount = 0
-    showToast(`${count} registratie(s) gekoppeld.`)
-    await this.retry()
+    try {
+      const count = claimUnscopedOfflineActions()
+      this.listener()
+      showToast(count === 1 ? '1 registratie gekoppeld.' : `${count} registraties gekoppeld.`)
+      await this.retry()
+    } catch { showToast('Keepit kon de oude registraties niet koppelen. Probeer opnieuw.') }
   }
 
   static styles = [css`
@@ -83,14 +89,64 @@ export class SyncView extends LiteElement {
     .empty custom-icon { width:36px; height:36px; color:var(--app-success); }
     .empty strong { color:var(--md-sys-color-on-surface); }
     @media(max-width:620px) { :host { padding:12px; } .page-header,.legacy { align-items:stretch; flex-direction:column; padding:14px; } .page-icon { display:none; } .page-header button,.legacy button { width:100%; } .panel { padding:14px; } .row { grid-template-columns:38px minmax(0,1fr); } .icon { width:38px; height:38px; } .state { grid-column:2; width:fit-content; } }
+    .page-header,.panel,.legacy { box-shadow:none; }
+    .eyebrow,.page-icon,.icon { color:var(--app-accent-label); }
+    .status-card { display:grid; gap:5px; padding:14px 16px; border:1px solid var(--app-border); border-radius:var(--app-radius-panel); background:var(--app-panel); }
+    .status-card.attention { border-color:color-mix(in srgb,#e69a38 45%,var(--app-border)); }
+    .status-card span,.queue-error span { color:var(--md-sys-color-on-surface-variant); font-size:.8rem; line-height:1.5; }
+    .list { padding:0; margin:0; list-style:none; }
+    .copy strong,.copy span { white-space:normal; overflow-wrap:anywhere; }
+    .queue-error { display:grid; grid-column:2/-1; gap:4px; overflow-wrap:anywhere; font-size:.8rem; }
+    .count { white-space:nowrap; }
   `]
 
   render() {
-    const online = navigator.onLine
+    const first = this.actions[0]
+    const blocked = Boolean(first?.lastError && this.online && !this.syncing)
+    const status = !this.online ? 'Offline' : this.syncing ? 'Bezig met synchroniseren' : blocked ? 'Actie nodig' : first ? 'Wacht op synchronisatie' : 'Geen openstaande registraties'
+    const date = new Intl.DateTimeFormat('nl-BE', { dateStyle:'medium', timeStyle:'short' })
+    const format = (timestamp: number) => Number.isFinite(timestamp) && Number.isFinite(new Date(timestamp).getTime()) ? date.format(timestamp) : 'Tijd onbekend'
+    const errorHelp = first?.failureKind === 'session' ? 'Meld je opnieuw aan met hetzelfde account en probeer opnieuw. De registratie blijft op dit toestel.'
+      : first?.failureKind === 'rejected' ? 'De server heeft deze registratie geweigerd. Controleer de registratie met je beheerder voordat je opnieuw probeert.'
+      : 'Probeer opnieuw wanneer Keepit bereikbaar is. Je hoeft de uren niet opnieuw in te geven.'
     return html`
-      <header class="page-header"><div class="heading"><span class="page-icon"><custom-icon icon="cloud_sync"></custom-icon></span><div><span class="eyebrow">${online?'Online':'Offline'}</span><h1>Synchronisatie</h1><p class="subtitle">Offline werkuren worden veilig bewaard en in volgorde verwerkt.</p></div></div><button class="primary" ?disabled=${this.retrying||!this.actions.length||!online} @click=${()=>this.retry()}><custom-icon icon="refresh"></custom-icon>${this.retrying?'Synchroniseren…':'Opnieuw proberen'}</button></header>
-      ${this.unscopedCount?html`<section class="legacy" role="alert"><div class="legacy-copy"><span class="legacy-icon"><custom-icon icon="warning"></custom-icon></span><div><strong>Oude offline registraties gevonden</strong><span>${this.unscopedCount} registraties hebben nog geen medewerker. Controleer ze voor je ze koppelt.</span></div></div><button @click=${()=>this.claimLegacy()}>Controleren en koppelen</button></section>`:null}
-      <section class="panel" aria-live="polite"><div class="panel-head"><div><h2>Wachtrij</h2><p>Registraties blijven op dit toestel staan tot de server ze bevestigt.</p></div><span class="count">${this.actions.length} wachtend</span></div>${this.actions.length?html`<div class="list">${this.actions.map(action=>html`<article class="row"><span class="icon"><custom-icon icon=${action.type==='checkin'?'login':'logout'}></custom-icon></span><div class="copy"><strong>${action.type==='checkin'?'Start':'Stop'} · ${this.jobs[action.job]?.name||'Onbekende job'}</strong><span>${new Date(action.timestamp).toLocaleString('nl-BE')} · lokaal opgeslagen ${new Date(action.createdAt).toLocaleString('nl-BE')}</span></div><span class="state ${action.lastError?'error':''}">${action.lastError?`Mislukt · poging ${action.attempts||1}`:online?'Wacht op server':'Offline bewaard'}</span></article>`)}</div>`:html`<div class="empty"><custom-icon icon="cloud_done"></custom-icon><strong>Alles is gesynchroniseerd</strong><span>Er staan geen lokale registraties meer in de wachtrij.</span></div>`}</section>
+      <header class="page-header">
+        <div class="heading"><span class="page-icon"><custom-icon icon="cloud_sync"></custom-icon></span>
+          <div><span class="eyebrow">Werkregistratie</span><h1>Synchronisatie</h1><p class="subtitle">Bekijk welke uren nog op dit toestel wachten.</p></div>
+        </div>
+        ${first ? html`<button type="button" class="primary" ?disabled=${this.syncing || !this.online} @click=${() => void this.retry()}>
+          <custom-icon icon="refresh"></custom-icon>${this.syncing ? 'Synchroniseren…' : 'Synchroniseer nu'}
+        </button>` : ''}
+      </header>
+
+      <section class="status-card ${blocked || !this.online ? 'attention' : ''}" role="status">
+        <strong>${status}</strong>
+        <span>${!this.online ? 'Keepit probeert opnieuw zodra je verbinding terug is.' : this.syncing ? 'Laat deze pagina gerust open of werk verder in Keepit.' : blocked ? errorHelp : first ? 'Keepit verstuurt de registraties in de volgorde waarin je ze hebt ingevoerd.' : 'Er zijn voor jouw account geen werkuren meer in de wachtrij op dit toestel.'}</span>
+      </section>
+
+      ${this.unscopedCount ? html`<section class="legacy">
+        <div class="legacy-copy"><span class="legacy-icon"><custom-icon icon="warning"></custom-icon></span><div><strong>Oude offline registraties</strong>
+          <span>${this.unscopedCount} ${this.unscopedCount === 1 ? 'registratie is' : 'registraties zijn'} nog niet aan een account gekoppeld.</span></div></div>
+        <button type="button" ?disabled=${this.syncing} @click=${() => void this.claimLegacy()}>Controleren en koppelen</button>
+      </section>` : ''}
+
+      ${first ? html`<section class="panel" aria-labelledby="queue-title" aria-busy=${this.syncing}>
+        <div class="panel-head"><div><h2 id="queue-title">Wachtrij</h2><p>Keepit bewaart elke registratie tot de server ze bevestigt.</p></div>
+          <span class="count">${this.actions.length} wachtend</span></div>
+        <ol class="list">
+          ${this.actions.map((action, index) => html`<li class="row">
+            <span class="icon"><custom-icon icon=${action.type === 'checkin' ? 'login' : 'logout'}></custom-icon></span>
+            <div class="copy"><strong>${action.type === 'checkin' ? 'Start' : 'Stop'} · ${this.jobs[action.job]?.name || 'Onbekende job'}</strong>
+              <span>${format(action.timestamp)}</span>
+            </div>
+            <span class="state ${index === 0 && blocked ? 'error' : ''}">${index === 0 && this.syncing ? 'Bezig…'
+              : !this.online ? 'Offline bewaard' : index === 0 && blocked ? 'Niet verwerkt' : 'In wachtrij'}</span>
+            ${index === 0 && blocked ? html`<div class="queue-error"><strong>${first.failureKind && first.lastError ? first.lastError : 'Vorige poging mislukt'}</strong>
+              <span>${(action.attempts || 1) === 1 ? '1 poging' : `${action.attempts} pogingen`}. De volgende registraties wachten hierop.</span>
+            </div>` : ''}
+          </li>`)}
+        </ol>
+      </section>` : ''}
     `
   }
 }

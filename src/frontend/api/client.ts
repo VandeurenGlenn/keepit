@@ -342,8 +342,8 @@ class ApiClient {
     return this.request('POST', '/register', user)
   }
 
-  async getRegistrationStatus(): Promise<{ invitationRequired: boolean }> {
-    return this.request('GET', '/register')
+  async getRegistrationStatus(signal?: AbortSignal): Promise<{ invitationRequired: boolean }> {
+    return this.request('GET', '/register', undefined, signal)
   }
 
   async reverseGeocode(

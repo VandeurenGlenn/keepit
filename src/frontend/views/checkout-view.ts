@@ -10,6 +10,7 @@ import { captureWorkLocation } from '../helpers/work-location.js'
 import { User } from '../../types/index.js'
 import { enqueueOfflineAction, flushOfflineActions, getOfflineActions, isNetworkFailure } from '../helpers/offline-actions.js'
 import styles from './styles/checkout-view.css' with { type: 'css' }
+import sessionStyles from './styles/shared/work-session-form.css' with { type: 'css' }
 export class CheckoutView extends JobsMixin(LiteElement) {
   @property({ type: Object, consumes: true }) accessor user: (Partial<User> & { id?: string }) | undefined = undefined
   @property({ type: Boolean }) accessor success = false
@@ -28,7 +29,7 @@ export class CheckoutView extends JobsMixin(LiteElement) {
   @query('input[type="date"]') accessor dateInput!: HTMLInputElement
   @query('input[type="time"]') accessor timeInput!: HTMLInputElement
 
-  static styles = styles
+  static styles = [styles, sessionStyles]
 
   async _addCheckout() {
     const user = this.user
@@ -95,7 +96,7 @@ export class CheckoutView extends JobsMixin(LiteElement) {
         description="Rond je actieve werksessie af."
         icon="arrow_upward"></view-header>
 
-      <section class="form-panel">
+      <form class="form-panel" aria-busy=${this.submitting} @submit=${(event: Event) => { event.preventDefault(); void this._addCheckout() }}>
         <h2 class="form-heading">Werkdag afronden</h2>
         <p class="form-description">Controleer het eindmoment. Alleen onderstaande actieve sessie wordt afgesloten.</p>
 
@@ -109,34 +110,21 @@ export class CheckoutView extends JobsMixin(LiteElement) {
           </div>
         </section>
 
-        <label class="field"
-          >Datum<span
-            class="field-shell"
-            @click=${() => this.dateInput.showPicker()}>
-            <input
-              type="date"
-              required
-              value=${this.date} /> </span
-        ></label>
+        <div class="session-time">
+          <label class="field">Datum<input type="date" required value=${this.date}></label>
+          <label class="field">Eindtijd<input type="time" required value=${this.time}></label>
+        </div>
 
-        <label class="field"
-          >Eindtijd<span
-            class="field-shell"
-            @click=${() => this.timeInput.showPicker()}>
-            <input
-              type="time"
-              required
-              value=${this.time} /> </span
-        ></label>
-
-        ${this.error ? html`<p class="error">${this.error}</p>` : ''}
-        <button
+        ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
+        <div class="session-actions">
+        <a href="#!/home">Terug</a>
+        <button type="submit"
           class="primary"
-          ?disabled=${this.submitting}
-          @click=${() => this._addCheckout()}>
+          ?disabled=${this.submitting}>
           ${this.submitting ? 'Bezig met stoppen…' : 'Stop deze job'}
         </button>
-      </section>
+        </div>
+      </form>
     `
   }
 }

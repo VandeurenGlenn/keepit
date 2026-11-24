@@ -119,6 +119,8 @@ main > * {
   max-width: 100%;
 }
 
+:host([selected='register']) main { left:0; }
+
 button,
 a {
   -webkit-tap-highlight-color: transparent;
@@ -699,7 +701,8 @@ flex-container.wide-workspace {
     height: 68px;
   }
 
-  .global-search-trigger span,.global-search-trigger kbd,.offline-status{display:none}.global-search-trigger{width:40px;padding:0;justify-content:center}.app-toast{bottom:86px}
+  .global-search-trigger span,.global-search-trigger kbd,.offline-label{display:none}.global-search-trigger{width:40px;padding:0;justify-content:center}.app-toast{bottom:86px}
+  .offline-status { min-height:40px; box-sizing:border-box; white-space:nowrap; }
   :host { --app-content-dock: calc(76px + env(safe-area-inset-bottom)); }
   .mobile-bottom-nav {
     position:fixed; z-index:900; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:4px;
@@ -715,6 +718,7 @@ flex-container.wide-workspace {
   .mobile-bottom-nav custom-icon { color:inherit; --custom-icon-color:currentColor; --custom-icon-size:20px; }
   .mobile-bottom-nav .work-action { color:var(--md-sys-color-on-primary); background:var(--app-accent); }
   :host([is-narrow][signed-in]) main { padding-bottom:var(--app-content-dock); }
+  :host([selected='register'][signed-in]) main { padding-bottom:0; }
 
   :host([is-narrow]) aside {
     width: min(84vw, 296px);

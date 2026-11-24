@@ -6,12 +6,14 @@ import '@vandeurenglenn/flex-elements/row.js'
 import { ChipField } from '../elements/chip/field.js'
 import './../elements/chip/field.js'
 import { JobsMixin } from '../mixins/jobs.js'
+import type { Jobs } from '../../types/index.js'
 import { api } from '../api/client.js'
 import '../animations/success.js'
 import '../animations/error.js'
 import { captureWorkLocation } from '../helpers/work-location.js'
 import { enqueueOfflineAction, flushOfflineActions, getOfflineActions, isNetworkFailure } from '../helpers/offline-actions.js'
 import styles from './styles/checkin-view.css' with { type: 'css' }
+import sessionStyles from './styles/shared/work-session-form.css' with { type: 'css' }
 
 export class CheckinView extends JobsMixin(LiteElement) {
   @property({ type: Object, consumes: true }) accessor user
@@ -35,7 +37,7 @@ export class CheckinView extends JobsMixin(LiteElement) {
   @query('input[type="time"]') accessor timeInput: HTMLInputElement
   @query('select') accessor select: HTMLSelectElement
 
-  static styles = styles
+  static styles = [styles, sessionStyles]
 
   async _addCheckin() {
     const user = this.user
@@ -98,63 +100,44 @@ export class CheckinView extends JobsMixin(LiteElement) {
           .action=${{ label: 'Ga naar checkout', href: `#!/checkout?job=${this.user.currentJob}` }}></error-animation>
       `
     }
+    const requested = new URLSearchParams(location.hash.split('?')[1]).get('job')
+    const jobs = Object.entries((this.jobs || {}) as Jobs).filter(([, job]) => job.status !== 'completed' && !job.archivedAt)
+    const preselected = jobs.some(([id]) => id === requested) ? requested : ''
     return html`
       <view-header
         title="Check-in"
         description="Start je werkdag op de juiste job."
         icon="arrow_downward"></view-header>
 
-      <section class="form-panel">
+      <form class="form-panel" aria-busy=${this.submitting} @submit=${(event: Event) => { event.preventDefault(); void this._addCheckin() }}>
         <h2 class="form-heading">Werkdag starten</h2>
         <p class="form-description">
           Kies datum, tijd en job. De check-in wordt meteen gekoppeld aan je huidige sessie.
         </p>
 
-        <label class="field"
-          >Datum
-          <span
-            class="field-shell"
-            @click=${() => this.dateInput.showPicker()}>
-            <input
-              type="date"
-              required
-              value=${this.date} /> </span
-        ></label>
+        <div class="session-time">
+          <label class="field">Datum<input type="date" required value=${this.date}></label>
+          <label class="field">Starttijd<input type="time" required value=${this.time}></label>
+        </div>
 
         <label class="field"
-          >Starttijd
-          <span
-            class="field-shell"
-            @click=${() => this.timeInput.showPicker()}>
-            <input
-              type="time"
-              required
-              value=${this.time} /> </span
-        ></label>
-
-        <label class="field"
-          >Job<select
-            .value=${new URLSearchParams(location.hash.split('?')[1] || '').get('job') || ''}
-            required>
-            <option
-              value=""
-              disabled>
-              Kies een job
-            </option>
-            ${(Object.entries(this.jobs || {}) as Array<[string, any]>)
-              .filter(([, data]) => data.status !== 'completed' && !data.archivedAt)
-              .map(([uuid, data]) => html`<option value=${uuid}>${data.name}</option>`)}
+          >Job<select required>
+            <option value="" disabled ?selected=${!preselected}>Kies een job</option>
+            ${jobs.map(([id, job]) => html`<option value=${id} ?selected=${id === preselected}>${job.name}</option>`)}
           </select></label
         >
 
-        ${this.error ? html`<p class="error">${this.error}</p>` : ''}
-        <button
+        ${jobs.length ? '' : html`<p class="form-description">Er zijn geen actieve jobs om op in te checken.</p>`}
+        ${this.error ? html`<p class="error" role="alert">${this.error}</p>` : ''}
+        <div class="session-actions">
+        <a href="#!/home">Terug</a>
+        <button type="submit"
           class="primary"
-          ?disabled=${this.submitting}
-          @click=${() => this._addCheckin()}>
+          ?disabled=${this.submitting || !jobs.length}>
           ${this.submitting ? 'Bezig met starten…' : 'Start deze job'}
         </button>
-      </section>
+        </div>
+      </form>
     `
   }
 }

@@ -2,6 +2,7 @@ import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
 import { JobsMixin } from '../mixins/jobs.js'
 import { Job, Jobs } from '../../types/index.js'
+import { directorySearch } from '../helpers/directory-search.js'
 
 const jobsMixin = JobsMixin(LiteElement)
 
@@ -9,6 +10,11 @@ export class JobsView extends jobsMixin {
   @property({ type: Boolean }) accessor createOnOpen = false
 
   firstRender() {
+    const customer = new URLSearchParams(location.hash.split('?')[1]).get('customer')
+    if (customer && Object.hasOwn(this.companies || {}, customer)) {
+      this.customerFilter = customer
+      this.statusFilter = 'all'
+    }
     if (this.createOnOpen && this.user?.roles?.includes('admin')) void this._createJob()
   }
   @property({ type: String }) accessor searchQuery = ''
@@ -409,20 +415,29 @@ export class JobsView extends jobsMixin {
           padding-left: 13px;
         }
       }
+      .page-header::before { display:none; }
+      .page-header,.job-card { box-shadow:none; }
+      .eyebrow,.job-icon { color:var(--app-accent-label); }
+      .job-title,.job-address { white-space:normal; overflow-wrap:anywhere; }
+      .delete-button { width:42px; height:42px; opacity:1; }
+      .reset-filters { min-height:42px; padding:0 12px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel); color:inherit; cursor:pointer; }
+      @media (max-width:720px) {
+        .search,.status-filter,.customer-filter { font-size:16px; }
+        .list-heading { flex-wrap:wrap; }
+      }
     `
   ]
 
   get visibleJobs(): Array<[string, Job]> {
-    const query = this.searchQuery.trim().toLowerCase()
+    const matches = directorySearch(this.searchQuery)
     return Object.entries((this.jobs as Jobs) || {})
       .filter(([, job]) => {
         const completed = job.status === 'completed'
         if (this.statusFilter === 'active' && completed) return false
         if (this.statusFilter === 'completed' && !completed) return false
         if (this.customerFilter && job.customerId !== this.customerFilter) return false
-        if (!query) return true
         const customer = job.customerId ? this.companies?.[job.customerId] : undefined
-        return `${job.name} ${customer?.name || ''} ${job.description || ''} ${job.place?.formattedAddress || ''}`.toLowerCase().includes(query)
+        return matches(job.name, customer?.name, job.description, job.place?.formattedAddress)
       })
       .sort(([, left], [, right]) => {
         const leftCompleted = left.status === 'completed' ? 1 : 0
@@ -439,6 +454,8 @@ export class JobsView extends jobsMixin {
     const allJobs = Object.values((this.jobs as Jobs) || {})
     const visibleJobs = this.visibleJobs
     const activeCount = allJobs.filter((job) => job.status !== 'completed').length
+    const filtered = Boolean(this.searchQuery.trim() || this.customerFilter)
+    const resetFilters = () => { this.searchQuery = ''; this.customerFilter = ''; this.statusFilter = 'all' }
 
     return html`
       <header class="page-header">
@@ -452,6 +469,7 @@ export class JobsView extends jobsMixin {
         </div>
         ${this.user?.roles?.includes('admin') ? html`<button
           class="primary"
+          aria-label="Nieuwe job"
           ?disabled=${this.creatingJob}
           @click=${() => this._createJob()}>
           <custom-icon icon="add"></custom-icon>
@@ -465,7 +483,8 @@ export class JobsView extends jobsMixin {
           <input
             class="search"
             type="search"
-            placeholder="Zoek op naam, adres of omschrijving..."
+            placeholder="Zoek job, klant of adres…"
+            aria-label="Jobs zoeken"
             .value=${this.searchQuery}
             @input=${(event: Event) => {
               this.searchQuery = (event.target as HTMLInputElement).value
@@ -499,7 +518,7 @@ export class JobsView extends jobsMixin {
 
       <div class="list-heading">
         <h2>${this.statusFilter === 'completed' ? 'Afgeronde jobs' : this.statusFilter === 'all' ? 'Alle jobs' : 'Actieve jobs'}</h2>
-        <span class="job-count">${visibleJobs.length} resultaten</span>
+        <span class="job-count" aria-live="polite">${visibleJobs.length} van ${allJobs.length}</span>
       </div>
 
       ${visibleJobs.length
@@ -508,8 +527,8 @@ export class JobsView extends jobsMixin {
               ([key, job]) => html`<article class="job-card">
                 <a
                   class="job-link"
-                  href=${`#!/job?selected=${key}`}>
-                  <span class="job-icon">${job.name.trim().charAt(0) || '?'}</span>
+                  href=${`#!/job?selected=${encodeURIComponent(key)}`}>
+                  <span class="job-icon">${job.name?.trim().charAt(0) || '?'}</span>
                   <div class="job-info">
                     <h3 class="job-title">${job.name || 'Naamloze job'}</h3>
                     <p class="job-address">${job.place?.formattedAddress || 'Locatie ontbreekt'}</p>
@@ -518,7 +537,7 @@ export class JobsView extends jobsMixin {
                         ${job.status === 'completed' ? 'Afgerond' : 'Actief'}
                       </span>
                       ${job.customerId ? html`<span>${this.customerName(job)}</span>` : ''}
-                      <span class="material-count">${job.materials?.length || 0} materialen</span>
+                      <span class="material-count">${job.materials?.length || 0} ${job.materials?.length === 1 ? 'materiaalregel' : 'materiaalregels'}</span>
                     </div>
                   </div>
                   <custom-icon
@@ -538,8 +557,9 @@ export class JobsView extends jobsMixin {
           </section>`
         : html`<div class="empty-state">
             <custom-icon icon="search"></custom-icon>
-            <strong>Geen jobs gevonden</strong>
-            <span>Pas je zoekopdracht of statusfilter aan.</span>
+            <strong>${allJobs.length ? 'Geen jobs in deze selectie' : 'Nog geen jobs'}</strong>
+            <span>${allJobs.length ? 'Pas je zoekopdracht of filters aan.' : 'Nieuwe jobs verschijnen hier zodra ze zijn aangemaakt.'}</span>
+            ${allJobs.length && (filtered || this.statusFilter !== 'all') ? html`<button type="button" class="reset-filters" @click=${resetFilters}>Toon alle jobs</button>` : ''}
           </div>`}
     `
   }

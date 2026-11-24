@@ -16,6 +16,7 @@ declare const google: typeof globalThis.google
 
 export class DataInput extends LiteElement {
   @property({ type: String }) accessor label = ''
+  @property({ type: String, attribute: 'display-label' }) accessor displayLabel = ''
 
   @property({ type: String }) accessor value = ''
 
@@ -392,7 +393,7 @@ export class DataInput extends LiteElement {
     }
   }
   render() {
-    const displayLabel = ({ name: 'Naam', place: 'Locatie', description: 'Omschrijving', telephone: 'Telefoon', customerId: 'Klant' } as Record<string, string>)[this.label] || this.label
+    const displayLabel = this.displayLabel || ({ name: 'Naam', place: 'Locatie', description: 'Omschrijving', telephone: 'Telefoon', customerId: 'Klant' } as Record<string, string>)[this.label] || this.label
     return html`
       <div class="input">
         ${this.type === 'select'

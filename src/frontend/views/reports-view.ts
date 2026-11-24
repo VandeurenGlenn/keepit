@@ -2,6 +2,7 @@ import { LiteElement, css, html, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
 import type { Jobs, Users, WorkReport } from '../../types/index.js'
 import { api } from '../api/client.js'
+import { directorySearch } from '../helpers/directory-search.js'
 import { reportCsv, reportDate, reportDateTime, reportDay, reportDayLabel, reportSessionTimes, reportWarnings } from '../helpers/hours-report-format.js'
 
 const formatDuration = (ms: number) => {
@@ -15,6 +16,7 @@ export class ReportsView extends LiteElement {
   @property({ type: String }) accessor from = `${reportDay(new Date()).slice(0, 7)}-01`
   @property({ type: String }) accessor to = reportDay(new Date())
   @property({ type: String }) accessor query = ''
+  @property({ type: Boolean }) accessor warningsOnly = false
   @property({ type: Object }) accessor report: WorkReport | undefined
   @property({ type: Boolean }) accessor loading = false
   @property({ type: String }) accessor error = ''
@@ -71,6 +73,27 @@ export class ReportsView extends LiteElement {
     @media(max-width:900px) { .page-header { align-items:stretch; flex-direction:column; } .filters { justify-content:flex-start; } .summary { grid-template-columns:repeat(2,minmax(0,1fr)); } .employee-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .table-head { display:none; } .row { grid-template-columns:minmax(0,1fr) auto; gap:5px 12px; padding:13px 10px; } .person { font-weight:700; } .job { grid-column:1; } .moment { grid-column:1; color:var(--md-sys-color-on-surface-variant); } .time { grid-column:2; grid-row:1; } .status { grid-column:2; grid-row:2 / span 2; justify-self:end; } }
     @media(max-width:620px) { :host { padding:12px; } .page-header,.panel { padding:14px; } .page-icon { display:none; } .filters { display:grid; grid-template-columns:1fr 1fr; } .filters button { width:100%; } .summary,.employee-grid { grid-template-columns:1fr; } .panel-heading { align-items:stretch; flex-direction:column; } .search { width:100%; } }
     @media print { :host { max-width:none; padding:0; color:#111; } .page-header,.panel,.summary-card { border-color:#ddd; box-shadow:none; background:#fff; } .filters,.search,.employee-panel { display:none; } .table-head,.row { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1.25fr) minmax(0,.7fr) minmax(0,1fr); } .job,.moment,.time,.status { grid-row:auto; grid-column:auto; } }
+    @media screen {
+      .page-header,.panel { box-shadow:none; }
+      .eyebrow,.summary-icon,.employee span { color:var(--app-accent-label); }
+      .report-controls { display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+      .period-shortcuts { display:flex; gap:7px; flex-wrap:wrap; }
+      .report-filter { display:flex; margin-bottom:12px; }
+      .report-filter button[aria-pressed=true] { color:var(--app-accent-label); background:var(--app-accent-soft); border-color:currentColor; }
+      .summary-copy strong,.row .time { font-variant-numeric:tabular-nums; }
+    }
+    @media screen and (max-width:620px) {
+      .summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .summary-card { gap:6px; padding:10px; }
+      .summary-icon { display:none; }
+      .summary-copy span { white-space:normal; }
+      .report-controls,.filters { width:100%; }
+      .filters { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .filters .field,.filters button { min-width:0; }
+      .filters input,.search input { min-width:0; width:100%; font-size:16px; }
+      .filters .primary { grid-column:1/-1; }
+    }
+    @media print { .report-controls,.report-filter { display:none; } }
   `]
 
   connectedCallback() { super.connectedCallback(); void this.load() }
@@ -104,10 +127,19 @@ export class ReportsView extends LiteElement {
   }
 
   get filteredRows() {
-    const query = this.query.trim().toLocaleLowerCase('nl')
+    const matches = directorySearch(this.query)
     const rows = this.currentReport?.rows || []
-    if (!query) return rows
-    return rows.filter((row) => `${this.users?.[row.userId]?.name || ''} ${this.users?.[row.userId]?.email || ''} ${this.jobs?.[row.jobId]?.name || ''}`.toLocaleLowerCase('nl').includes(query))
+    return rows.filter(row => (!this.warningsOnly || row.unusual || row.future) &&
+      matches(this.users?.[row.userId]?.name, this.users?.[row.userId]?.email, this.jobs?.[row.jobId]?.name))
+  }
+
+  selectMonth(previous: boolean) {
+    const today = reportDay(new Date())
+    const [year, month] = today.split('-').map(Number)
+    const date = (offset: number, day: number) => new Date(Date.UTC(year, month - 1 + offset, day)).toISOString().slice(0, 10)
+    this.from = date(previous ? -1 : 0, 1)
+    this.to = previous ? date(0, 0) : today
+    void this.load()
   }
 
   get totals() {
@@ -138,12 +170,27 @@ export class ReportsView extends LiteElement {
       ? `${reportDayLabel(this.from)} t/m ${reportDayLabel(this.to)} · Tijdzone Brussel`
       : ''
     return html`
-      <header class="page-header"><div class="heading"><span class="page-icon"><custom-icon icon="analytics"></custom-icon></span><div><span class="eyebrow">Controlecentrum</span><h1>Urenrapport</h1><p class="subtitle">${periodLabel || 'Controleer prestaties, afwijkingen en totalen per medewerker.'}</p></div></div><div class="filters"><label class="field">Van<input type="date" .value=${this.from} @input=${(event:Event)=>(this.from=(event.target as HTMLInputElement).value)} /></label><label class="field">Tot<input type="date" .value=${this.to} @input=${(event:Event)=>(this.to=(event.target as HTMLInputElement).value)} /></label><button class="primary" ?disabled=${this.loading} @click=${()=>this.load()}><custom-icon icon="refresh"></custom-icon>${this.loading?'Laden…':'Bijwerken'}</button><button ?disabled=${this.loading || !rows.length} @click=${()=>this.exportCsv()}><custom-icon icon="download"></custom-icon>CSV</button><button ?disabled=${this.loading || !rows.length} @click=${()=>window.print()}><custom-icon icon="print"></custom-icon>Afdrukken</button></div></header>
+      <header class="page-header"><div class="heading"><span class="page-icon"><custom-icon icon="analytics"></custom-icon></span><div><span class="eyebrow">Controlecentrum</span><h1>Urenrapport</h1><p class="subtitle">${periodLabel || 'Controleer prestaties, afwijkingen en totalen per medewerker.'}</p></div></div></header>
+      <div class="report-controls">
+        <div class="filters">
+          <label class="field">Van<input type="date" .value=${this.from} @input=${(event: Event) => { this.from = (event.target as HTMLInputElement).value }}></label>
+          <label class="field">Tot<input type="date" .value=${this.to} @input=${(event: Event) => { this.to = (event.target as HTMLInputElement).value }}></label>
+          <button class="primary" ?disabled=${this.loading} @click=${() => this.load()}><custom-icon icon="refresh"></custom-icon>${this.loading ? 'Laden…' : 'Bijwerken'}</button>
+          <button ?disabled=${this.loading || !rows.length} @click=${() => this.exportCsv()}><custom-icon icon="download"></custom-icon>CSV</button>
+          <button ?disabled=${this.loading || !rows.length} @click=${() => window.print()}><custom-icon icon="print"></custom-icon>Afdrukken</button>
+        </div>
+        <div class="period-shortcuts" role="group" aria-label="Snelle periodes">
+          <button type="button" @click=${() => this.selectMonth(false)}>Deze maand</button>
+          <button type="button" @click=${() => this.selectMonth(true)}>Vorige maand</button>
+        </div>
+      </div>
       ${this.currentReport ? html`
       <section class="summary" aria-label="Rapportsamenvatting"><article class="summary-card"><span class="summary-icon"><custom-icon icon="schedule"></custom-icon></span><div class="summary-copy"><span>Uren binnen periode</span><strong>${formatDuration(totalDuration)}</strong></div></article><article class="summary-card"><span class="summary-icon"><custom-icon icon="group"></custom-icon></span><div class="summary-copy"><span>Medewerkers</span><strong>${this.totals.length}</strong></div></article><article class="summary-card"><span class="summary-icon"><custom-icon icon="work"></custom-icon></span><div class="summary-copy"><span>Registraties</span><strong>${rows.length}</strong></div></article><article class="summary-card"><span class="summary-icon"><custom-icon icon="warning"></custom-icon></span><div class="summary-copy"><span>Te controleren</span><strong>${warnings}</strong></div></article></section>
       <section class="panel employee-panel"><div class="panel-heading"><div><h2>Per medewerker</h2><p>Totalen binnen de gekozen periode en huidige zoekfilter.</p></div></div>${this.totals.length?html`<div class="employee-grid">${this.totals.map(([id,total])=>html`<article class="employee"><strong>${this.users?.[id]?.name||this.users?.[id]?.email||id}</strong><span>${formatDuration(total)}</span></article>`)}</div>`:html`<div class="empty">Geen medewerkers in deze selectie.</div>`}</section>
       ` : ''}
-      <section class="panel" aria-busy=${this.loading}><div class="panel-heading"><div><h2>Registraties</h2><p>${rows.length} ${rows.length===1?'registratie':'registraties'} gevonden.</p></div><label class="search"><custom-icon icon="search"></custom-icon><input type="search" aria-label="Rapport doorzoeken" placeholder="Zoek medewerker of job…" .value=${this.query} @input=${(event:Event)=>(this.query=(event.target as HTMLInputElement).value)} /></label></div>${this.loading?html`<div class="empty"><custom-icon icon="progress_activity"></custom-icon>Rapport laden…</div>`:!this.currentReport?html`<div class="empty">${this.error || 'Klik op Bijwerken om de gekozen periode te laden.'}</div>`:rows.length?html`<div class="table-head"><span>Medewerker</span><span>Job</span><span>Moment</span><span>Uren in periode</span><span>Status</span></div>${rows.map(row=>html`<article class="row"><span class="person">${this.users?.[row.userId]?.name||row.userId}</span><span class="job">${this.jobs?.[row.jobId]?.name||'Onbekende job'}</span><span class="moment">${reportDate(row.checkin)}<small>${reportSessionTimes(row.checkin,row.checkout)}</small></span><strong class="time">${row.checkout === undefined ? '—' : formatDuration(row.duration)}${row.sessionDuration !== undefined && row.sessionDuration > row.duration ? html`<small class="within-period">Binnen periode</small>` : ''}</strong><span class="status ${row.unusual||row.future?'warning':''}">${reportWarnings(row).join(' · ') || (row.checkout === undefined ? 'Open' : 'Normaal')}</span></article>`)}`:html`<div class="empty"><custom-icon icon="event_busy"></custom-icon><strong>Geen uren gevonden</strong><span>Pas de periode of zoekopdracht aan.</span></div>`}</section>
+      <section class="panel" aria-busy=${this.loading}><div class="panel-heading"><div><h2>Registraties</h2><p>${rows.length} ${rows.length===1?'registratie':'registraties'} gevonden.</p></div><label class="search"><custom-icon icon="search"></custom-icon><input type="search" aria-label="Rapport doorzoeken" placeholder="Zoek medewerker of job…" .value=${this.query} @input=${(event:Event)=>(this.query=(event.target as HTMLInputElement).value)} /></label></div>
+        <div class="report-filter"><button type="button" aria-pressed=${this.warningsOnly ? 'true' : 'false'} @click=${() => { this.warningsOnly = !this.warningsOnly }}>Alleen afwijkingen</button></div>
+        ${this.loading?html`<div class="empty"><custom-icon icon="progress_activity"></custom-icon>Rapport laden…</div>`:!this.currentReport?html`<div class="empty" role=${this.error ? 'alert' : 'status'}>${this.error || 'Klik op Bijwerken om de gekozen periode te laden.'}</div>`:rows.length?html`<div class="table-head"><span>Medewerker</span><span>Job</span><span>Moment</span><span>Uren in periode</span><span>Status</span></div>${rows.map(row=>html`<article class="row"><span class="person">${this.users?.[row.userId]?.name||row.userId}</span><span class="job">${this.jobs?.[row.jobId]?.name||'Onbekende job'}</span><span class="moment">${reportDate(row.checkin)}<small>${reportSessionTimes(row.checkin,row.checkout)}</small></span><strong class="time">${row.checkout === undefined ? '—' : formatDuration(row.duration)}${row.sessionDuration !== undefined && row.sessionDuration > row.duration ? html`<small class="within-period">Binnen periode</small>` : ''}</strong><span class="status ${row.unusual||row.future?'warning':''}">${reportWarnings(row).join(' · ') || (row.checkout === undefined ? 'Open' : 'Normaal')}</span></article>`)}`:html`<div class="empty"><custom-icon icon="event_busy"></custom-icon><strong>Geen uren gevonden</strong><span>${this.warningsOnly ? 'Geen afwijkingen in deze selectie. Zet het filter uit om alle uren te zien.' : 'Pas de periode of zoekopdracht aan.'}</span></div>`}</section>
     `
   }
 }

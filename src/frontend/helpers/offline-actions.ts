@@ -1,5 +1,5 @@
 import type { WorkLocation } from '../../types/index.js'
-import { api } from '../api/client.js'
+import { api, ApiError } from '../api/client.js'
 import { claimLegacyActions, completeStoredWorkAction, legacyOfflineStorageKey, offlineStorageKey, parseStoredActions } from './offline-storage.js'
 
 export type OfflineAction = {
@@ -12,10 +12,11 @@ export type OfflineAction = {
   createdAt: number
   attempts?: number
   lastError?: string
+  failureKind?: 'network' | 'session' | 'rejected' | 'server'
 }
 
 let ownerId = ''
-let flushing = false
+let flushingKey = ''
 let initialized = false
 
 const storageKey = () => ownerId ? offlineStorageKey(ownerId) : ''
@@ -25,16 +26,25 @@ const read = (key = storageKey()): OfflineAction[] => {
   return parseStoredActions<OfflineAction>(localStorage.getItem(key))
 }
 
+export const getOfflineSyncStatus = () => {
+  const key = storageKey()
+  const actions = read(key)
+  return { actions, pending: actions.length, syncing: Boolean(key && flushingKey === key) }
+}
+
+const publishSyncStatus = () => {
+  window.dispatchEvent(new CustomEvent('keepit-sync-status', { detail: getOfflineSyncStatus() }))
+}
+
 const write = (actions: OfflineAction[], key = storageKey()) => {
   if (!key) throw new Error('Offline registraties kunnen pas na aanmelden worden opgeslagen.')
   localStorage.setItem(key, JSON.stringify(actions))
-  if (key === storageKey()) window.dispatchEvent(new CustomEvent('keepit-sync-status', { detail: { pending: actions.length, actions } }))
+  if (key === storageKey()) publishSyncStatus()
 }
 
 export const setOfflineActionOwner = (userId?: string) => {
   ownerId = String(userId || '').trim()
-  const actions = read()
-  window.dispatchEvent(new CustomEvent('keepit-sync-status', { detail: { pending: actions.length, actions } }))
+  publishSyncStatus()
 }
 
 export const getOfflineActions = () => read()
@@ -42,8 +52,7 @@ export const getUnscopedOfflineActions = () => parseStoredActions<OfflineAction>
 
 export const claimUnscopedOfflineActions = () => {
   const count = claimLegacyActions<OfflineAction>(localStorage, ownerId)
-  const actions = read()
-  window.dispatchEvent(new CustomEvent('keepit-sync-status', { detail: { pending: actions.length, actions } }))
+  publishSyncStatus()
   return count
 }
 
@@ -74,10 +83,12 @@ export const getPendingWorkState = (currentJob?: string, currentPrestationId?: s
 }
 
 export const flushOfflineActions = async () => {
-  if (flushing || !ownerId || !navigator.onLine) return
+  if (flushingKey || !ownerId || !navigator.onLine) return
   const key = storageKey()
-  flushing = true
+  if (!read(key).length) return
+  flushingKey = key
   try {
+    publishSyncStatus()
     while (key === storageKey() && navigator.onLine) {
       const [action] = read(key)
       if (!action) break
@@ -103,12 +114,17 @@ export const flushOfflineActions = async () => {
           window.dispatchEvent(new CustomEvent('keepit-checkin-synced', { detail: { requestId: action.id, prestationId, closed } }))
         }
       } catch (error) {
-        const message = isNetworkFailure(error)
-          ? 'Geen verbinding'
-          : ((error as Error)?.message || 'Synchronisatie mislukt')
-        const actions = read(key).map((item) =>
+        const status = error instanceof ApiError ? error.status : 0
+        const failureKind = isNetworkFailure(error) ? 'network'
+          : status === 401 || status === 403 ? 'session'
+          : status >= 400 && status < 500 && status !== 429 ? 'rejected' : 'server'
+        const message = failureKind === 'network' ? 'Geen verbinding'
+          : failureKind === 'session' ? 'Aanmelding controleren'
+          : failureKind === 'rejected' && error instanceof ApiError ? error.message.slice(0, 240)
+          : 'Keepit kon deze registratie niet verwerken.'
+        const actions = read(key).map<OfflineAction>((item) =>
           item.id === action.id
-            ? { ...item, attempts: (item.attempts || 0) + 1, lastError: message }
+            ? { ...item, attempts: (item.attempts || 0) + 1, lastError: message, failureKind }
             : item
         )
         write(actions, key)
@@ -116,7 +132,8 @@ export const flushOfflineActions = async () => {
       }
     }
   } finally {
-    flushing = false
+    flushingKey = ''
+    publishSyncStatus()
     if (key !== storageKey() && ownerId) queueMicrotask(() => void flushOfflineActions())
   }
 }
@@ -127,5 +144,8 @@ export const initializeOfflineSync = () => {
   if (initialized) return
   initialized = true
   window.addEventListener('online', () => void flushOfflineActions())
+  window.addEventListener('storage', (event: StorageEvent) => {
+    if (event.key === null || event.key === storageKey() || event.key === legacyOfflineStorageKey) publishSyncStatus()
+  })
   if (navigator.onLine) void flushOfflineActions()
 }

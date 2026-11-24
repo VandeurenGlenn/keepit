@@ -1,0 +1,12 @@
+.form-panel { box-shadow:none; }
+.session-time { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.session-time input { width:100%; min-width:0; height:48px; padding:0 10px; border:1px solid var(--app-border); border-radius:var(--app-radius-control); background:var(--app-panel-strong); font:inherit; font-size:1rem; }
+.session-time input::-webkit-calendar-picker-indicator { filter:none; }
+.session-time input:focus-visible,.field select:focus-visible,.session-actions :is(a,button):focus-visible { outline:2px solid var(--app-accent-label); outline-offset:2px; }
+.session-actions { display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+.session-actions a { display:inline-flex; align-items:center; min-height:44px; padding:0 12px; border:1px solid var(--app-border); border-radius:var(--app-radius-control); color:inherit; text-decoration:none; }
+.session-actions button.primary { min-height:44px; }
+@media(max-width:720px) {
+  .session-actions { display:grid; grid-template-columns:auto minmax(0,1fr); }
+  .field select { font-size:16px; }
+}

@@ -3,6 +3,9 @@ import { User, Users } from '../../types/index.js'
 import './../elements/list/item.js'
 import { confirmAction } from '../helpers/confirmation.js'
 import { showToast } from '../helpers/toast.js'
+import { directorySearch } from '../helpers/directory-search.js'
+
+const isPending = (user: User) => user.invited === true && !user.googleEmail
 
 export class UsersView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor users: Users
@@ -16,6 +19,8 @@ export class UsersView extends LiteElement {
   @property({ type: Boolean }) accessor teamLoading = false
   @property({ type: String }) accessor teamError = ''
   @property({ type: String }) accessor selectedTeamUser = ''
+  @property({ type: String }) accessor teamQuery = ''
+  @property({ type: String }) accessor teamFilter: 'all' | 'active' | 'pending' = 'all'
 
   invitedUsersLoaded = false
   private teamRequest = 0
@@ -281,6 +286,23 @@ export class UsersView extends LiteElement {
           width: 100%;
         }
       }
+      .workspace-panel,.user-card { box-shadow:none; }
+      .panel-kicker,.role-badge { color:var(--app-accent-label); }
+      .users-grid { grid-template-columns:repeat(auto-fill,minmax(min(100%,310px),1fr)); align-items:start; }
+      .team-toolbar { display:grid; gap:8px; }
+      .team-toolbar input { width:100%; min-height:44px; padding:0 12px; box-sizing:border-box; border:1px solid var(--app-border); border-radius:10px; background:var(--app-panel); color:inherit; font:inherit; }
+      .team-filter { display:flex; gap:6px; flex-wrap:wrap; }
+      .team-filter button { min-height:42px; }
+      .team-filter button[aria-pressed=true] { background:var(--app-accent-soft); color:var(--app-accent-label); border-color:currentColor; }
+      .user-meta { min-width:0; overflow-wrap:anywhere; }
+      .user-state { color:var(--md-sys-color-on-surface-variant); font-size:.78rem; }
+      .user-state.pending { color:color-mix(in srgb,#e69a38 80%,var(--md-sys-color-on-surface)); }
+      .manage-member { padding-top:5px; border-top:1px solid var(--app-border); }
+      .manage-member summary { width:fit-content; padding:8px 0; cursor:pointer; color:var(--app-accent-label); font-size:.82rem; }
+      .manage-member button { min-height:42px; }
+      .dialog-layer { z-index:1200; backdrop-filter:none; }
+      .directory-empty { display:grid; gap:8px; justify-items:center; text-align:center; padding:24px 12px; border:1px dashed var(--app-border); border-radius:12px; }
+      @media(max-width:720px) { .team-toolbar input,.invite-dialog input { font-size:16px; } }
     `
   ]
 
@@ -311,7 +333,7 @@ export class UsersView extends LiteElement {
         <span class="panel-kicker">${kicker}</span>
         <div class="panel-title-row">
           <div>
-            <h2 class="panel-title">${title}</h2>
+            <h1 class="panel-title">${title}</h1>
             <p class="panel-description">${description}</p>
           </div>
           ${meta}
@@ -515,7 +537,7 @@ export class UsersView extends LiteElement {
     const workAddress = user.email?.trim() || ''
     const formattedAddress = user.place?.formattedAddress?.trim() || ''
     const avatarInitial = displayName.charAt(0).toUpperCase()
-    const isPendingInvitation = user.invited === true && !user.googleEmail
+    const isPendingInvitation = isPending(user)
 
     return html`
       <article class="user-card">
@@ -546,18 +568,18 @@ export class UsersView extends LiteElement {
         </div>
 
         <div class="role-list">${this.renderRoleBadges(roles)}</div>
-        ${isPendingInvitation ? html`<span class="muted">Uitgenodigd - wacht op registratie</span>` : ''}
+        <span class=${isPendingInvitation ? 'user-state pending' : 'user-state'}>${isPendingInvitation ? 'Uitgenodigd · wacht op registratie' : 'Geregistreerd'}</span>
 
+        ${allowRoleChanges && !isOwner ? html`<details class="manage-member">
+          <summary>Toegang beheren</summary>
         <div class="user-actions">
           <button
-            class=${isAdmin ? '' : 'primary'}
             ?disabled=${!allowRoleChanges || isOwner}
             @click=${() => this.toggleRole(uuid, 'admin', !isAdmin)}>
             ${isAdmin ? 'Verwijder admin' : 'Maak admin'}
           </button>
 
           <button
-            class=${canManageRoles ? '' : 'primary'}
             ?disabled=${!allowRoleChanges || isOwner}
             @click=${() => this.toggleRole(uuid, 'roles', !canManageRoles)}>
             ${canManageRoles ? 'Verwijder rolbeheer' : 'Mag rollen beheren'}
@@ -569,12 +591,21 @@ export class UsersView extends LiteElement {
             @click=${() => this._deleteUser(uuid, isPendingInvitation)}>
             ${isPendingInvitation ? 'Uitnodiging verwijderen' : 'Verwijder gebruiker'}
           </button>
-        </div>
+        </div></details>` : ''}
       </article>
     `
   }
 
   render() {
+    const entries = this.userEntries
+    const pending = entries.filter(([, member]) => isPending(member)).length
+    const matches = directorySearch(this.teamQuery)
+    const visible = entries.filter(([id, member]) =>
+      (!this.selectedTeamUser || id === this.selectedTeamUser) &&
+      (this.teamFilter === 'all' || isPending(member) === (this.teamFilter === 'pending')) &&
+      matches(member.name, member.email, member.googleEmail)
+    ).sort(([, a], [, b]) => (a.name || a.email || '').localeCompare(b.name || b.email || '', 'nl-BE'))
+    const reset = () => { this.selectedTeamUser = ''; this.teamQuery = ''; this.teamFilter = 'all' }
     return html`
       <section class="workspace-panel">
         ${this.renderPanelHeader(
@@ -583,7 +614,7 @@ export class UsersView extends LiteElement {
           'Teambeheer',
           html`
             <div class="summary-row">
-              <span class="badge"><strong>Totaal</strong>&nbsp;${this.userEntries.length}</span>
+              <span class="badge"><strong>Totaal</strong>&nbsp;${entries.length}</span>
               <span class="badge"
                 ><strong>Admins</strong>&nbsp;${this.userEntries.filter(([, entry]) =>
                   (entry.roles || []).includes('admin')
@@ -609,8 +640,18 @@ export class UsersView extends LiteElement {
       </section>
 
       ${this.teamError ? html`<p role="alert">${this.teamError}</p>` : ''}
-      ${this.selectedTeamUser ? html`<button type="button" @click=${() => { this.selectedTeamUser = '' }}>Toon heel het team</button>` : ''}
-      <section class="users-grid" aria-busy=${this.teamLoading}>${this.userEntries.filter(([id]) => !this.selectedTeamUser || id === this.selectedTeamUser).map(([key, entry]) => this.renderUserCard(key, entry))}</section>
+      <div class="team-toolbar">
+        <input type="search" aria-label="Team doorzoeken" placeholder="Zoek op naam of e-mailadres…" .value=${this.teamQuery}
+          @input=${(event: Event) => { this.selectedTeamUser = ''; this.teamQuery = (event.target as HTMLInputElement).value }}>
+        <div class="team-filter" role="group" aria-label="Registratiestatus">
+          ${(['all', 'active', 'pending'] as const).map(filter => html`<button type="button" aria-pressed=${this.teamFilter === filter ? 'true' : 'false'} @click=${() => { this.teamFilter = filter; this.selectedTeamUser = '' }}>
+            ${filter === 'all' ? `Iedereen · ${entries.length}` : filter === 'active' ? `Geregistreerd · ${entries.length - pending}` : `Uitgenodigd · ${pending}`}
+          </button>`)}
+        </div>
+      </div>
+      ${this.selectedTeamUser ? html`<button type="button" @click=${reset}>Toon heel het team</button>` : ''}
+      <section class="users-grid" aria-label="Medewerkers" aria-busy=${this.teamLoading}>${visible.map(([key, entry]) => this.renderUserCard(key, entry))}</section>
+      ${!visible.length && !this.teamLoading && !this.teamError ? html`<div class="directory-empty"><strong>Geen teamleden in deze selectie</strong><button type="button" @click=${reset}>Wis filters</button></div>` : ''}
       ${this.inviteOpen ? html`<div class="dialog-layer" @click=${(event:Event)=>{if(event.target===event.currentTarget)this.closeInviteDialog()}}><form class="invite-dialog" role="dialog" aria-modal="true" aria-labelledby="invite-title" @submit=${(event:Event)=>this._inviteUser(event)} @keydown=${(event:KeyboardEvent)=>{if(event.key==='Escape')this.closeInviteDialog()}}><h2 id="invite-title">Medewerker uitnodigen</h2><p>De medewerker ontvangt een persoonlijke link om het account met Google te activeren.</p><label for="invite-email">E-mailadres<input id="invite-email" type="email" autocomplete="email" required placeholder="naam@bedrijf.be" .value=${this.inviteEmail} @input=${(event:Event)=>(this.inviteEmail=(event.target as HTMLInputElement).value)} /></label>${this.inviteError?html`<p class="dialog-error" role="alert">${this.inviteError}</p>`:''}<div class="dialog-actions"><button type="button" ?disabled=${this.inviting} @click=${()=>this.closeInviteDialog()}>Annuleren</button><button class="primary" type="submit" ?disabled=${this.inviting}>${this.inviting?'Versturen…':'Uitnodiging versturen'}</button></div></form></div>` : ''}
     `
   }
