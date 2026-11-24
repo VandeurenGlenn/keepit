@@ -6,6 +6,11 @@ import { Job, Jobs } from '../../types/index.js'
 const jobsMixin = JobsMixin(LiteElement)
 
 export class JobsView extends jobsMixin {
+  @property({ type: Boolean }) accessor createOnOpen = false
+
+  firstRender() {
+    if (this.createOnOpen && this.user?.roles?.includes('admin')) void this._createJob()
+  }
   @property({ type: String }) accessor searchQuery = ''
   @property({ type: String }) accessor statusFilter = 'active'
   @property({ type: String }) accessor customerFilter = ''

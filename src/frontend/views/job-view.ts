@@ -84,6 +84,7 @@ export class JobView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor companies: Companies = {}
   @property({ type: Object }) accessor openUsers: Record<string, boolean> = {}
   @property({ type: Boolean }) accessor openMaterials = false
+  @property({ type: String }) accessor activeSection: 'hours' | 'materials' | 'notes' = 'hours'
   @property({ type: Array }) accessor materialSuggestions: MaterialLine[] = []
   @property({ type: Array }) accessor materials: MaterialDraft[] = []
   @property({ type: Number }) accessor materialDiscountPercent = 0
@@ -1595,6 +1596,37 @@ export class JobView extends LiteElement {
           text-align: center;
         }
       }
+      @media screen {
+        .job-hero { padding:18px 20px; background:var(--app-panel); box-shadow:none; }
+        .job-hero::before { display:none; }
+        .job-icon, .stat-icon { color:var(--app-accent-label); }
+        .job-content-grid { grid-template-columns:minmax(0,1fr); }
+        .main-column, .side-column { display:contents; }
+        .section-panel[hidden] { display:none; }
+        .section-panel { box-shadow:none; min-width:0; }
+        .section-nav { position:static; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); background:var(--app-panel); backdrop-filter:none; box-shadow:none; padding:4px; gap:4px; }
+        .section-nav button { min-width:0; min-height:44px; justify-content:center; padding:0 6px; }
+        .section-nav button[aria-selected=true] { color:var(--app-accent-label); background:var(--app-accent-soft); }
+        .section-nav button:focus-visible { outline:2px solid var(--app-accent-label); outline-offset:-2px; }
+        .tab-count { padding:1px 6px; border-radius:9px; background:var(--app-panel-strong); font-variant-numeric:tabular-nums; }
+        .material-save-bar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:10px 12px; border:1px solid var(--app-border); border-radius:12px; background:var(--md-sys-color-surface); }
+        .material-save-bar.dirty { position:sticky; bottom:var(--app-content-dock, 12px); z-index:2; }
+        .material-save-bar span { color:var(--md-sys-color-on-surface-variant); font-size:.8rem; }
+        .material-save-bar .materials-save { margin:0; width:auto; min-height:42px; }
+        .material-save-bar .materials-save:disabled { opacity:.58; cursor:default; }
+      }
+      @media screen and (max-width: 580px) {
+        .job-hero { padding:14px; gap:12px; }
+        .stats-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
+        .stat-card { padding:9px 7px; border-radius:10px; }
+        .stat-label { font-size:.66rem; overflow-wrap:anywhere; }
+        .stat-value { font-size:1rem; }
+        .section-nav custom-icon, .stats-grid .stat-icon { display:none; }
+        .material-save-bar .materials-save { flex:1 0 100%; }
+      }
+      @media screen and (min-width:581px) and (max-width:720px) {
+        .stats-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+      }
     `
   ]
 
@@ -1608,13 +1640,15 @@ export class JobView extends LiteElement {
         this.openUsers = {}
         return
       }
+      if (this.selectedJobId !== selected) {
+        const tab = params.get('tab')
+        this.activeSection = tab === 'materials' || tab === 'notes' ? tab : 'hours'
+        this.openMaterials = this.activeSection === 'materials'
+      }
       this.selectedJobId = selected
       this.materials = this.normalizeMaterials(this.job?.materials)
       this.materialDiscountPercent = this.clampMaterialDiscount(this.job?.materialDiscountPercent)
       this.materialBaseline=this.materialState
-      this.openMaterials = false
-      const tab=params.get('tab')
-      if(tab==='materials')this.openMaterials=true
       this.editingDetails = false
       this.detailName = this.job?.name || ''
       this.detailDescription = this.job?.description || ''
@@ -2507,6 +2541,12 @@ export class JobView extends LiteElement {
         const duration = getPrestationDuration(prestation)
         return Number.isFinite(duration) ? sum + duration : sum
       }, 0)
+    const tabs = [
+      { id: 'hours', icon: 'schedule', label: 'Uren', count: Object.values(this.hours).flat().length },
+      { id: 'materials', icon: 'inventory2', label: 'Materialen', count: this.sanitizedMaterials.length },
+      { id: 'notes', icon: 'notes', label: 'Notities', count: (job.notes || []).length }
+    ] as const
+    const materialDirty = this.materialState !== this.materialBaseline
 
     return html`
       ${this.renderMaterialsPrintDocument()}
@@ -2617,11 +2657,25 @@ export class JobView extends LiteElement {
         </div>
       </section>
 
-      <nav class="section-nav" aria-label="Jobsecties">${[['job-hours','schedule','Uren'],['job-materials','inventory2','Materialen'],['job-notes','notes','Notities']].map(([id,icon,label])=>html`<button type="button" @click=${()=>this.shadowRoot?.getElementById(id)?.scrollIntoView({behavior:'smooth'})}><custom-icon icon=${icon}></custom-icon>${label}</button>`)}</nav>
+      <div class="section-nav" role="tablist" aria-label="Jobsecties">
+        ${tabs.map(({ id, icon, label, count }, index) => html`
+          <button type="button" role="tab" id=${'tab-' + id} aria-controls=${'job-' + id}
+            aria-selected=${this.activeSection === id ? 'true' : 'false'} tabindex=${this.activeSection === id ? 0 : -1}
+            @click=${() => { this.activeSection = id; if (id === 'materials') this.openMaterials = true }}
+            @keydown=${(event: KeyboardEvent) => {
+              const target = { ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length, Home: 0, End: tabs.length - 1 }[event.key]
+              if (target === undefined) return
+              event.preventDefault()
+              const button = this.shadowRoot?.getElementById('tab-' + tabs[target].id)
+              button?.click()
+              button?.focus()
+            }}><custom-icon icon=${icon}></custom-icon><span>${label}</span><span class="tab-count">${count}</span></button>
+        `)}
+      </div>
 
       <div class="job-content-grid">
         <div class="main-column">
-      <section class="section-panel" id="job-hours">
+      <section class="section-panel" id="job-hours" role="tabpanel" aria-labelledby="tab-hours" ?hidden=${this.activeSection !== 'hours'}>
         <div class="section-heading">
           <div><h2>Uren</h2><p>Registraties per medewerker</p></div>
           ${this.user?.roles?.includes('admin') ? html`<button type="button" class="section-action primary-action" @click=${()=>this.addingHours?this.closeAddHours():this.openAddHours()}>${this.addingHours?'Annuleren':'Uren toevoegen'}</button>` : null}
@@ -2691,7 +2745,7 @@ export class JobView extends LiteElement {
         </div>
       </section>
 
-      <section class="section-panel" id="job-materials">
+      <section class="section-panel" id="job-materials" role="tabpanel" aria-labelledby="tab-materials" ?hidden=${this.activeSection !== 'materials'}>
         <div class="materials-header">
           <div class="materials-header-meta">
             <h4 class="section-title">Materialen</h4>
@@ -2705,19 +2759,12 @@ export class JobView extends LiteElement {
               @click=${() => globalThis.print()}>
               Lijst afdrukken
             </button>
-            ${this.openMaterials || this.sanitizedMaterials.length
-              ? html`<button
-                  type="button"
-                  class="materials-toggle"
-                  @click=${() => this.toggleMaterials()}>
-                  ${this.openMaterials ? 'Lijst sluiten' : 'Bekijk lijst'}
-                </button>`
-              : null}
             <button
               type="button"
               class="section-action primary-action"
+              aria-label="Materiaal toevoegen"
               @click=${() => void this.openMaterialPickerPanel()}>
-              Materiaal toevoegen
+              Toevoegen
             </button>
           </div>
         </div>
@@ -2893,12 +2940,12 @@ export class JobView extends LiteElement {
                 </label>
               </div>
 
-              <button
-                type="button"
-                class="materials-save"
-                @click=${() => this.saveMaterials()}>
-                Materialen opslaan
-              </button>
+              <div class=${materialDirty ? 'material-save-bar dirty' : 'material-save-bar'}>
+                <span>${materialDirty ? 'Niet-opgeslagen wijzigingen' : 'Geen wijzigingen'}</span>
+                <button type="button" class="materials-save" ?disabled=${!materialDirty} @click=${() => this.saveMaterials()}>
+                  Materialen opslaan
+                </button>
+              </div>
             `
           : null}
       </section>
@@ -2906,7 +2953,7 @@ export class JobView extends LiteElement {
         </div>
         <div class="side-column">
 
-      <section class="section-panel" id="job-notes">
+      <section class="section-panel" id="job-notes" role="tabpanel" aria-labelledby="tab-notes" ?hidden=${this.activeSection !== 'notes'}>
         <div class="section-heading">
           <div><h2>Notities</h2><p>Afspraken en werfinfo</p></div>
         </div>
@@ -2926,6 +2973,8 @@ export class JobView extends LiteElement {
 
         <div class="note-composer">
           <textarea
+            maxlength="4000"
+            aria-label="Nieuwe jobnotitie"
             placeholder="Schrijf een korte notitie..."
             .value=${this.newNoteText}
             @input=${(event: Event) => {

@@ -30,6 +30,7 @@ const timeValue = (iso: string) =>
   new Intl.DateTimeFormat('nl-BE', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso))
 
 const euroValue = new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' })
+const agendaDate = new Intl.DateTimeFormat('nl-BE', { weekday: 'long', day: 'numeric', month: 'long' })
 
 export class PlanningView extends LiteElement {
   @property({ type: Object, consumes: true }) accessor jobs: Jobs = {}
@@ -37,6 +38,8 @@ export class PlanningView extends LiteElement {
   @property({ type: Object }) accessor visibleMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   @property({ type: Array }) accessor entries: PlanningEntry[] = []
   @property({ type: Boolean }) accessor loading = true
+  @property({ type: Boolean }) accessor createOnOpen = false
+  @property({ type: String }) accessor viewMode: 'agenda' | 'month' | '' = ''
   @property({ type: Boolean }) accessor saving = false
   @property({ type: Boolean }) accessor editorOpen = false
   @property({ type: String }) accessor editingId = ''
@@ -50,6 +53,8 @@ export class PlanningView extends LiteElement {
   @property({ type: String }) accessor loadError = ''
   editorBaseline = ''
   private entriesRequest = 0
+  private mobileLayout = matchMedia('(max-width: 720px)')
+  private updateLayout = () => this.requestRender()
 
   draftSignature(){return JSON.stringify([this.selectedDate,this.selectedJob,[...this.selectedUsers].sort(),this.startTime,this.endTime,this.notes])}
   get editorDirty(){return this.editorOpen&&Boolean(this.editorBaseline)&&this.draftSignature()!==this.editorBaseline}
@@ -57,10 +62,16 @@ export class PlanningView extends LiteElement {
 
   connectedCallback() {
     super.connectedCallback()
+    this.mobileLayout.addEventListener('change', this.updateLayout)
     void this.loadEntries()
   }
 
+  firstRender() {
+    if (this.createOnOpen) this.openNew()
+  }
+
   disconnectedCallback() {
+    this.mobileLayout.removeEventListener('change', this.updateLayout)
     this.entriesRequest++
     this.editorOpen = false
     setUnsavedChanges('planning',false)
@@ -285,7 +296,7 @@ export class PlanningView extends LiteElement {
     .day.today-day .day-number { background:var(--app-accent); color:var(--md-sys-color-on-primary); }
     .day-entries { display:flex; flex-direction:column; gap:4px; }
     .entry-chip { display:block; width:100%; min-width:0; padding:5px 6px; overflow:hidden; border:1px solid color-mix(in srgb,var(--app-accent) 24%,var(--app-border) 76%); border-radius:7px; background:var(--app-accent-soft); color:var(--md-sys-color-on-surface); font-size:.67rem; font-weight:500; line-height:1.15; text-overflow:ellipsis; white-space:nowrap; }
-    .more { padding-left:5px; color:var(--md-sys-color-on-surface-variant); font-size:.65rem; font-weight:500; }
+    .more { padding:3px 5px; border:0; border-radius:5px; background:var(--app-panel-strong); color:var(--md-sys-color-on-surface-variant); font-size:.65rem; font-weight:500; }
     .upcoming-head { padding:17px; border-bottom:1px solid var(--app-border); }
     .upcoming-head h2 { font-size:1rem; }
     .upcoming-head p { margin-top:4px; color:var(--md-sys-color-on-surface-variant); font-size:.76rem; }
@@ -303,8 +314,8 @@ export class PlanningView extends LiteElement {
     .loading,.page-error { padding:12px 16px; border-radius:12px; font-size:.8rem; }
     .loading { color:var(--md-sys-color-on-surface-variant); }
     .page-error,.form-error { color:var(--md-sys-color-error); background:color-mix(in srgb,var(--md-sys-color-error) 10%,transparent 90%); }
-    .scrim { position:fixed; inset:0; z-index:30; background:rgba(10,8,8,.58); }
-    .editor { position:fixed; isolation:isolate; z-index:31; top:0; right:0; bottom:0; display:flex; flex-direction:column; width:min(440px,100vw); background:var(--md-sys-color-background); border-left:1px solid var(--app-border); box-shadow:-24px 0 60px rgba(0,0,0,.22); }
+    .scrim { position:fixed; inset:0; z-index:1199; background:rgba(10,8,8,.58); }
+    .editor { position:fixed; isolation:isolate; z-index:1200; top:0; right:0; bottom:0; display:flex; flex-direction:column; width:min(440px,100vw); background:var(--md-sys-color-background); border-left:1px solid var(--app-border); box-shadow:-24px 0 60px rgba(0,0,0,.22); }
     .editor-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:20px; border-bottom:1px solid var(--app-border); }
     .editor-head h2 { font-size:1.18rem; }
     .editor-body { display:flex; flex:1; flex-direction:column; gap:17px; overflow:auto; padding:20px; }
@@ -344,6 +355,21 @@ export class PlanningView extends LiteElement {
     .editor-actions { display:flex; align-items:center; justify-content:flex-end; gap:9px; padding:15px 20px; border-top:1px solid var(--app-border); }
     .secondary,.danger { min-height:42px; padding:0 14px; border:1px solid var(--app-border); border-radius:var(--app-radius-control); background:var(--app-panel); font-weight:500; }
     .danger { margin-right:auto; color:var(--md-sys-color-error); }
+    .calendar-toolbar { flex-wrap:wrap; }
+    .mode-switch { display:flex; gap:3px; padding:3px; border:1px solid var(--app-border); border-radius:10px; }
+    .mode-switch button { min-height:38px; padding:0 12px; border:0; border-radius:7px; background:transparent; font-size:.8rem; }
+    .mode-switch button[aria-pressed=true] { background:var(--app-accent-soft); color:var(--app-accent-label); font-weight:650; }
+    .day-number { padding:0; border:0; background:transparent; }
+    .agenda { display:grid; gap:14px; padding:14px; }
+    .agenda-day { display:grid; gap:5px; }
+    .agenda-day h3 { margin:0 0 4px; color:var(--md-sys-color-on-surface-variant); font-size:.78rem; text-transform:capitalize; }
+    .agenda-entry { display:grid; grid-template-columns:minmax(88px,auto) minmax(0,1fr) 18px; align-items:center; gap:8px; min-height:54px; padding:8px 10px; border:1px solid var(--app-border); border-radius:10px; background:var(--app-panel-strong); text-align:left; }
+    .agenda-entry:hover { background:var(--app-accent-soft); }
+    .agenda-time { color:var(--app-accent-label); font-size:.76rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .agenda-job { display:grid; gap:3px; overflow-wrap:anywhere; }
+    .agenda-job strong { font-size:.88rem; }
+    .agenda-job small { color:var(--md-sys-color-on-surface-variant); font-size:.72rem; }
+    .agenda-entry custom-icon { --custom-icon-color:currentColor; --custom-icon-size:18px; }
     button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:none; box-shadow:0 0 0 3px color-mix(in srgb,var(--app-accent) 23%,transparent 77%); }
     @media(max-width:1050px) { .workspace { grid-template-columns:1fr; } .upcoming-panel { display:none; } }
     @media(max-width:720px) {
@@ -355,13 +381,13 @@ export class PlanningView extends LiteElement {
       .calendar-panel { border-radius:var(--app-radius-panel); }
       .calendar-toolbar { padding:11px; }
       .month-title { font-size:.92rem; }
-      .today { display:none; }
+      .today { padding:0 8px; }
       .weekdays span { padding:7px 2px; font-size:.58rem; }
       .day { min-height:76px; padding:4px 3px; }
       .day-number { width:22px; height:22px; margin:0 auto 3px; font-size:.67rem; }
       .entry-chip { padding:4px 3px; border:0; border-radius:5px; font-size:.57rem; text-align:center; }
-      .more { display:none; }
-      .editor { top:auto; width:100%; max-height:92vh; border-left:0; border-top:1px solid var(--app-border); border-radius:22px 22px 0 0; }
+      .more { padding:2px; font-size:.56rem; }
+      .editor { top:auto; width:100%; max-height:92dvh; border-left:0; border-top:1px solid var(--app-border); border-radius:16px 16px 0 0; }
       .editor-head,.editor-body { padding:16px; }
       .editor-actions { padding:12px 16px max(12px,env(safe-area-inset-bottom)); }
       .editor input,.editor select,.editor textarea { font-size:16px; }
@@ -438,10 +464,15 @@ export class PlanningView extends LiteElement {
 
   render() {
     const today = dateKey(new Date())
+    const mode = this.viewMode || (this.mobileLayout.matches ? 'agenda' : 'month')
+    const agendaDays = mode === 'agenda' ? this.days
+      .filter((day) => day.getMonth() === this.visibleMonth.getMonth())
+      .map((day) => ({ day, entries: this.entriesForDay(day).sort((a, b) => Date.parse(a.start) - Date.parse(b.start)) }))
+      .filter(({ entries }) => entries.length) : []
     return html`
       <header class="page-header">
         <div class="heading"><span class="heading-icon"><custom-icon icon="calendar_month"></custom-icon></span><div><span class="eyebrow">Teamoverzicht</span><h1>Planning</h1><p class="subtitle">Plan jobs en medewerkers in één overzicht.</p></div></div>
-        <button class="primary" @click=${() => this.openNew()}><custom-icon icon="add"></custom-icon><span>Nieuwe planning</span></button>
+        <button class="primary" aria-label="Nieuwe planning" @click=${() => this.openNew()}><custom-icon icon="add"></custom-icon><span>Nieuwe planning</span></button>
       </header>
       ${this.error && !this.editorOpen ? html`<div class="page-error">${this.error}</div>` : ''}
       ${this.loadError ? html`<div class="page-error" role="alert">${this.loadError}
@@ -449,13 +480,30 @@ export class PlanningView extends LiteElement {
       </div>` : ''}
       <section class="workspace">
         <div class="calendar-panel">
-          <header class="calendar-toolbar"><h2 class="month-title">${this.monthLabel}</h2><div class="month-actions"><button class="today" @click=${() => this.goToday()}>Vandaag</button><button class="icon-button" aria-label="Vorige maand" @click=${() => this.changeMonth(-1)}><custom-icon icon="chevron_left"></custom-icon></button><button class="icon-button" aria-label="Volgende maand" @click=${() => this.changeMonth(1)}><custom-icon icon="chevron_right"></custom-icon></button></div></header>
-          <div class="weekdays">${['Ma','Di','Wo','Do','Vr','Za','Zo'].map((day) => html`<span>${day}</span>`)}</div>
-          ${this.loading ? html`<div class="loading">Planning laden…</div>` : html`<div class="calendar-grid">${this.days.map((day) => {
+          <header class="calendar-toolbar">
+            <h2 class="month-title">${this.monthLabel}</h2>
+            <div class="mode-switch" role="group" aria-label="Weergave">
+              <button type="button" aria-pressed=${mode === 'agenda' ? 'true' : 'false'} @click=${() => { this.viewMode = 'agenda' }}>Agenda</button>
+              <button type="button" aria-pressed=${mode === 'month' ? 'true' : 'false'} @click=${() => { this.viewMode = 'month' }}>Maand</button>
+            </div>
+            <div class="month-actions"><button class="today" @click=${() => this.goToday()}>Vandaag</button><button class="icon-button" aria-label="Vorige maand" @click=${() => this.changeMonth(-1)}><custom-icon icon="chevron_left"></custom-icon></button><button class="icon-button" aria-label="Volgende maand" @click=${() => this.changeMonth(1)}><custom-icon icon="chevron_right"></custom-icon></button></div>
+          </header>
+          ${this.loading ? html`<div class="loading" role="status">Planning laden…</div>` : this.loadError ? '' : mode === 'agenda'
+            ? html`<div class="agenda">${agendaDays.length ? agendaDays.map(({ day, entries }) => html`<section class="agenda-day">
+                <h3>${dateKey(day) === today ? 'Vandaag · ' : ''}${agendaDate.format(day)}</h3>
+                ${entries.map((entry) => html`<button type="button" class="agenda-entry" @click=${() => this.openEntry(entry)}>
+                  <span class="agenda-time">${timeValue(entry.start)}–${timeValue(entry.end)}</span>
+                  <span class="agenda-job"><strong>${this.jobFor(entry)?.name || 'Onbekende job'}</strong>
+                    <small>${entry.userIds.map((id) => this.userFor(id)?.name || 'Medewerker').join(', ') || 'Geen medewerkers'}</small></span>
+                  <custom-icon icon="chevron_right"></custom-icon>
+                </button>`)}
+              </section>`) : html`<p class="empty">Geen jobs gepland in deze maand.</p>`}</div>`
+            : html`<div class="weekdays">${['Ma','Di','Wo','Do','Vr','Za','Zo'].map((day) => html`<span>${day}</span>`)}</div><div class="calendar-grid">${this.days.map((day) => {
             const entries = this.entriesForDay(day)
-            return html`<div role="button" tabindex="0" class="day ${day.getMonth() !== this.visibleMonth.getMonth() ? 'outside' : ''} ${dateKey(day) === today ? 'today-day' : ''}" @click=${() => this.openNew(day)} @keydown=${(event: KeyboardEvent) => {
-              if (event.key === 'Enter' || event.key === ' ') this.openNew(day)
-            }}><span class="day-number">${day.getDate()}</span><span class="day-entries">${entries.slice(0, 3).map((entry) => this.renderEntry(entry))}${entries.length > 3 ? html`<span class="more">+${entries.length - 3} meer</span>` : ''}</span></div>`
+            return html`<div class="day ${day.getMonth() !== this.visibleMonth.getMonth() ? 'outside' : ''} ${dateKey(day) === today ? 'today-day' : ''}" @click=${() => this.openNew(day)}>
+              <button type="button" class="day-number" aria-label=${'Planning toevoegen op ' + agendaDate.format(day)}>${day.getDate()}</button>
+              <span class="day-entries">${entries.slice(0, 3).map((entry) => this.renderEntry(entry))}${entries.length > 3 ? html`<button type="button" class="more" @click=${(event: Event) => { event.stopPropagation(); this.viewMode = 'agenda' }}>+${entries.length - 3} meer</button>` : ''}</span>
+            </div>`
           })}</div>`}
         </div>
         <aside class="upcoming-panel"><header class="upcoming-head"><h2>Binnenkort</h2><p>Volgende geplande jobs</p></header><div class="upcoming-list">${this.upcoming.length ? this.upcoming.map((entry) => {

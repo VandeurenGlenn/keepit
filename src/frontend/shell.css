@@ -8,6 +8,7 @@
   position: relative;
   overflow: hidden;
   --app-accent: #a85427;
+  --app-accent-label: color-mix(in srgb, var(--app-accent) 68%, var(--md-sys-color-on-surface) 32%);
   --app-accent-strong: #8e451f;
   --app-accent-soft: color-mix(in srgb, var(--app-accent) 16%, transparent 84%);
   --app-accent-soft-strong: color-mix(in srgb, var(--app-accent) 24%, transparent 76%);
@@ -85,8 +86,7 @@ aside {
   color: var(--md-sys-color-on-surface);
   border-radius: 0;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 98%, var(--app-accent) 2%), var(--md-sys-color-background));
+  background: var(--md-sys-color-surface);
   border: 0;
   border-right: 1px solid var(--app-border);
 }
@@ -361,35 +361,19 @@ main::before {
   background: none;
 }
 
-.logo-area {
+.drawer-head {
   display: none;
-  position: relative;
-  min-height: 54px;
-  padding: 8px 10px;
-  box-sizing: border-box;
   align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
+  justify-content: space-between;
+  min-height: 54px;
+  padding: max(6px, env(safe-area-inset-top)) 14px 6px;
+  border-bottom: 1px solid var(--app-border);
   flex-shrink: 0;
-  z-index: 1;
+  font-weight: 650;
 }
 
-.logo-area::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: none;
-  pointer-events: none;
-}
-
-.logo-area::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 16px;
-  right: 16px;
-  height: 1px;
-  background: color-mix(in srgb, var(--md-sys-color-outline) 18%, transparent 82%);
+:host([is-narrow]) .drawer-head {
+  display: flex;
 }
 
 .drawer-close {
@@ -600,11 +584,10 @@ flex-container.wide-workspace {
 
 .nav-item.active {
   background: color-mix(in srgb, var(--app-accent) 11%, transparent);
-  color: var(--app-accent);
+  color: var(--app-accent-label);
   border-radius: 10px;
   font-weight: 650;
   cursor: pointer;
-  --custom-icon-color: var(--app-accent);
   border-color: transparent;
 }
 
@@ -635,14 +618,9 @@ flex-container.wide-workspace {
   place-items: center;
   border-radius: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--md-sys-color-on-surface-variant) 88%, transparent 12%);
+  color: inherit;
   --custom-icon-color: currentColor;
   --custom-icon-size: 18px;
-}
-
-.active custom-icon {
-  color: var(--app-accent);
-  background: transparent;
 }
 
 .drawer-bottom {
@@ -722,7 +700,21 @@ flex-container.wide-workspace {
   }
 
   .global-search-trigger span,.global-search-trigger kbd,.offline-status{display:none}.global-search-trigger{width:40px;padding:0;justify-content:center}.app-toast{bottom:86px}
-  .mobile-bottom-nav{position:fixed;z-index:900;display:grid;grid-template-columns:repeat(5,1fr);left:8px;right:8px;bottom:max(8px,env(safe-area-inset-bottom));min-height:62px;padding:5px;border:1px solid var(--app-border);border-radius:17px;background:color-mix(in srgb,var(--md-sys-color-surface) 92%,transparent);box-shadow:var(--app-shadow-strong);backdrop-filter:blur(18px)}.mobile-bottom-nav a,.mobile-bottom-nav button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:0;border-radius:12px;background:transparent;color:var(--md-sys-color-on-surface-variant);font:inherit;font-size:.65rem;text-decoration:none}.mobile-bottom-nav .active{background:var(--app-accent-soft);color:var(--app-accent)}.mobile-bottom-nav custom-icon{--custom-icon-color:currentColor;--custom-icon-size:21px}.mobile-bottom-nav .work-action{color:var(--md-sys-color-on-primary);background:var(--app-accent)}:host([is-narrow]) main{padding-bottom:78px}
+  :host { --app-content-dock: calc(76px + env(safe-area-inset-bottom)); }
+  .mobile-bottom-nav {
+    position:fixed; z-index:900; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:4px;
+    inset:auto 0 0; min-height:58px; padding:5px 8px max(5px,env(safe-area-inset-bottom));
+    border-top:1px solid var(--app-border); background:var(--md-sys-color-surface);
+  }
+  .mobile-bottom-nav a,.mobile-bottom-nav button {
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; min-height:44px;
+    padding:0 2px; border:0; border-radius:10px; background:transparent; color:var(--md-sys-color-on-surface-variant);
+    font:inherit; font-size:.68rem; font-weight:600; text-decoration:none; cursor:pointer;
+  }
+  .mobile-bottom-nav .active { background:var(--app-accent-soft); color:var(--app-accent-label); }
+  .mobile-bottom-nav custom-icon { color:inherit; --custom-icon-color:currentColor; --custom-icon-size:20px; }
+  .mobile-bottom-nav .work-action { color:var(--md-sys-color-on-primary); background:var(--app-accent); }
+  :host([is-narrow][signed-in]) main { padding-bottom:var(--app-content-dock); }
 
   :host([is-narrow]) aside {
     width: min(84vw, 296px);
@@ -736,17 +728,6 @@ flex-container.wide-workspace {
 
   :host([is-narrow]) main {
     left: 0;
-  }
-
-  .logo-area {
-    display: flex;
-    min-height: 54px;
-    padding: max(6px, env(safe-area-inset-top)) 10px 6px;
-  }
-
-  .logo-area::after {
-    left: 14px;
-    right: 14px;
   }
 
   .nav-container {

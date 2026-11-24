@@ -932,14 +932,14 @@ export class AppShell extends LiteElement {
       if (!this.jobs || !this.companies) {
         return html` <loading-view type="loading"></loading-view> `
       }
-      return html` <jobs-view></jobs-view> `
+      return html` <jobs-view .createOnOpen=${parseWorkspaceRoute(location.hash).params.get('create') === '1'}></jobs-view> `
     }
 
     if (path === 'planning') {
       if (!this.jobs || !this.users) {
         return html` <loading-view type="loading"></loading-view> `
       }
-      return html` <planning-view></planning-view> `
+      return html` <planning-view .createOnOpen=${parseWorkspaceRoute(location.hash).params.get('create') === '1'}></planning-view> `
     }
 
     if (path === 'backups') {
@@ -958,12 +958,29 @@ export class AppShell extends LiteElement {
     }
   }
 
-  _toggleMenu() {
-    this.isMenuOpen = !this.isMenuOpen
+  private drawerTrigger?: HTMLElement
+
+  _toggleMenu(trigger?: HTMLElement) {
+    if (this.isMenuOpen) return this._closeMenu(true)
+    this.drawerTrigger = trigger
+    this.isMenuOpen = true
+    void this.rendered.then(() => {
+      if (this.isMenuOpen) this.shadowRoot?.querySelector<HTMLElement>('.drawer-close')?.focus()
+    })
   }
 
-  _closeMenu() {
+  navLink(path: string, icon: string, label: string, subpage?: string) {
+    const current = this.selected === path
+    const active = current || (subpage && this.selected === subpage)
+    return html`<a href=${'#!/' + path} class=${active ? 'nav-item active' : 'nav-item'}
+      aria-current=${current ? 'page' : active ? 'location' : 'false'}><custom-icon icon=${icon}></custom-icon><span>${label}</span></a>`
+  }
+
+  _closeMenu(restoreFocus = false) {
     this.isMenuOpen = false
+    if (restoreFocus) void this.rendered.then(() => {
+      if (!this.isMenuOpen) this.drawerTrigger?.focus()
+    })
   }
 
   resolveConfirmation(confirmed: boolean) {
@@ -1041,26 +1058,27 @@ export class AppShell extends LiteElement {
             aria-label="Menu openen"
             aria-controls="app-navigation"
             aria-expanded=${this.isMenuOpen ? 'true' : 'false'}
-            @click=${() => this._toggleMenu()}></custom-icon-button>`
+            @click=${(event: Event) => this._toggleMenu(event.currentTarget as HTMLElement)}></custom-icon-button>`
         : ''}
       ${this.userSignedIn
         ? html`<button
               class="drawer-backdrop"
               aria-label="Menu sluiten"
-              @click=${() => this._closeMenu()}></button>
+              @click=${() => this._closeMenu(true)}></button>
             <aside
               id="app-navigation"
               aria-label="Hoofdnavigatie"
-              aria-hidden=${this.isNarrow && !this.isMenuOpen ? 'true' : 'false'}
+              ?inert=${this.isNarrow && !this.isMenuOpen}
               @keydown=${(event: KeyboardEvent) => {
-                if (event.key === 'Escape') this._closeMenu()
+                if (event.key === 'Escape') this._closeMenu(true)
               }}>
-              <div class="logo-area">
+              <div class="drawer-head">
+                <span>Menu</span>
                 <custom-icon-button
                   class="drawer-close"
                   icon="close"
                   aria-label="Menu sluiten"
-                  @click=${() => this._closeMenu()}></custom-icon-button>
+                  @click=${() => this._closeMenu(true)}></custom-icon-button>
               </div>
               <nav
                 class="nav-container"
@@ -1095,15 +1113,7 @@ export class AppShell extends LiteElement {
                     class="nav-section-label">
                     Werk
                   </h2>
-                  ${this.user?.roles?.includes('admin')
-                    ? html`<a href="#!/quotes" aria-current=${this.selected === 'quotes' ? 'page' : undefined} class=${this.selected === 'quotes' ? 'nav-item active' : 'nav-item'}><custom-icon icon="request_quote"></custom-icon>Offertes</a>`
-                    : ''}
-                  <a
-                    href="#!/jobs"
-                    aria-current=${this.selected === 'jobs' ? 'page' : undefined}
-                    class=${this.selected === 'jobs' ? 'nav-item active' : 'nav-item'}
-                    ><custom-icon icon="inventory2"></custom-icon>Jobs</a
-                  >
+                  ${this.navLink('jobs', 'work', 'Jobs', 'job')}
                   <a
                     href="#!/planning"
                     aria-current=${this.selected === 'planning' ? 'page' : undefined}
@@ -1111,6 +1121,11 @@ export class AppShell extends LiteElement {
                     ><custom-icon icon="calendar_month"></custom-icon>Planning</a
                   >
                 </section>
+                ${this.user?.roles?.includes('admin') ? html`<section class="nav-section" aria-labelledby="nav-finance">
+                  <h2 id="nav-finance" class="nav-section-label">Facturatie</h2>
+                  ${this.navLink('quotes', 'request_quote', 'Offertes', 'quote')}
+                  ${this.navLink('invoices', 'receipt', 'Facturen', 'invoice')}
+                </section>` : ''}
                 ${this.user?.roles?.includes('admin') ? html`<section
                   class="nav-section"
                   aria-labelledby="nav-organization">
@@ -1132,12 +1147,6 @@ export class AppShell extends LiteElement {
                     ><custom-icon icon="local_shipping"></custom-icon>Leveranciers</a
                   >
                   <a
-                    href="#!/invoices"
-                    aria-current=${this.selected === 'invoices' ? 'page' : undefined}
-                    class=${this.selected === 'invoices' ? 'nav-item active' : 'nav-item'}
-                    ><custom-icon icon="receipt"></custom-icon>Facturen</a
-                  >
-                  <a
                     href="#!/shop"
                     aria-current=${this.selected === 'shop' ? 'page' : undefined}
                     class=${this.selected === 'shop' ? 'nav-item active' : 'nav-item'}
@@ -1157,13 +1166,24 @@ export class AppShell extends LiteElement {
             </aside>`
         : ''}
 
-      ${this.userSignedIn ? html`<nav class="mobile-bottom-nav" aria-label="Snelle navigatie"><a href="#!/home" class=${this.selected==='home'?'active':''}><custom-icon icon="home"></custom-icon><span>Home</span></a><a href="#!/planning" class=${this.selected==='planning'?'active':''}><custom-icon icon="calendar_month"></custom-icon><span>Planning</span></a><a class="work-action" href=${this.user?.currentJob?'#!/checkout':'#!/checkin'}><custom-icon icon=${this.user?.currentJob?'stop_circle':'play_arrow'}></custom-icon><span>${this.user?.currentJob?'Stop':'Start'}</span></a><a href="#!/timeline" class=${this.selected==='timeline'?'active':''}><custom-icon icon="timeline"></custom-icon><span>Tijdlijn</span></a><button @click=${()=>window.dispatchEvent(new Event('keepit-open-search'))}><custom-icon icon="search"></custom-icon><span>Zoek</span></button></nav>` : ''}
+      ${this.userSignedIn ? html`<nav class="mobile-bottom-nav" aria-label="Snelle navigatie" ?inert=${this.isNarrow && this.isMenuOpen}>
+        ${this.navLink('home', 'home', 'Home')}
+        ${this.navLink('jobs', 'work', 'Jobs', 'job')}
+        <a class="work-action" href=${this.user?.currentJob ? '#!/checkout' : '#!/checkin'}
+          aria-current=${this.selected === 'checkin' || this.selected === 'checkout' ? 'page' : 'false'}>
+          <custom-icon icon=${this.user?.currentJob ? 'stop_circle' : 'play_arrow'}></custom-icon><span>${this.user?.currentJob ? 'Stop' : 'Start'}</span>
+        </a>
+        ${this.navLink('planning', 'calendar_month', 'Planning')}
+        <button type="button" aria-controls="app-navigation" aria-expanded=${this.isMenuOpen ? 'true' : 'false'} @click=${(event: Event) => this._toggleMenu(event.currentTarget as HTMLElement)}>
+          <custom-icon icon="menu"></custom-icon><span>Meer</span>
+        </button>
+      </nav>` : ''}
 
-      <main>
+      <main ?inert=${this.isNarrow && this.isMenuOpen}>
         ${this.userSignedIn
         ? html`<header>
               ${this.syncPending?html`<a class="offline-status" href="#!/sync"><custom-icon icon="cloud_upload"></custom-icon>${this.syncPending} wacht${this.syncPending===1?'':'en'} op synchronisatie</a>`:''}
-              <button class="global-search-trigger" @click=${()=>window.dispatchEvent(new Event('keepit-open-search'))}><custom-icon icon="search"></custom-icon><span>Zoeken</span><kbd>⌘ K</kbd></button>
+              <button class="global-search-trigger" aria-label="Zoeken" @click=${()=>window.dispatchEvent(new Event('keepit-open-search'))}><custom-icon icon="search"></custom-icon><span>Zoeken</span><kbd>⌘ K</kbd></button>
               <account-bar></account-bar>
             </header>`
           : ''}

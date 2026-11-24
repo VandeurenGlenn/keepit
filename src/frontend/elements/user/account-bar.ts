@@ -13,7 +13,7 @@ export class AccountBar extends LiteElement {
         border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent 16%);
         border-radius: var(--app-radius-panel);
         color: var(--md-sys-color-on-surface);
-        background: color-mix(in srgb, var(--app-panel) 92%, white 8%);
+        background: var(--app-panel);
         box-shadow: none;
       }
       .user-info {
@@ -21,27 +21,39 @@ export class AccountBar extends LiteElement {
         align-items: center;
         gap: 12px;
       }
-      .user-info img {
-        width: 36px;
-        height: 36px;
+      .avatar {
+        display: grid;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        flex: none;
         border-radius: 50%;
-        border: 2px solid color-mix(in srgb, var(--app-accent) 28%, white 72%);
+        object-fit: cover;
+        background: var(--app-accent-soft);
+        color: var(--app-accent-label);
       }
-      .user-info span {
+      .user-info .name {
+        max-width: min(33vw, 180px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         font-size: 0.88rem;
         font-weight: 500;
       }
     `
   ]
   @property({ type: Object, consumes: true }) accessor user: User
+  @property({ type: String }) accessor brokenPicture = ''
 
   render() {
+    const name = this.user?.name || 'Gebruiker'
+    const picture = this.user?.picture
     return html`
       <div class="user-info">
-        <span>${this.user?.name}</span>
-        <img
-          src=${this.user?.picture}
-          alt="User Avatar" />
+        <span class="name" title=${name}>${name}</span>
+        ${picture && picture !== this.brokenPicture
+          ? html`<img class="avatar" src=${picture} alt="" referrerpolicy="no-referrer" @error=${() => { this.brokenPicture = picture }}>`
+          : html`<span class="avatar" aria-hidden="true">${name.trim().charAt(0).toUpperCase()}</span>`}
       </div>
     `
   }

@@ -228,7 +228,7 @@ export class HomeView extends LiteElement {
         color: var(--md-sys-color-on-surface-variant);
         font-size: 0.72rem;
         text-overflow: ellipsis;
-        white-space: nowrap;
+        white-space: normal;
       }
 
       .quick-action {
@@ -341,8 +341,15 @@ export class HomeView extends LiteElement {
         align-items: center;
         justify-content: space-between;
         overflow: hidden;
-        background: radial-gradient(circle at 92% 12%, var(--app-accent-soft), transparent 32%), var(--app-panel);
+        background: var(--app-panel);
+        box-shadow: none;
       }
+
+      .dashboard-label { margin:4px 0 -5px; font-size:.88rem; font-weight:650; }
+      .dashboard-settings { border-top:1px solid var(--app-border); padding:8px 0; }
+      .dashboard-settings summary { width:fit-content; padding:8px 2px; color:var(--md-sys-color-on-surface-variant); font-size:.82rem; cursor:pointer; }
+      .dashboard-settings .settings-card { margin-top:8px; box-shadow:none; }
+      .dashboard-date { color:var(--app-accent-label); }
 
       .work-card::before {
         content: '';
@@ -615,13 +622,7 @@ export class HomeView extends LiteElement {
   render() {
     const tracking = Boolean(this.user?.preferences?.continuousTimelineLocation)
     if (this.user?.roles?.includes('admin')) return this.renderAdminDashboard()
-    return html`
-      <section class="hero">
-        <span class="eyebrow">Mijn werkdag</span>
-        <h1>Dag ${this.user?.name ? this.user.name.split(' ')[0] : ''}</h1>
-        <p class="muted">Registreer je job zonder administratie achteraf.</p>
-      </section>
-      <section class="privacy-card">
+    const notifications = html`<section class="privacy-card settings-card">
         <div class="privacy-copy">
           <span class="eyebrow">Meldingsvoorkeuren</span>
           <h2>Kies welke suggesties je ontvangt</h2>
@@ -648,6 +649,13 @@ export class HomeView extends LiteElement {
             Locatiesuggesties: ${this.user?.preferences?.locationSuggestionNotifications === false ? 'uit' : 'aan'}
           </button>
         </div>
+      </section>`
+
+    return html`
+      <section class="hero">
+        <span class="eyebrow dashboard-date">Vandaag · ${new Intl.DateTimeFormat('nl-BE', { weekday:'long', day:'numeric', month:'long' }).format(new Date())}</span>
+        <h1>${this.greeting} ${this.user?.name?.split(' ')[0] || ''}</h1>
+        <p class="muted">Je werkregistratie en planning op één plek.</p>
       </section>
 
       <section class="work-card">
@@ -744,7 +752,10 @@ export class HomeView extends LiteElement {
           `
         : ''}
 
-      <section class="privacy-card">
+      <details class="dashboard-settings">
+        <summary>Meldingen en locatievoorkeuren</summary>
+        ${notifications}
+      <section class="privacy-card settings-card">
         <div class="privacy-copy">
           <span class="eyebrow">Optionele 24u-tijdlijn</span>
           <h2>${tracking ? 'Toestemming voor de 24u-tijdlijn staat aan' : 'Doorlopend volgen blijft jouw keuze'}</h2>
@@ -769,14 +780,16 @@ export class HomeView extends LiteElement {
           </button>
         </div>
       </section>
+      </details>
     `
   }
 
   renderAdminDashboard() {
     const summary = this.control?.summary || {}
     const alerts = this.control?.alerts || []
+    const date = new Intl.DateTimeFormat('nl-BE', { weekday:'long', day:'numeric', month:'long' }).format(new Date())
     return html` <section class="hero">
-        <span class="eyebrow">Controlecentrum</span>
+        <span class="eyebrow dashboard-date">Vandaag · ${date}</span>
         <h1>${this.greeting} ${this.user?.name?.split(' ')[0] || ''}</h1>
         <p class="muted">Planning, afwijkingen en administratie in één overzicht.</p>
       </section>
@@ -796,7 +809,8 @@ export class HomeView extends LiteElement {
             : 'Werk starten'}</a
         >
       </section>
-      <section class="admin-grid">
+      <h2 class="dashboard-label">Overzicht</h2>
+      <section class="admin-grid" aria-label="Overzicht">
         <a
           class="admin-stat"
           href="#!/jobs"
@@ -819,18 +833,19 @@ export class HomeView extends LiteElement {
           ><strong>${summary.invoices ?? '–'}</strong><span>Facturen</span></a
         >
       </section>
+      <h2 class="dashboard-label">Snel aan de slag</h2>
       <div class="quick-actions">
         <a
           class="quick-action"
-          href="#!/planning"
+          href="#!/planning?create=1"
           ><custom-icon icon="add"></custom-icon>Planning maken</a
         ><a
           class="quick-action"
-          href="#!/jobs"
+          href="#!/jobs?create=1"
           ><custom-icon icon="add_task"></custom-icon>Nieuwe job</a
         ><a
           class="quick-action"
-          href="#!/quotes"
+          href="#!/quote"
           ><custom-icon icon="request_quote"></custom-icon>Nieuwe offerte</a
         ><a
           class="quick-action"
@@ -838,7 +853,23 @@ export class HomeView extends LiteElement {
           ><custom-icon icon="backup"></custom-icon>Back-ups</a
         >
       </div>
-      <section class="privacy-card settings-card">
+      <div class="section-heading">
+        <h2>Te controleren uren${alerts.length ? ` · ${alerts.length}` : ''}</h2>
+        <a class="section-link" href="#!/timeline">Open tijdlijn<custom-icon icon="timeline"></custom-icon></a>
+      </div>
+      ${alerts.length
+        ? html`<div class="alerts">
+            ${alerts.slice(0, 8).map((item: any) => html`
+              <a class=${`alert ${item.severity}`} href=${item.href}>
+                <span class="alert-icon"><custom-icon icon=${item.kind === 'open' ? 'timer' : item.kind === 'future' ? 'schedule' : 'warning'}></custom-icon></span>
+                <span class="alert-copy"><strong>${item.title}</strong><span>${item.detail}</span></span>
+                <custom-icon icon="chevron_right"></custom-icon>
+              </a>`)}
+          </div>`
+        : html`<p class="muted">Geen urenregistraties die controle vragen.</p>`}
+      <details class="dashboard-settings">
+        <summary>Werkruimte-instellingen</summary>
+        <section class="privacy-card settings-card">
         <div class="privacy-copy">
           <span class="eyebrow">Globale instelling</span>
           <h2>Standaardland voor adressen</h2>
@@ -857,41 +888,8 @@ export class HomeView extends LiteElement {
           </label>
           <button class="secondary" ?disabled=${this.savingAppSettings || this.addressCountryDraft === (this.appSettings.addressCountry || '')} @click=${() => void this.saveAddressCountry()}>${this.savingAppSettings ? 'Opslaan…' : 'Opslaan'}</button>
         </div>
-      </section>
-      <div class="section-heading">
-        <h2>Te controleren uren</h2>
-        <a
-          class="section-link"
-          href="#!/timeline"
-          >Open tijdlijn<custom-icon icon="timeline"></custom-icon
-        ></a>
-      </div>
-      ${alerts.length
-        ? html`<div class="alerts">
-            ${alerts.slice(0, 8).map(
-              (item: any) =>
-                html`<a
-                  class=${`alert ${item.severity}`}
-                  href=${item.href}
-                  ><span class="alert-icon"
-                    ><custom-icon
-                      icon=${item.kind === 'open'
-                        ? 'timer'
-                        : item.kind === 'future'
-                          ? 'schedule'
-                          : 'warning'}></custom-icon></span
-                  ><span class="alert-copy"><strong>${item.title}</strong><span>${item.detail}</span></span
-                  ><custom-icon icon="chevron_right"></custom-icon
-                ></a>`
-            )}
-          </div>`
-        : html`<section class="privacy-card">
-            <div class="privacy-copy">
-              <span class="eyebrow">Alles in orde</span>
-              <h2>Geen opvallende registraties</h2>
-              <p class="muted">Er zijn momenteel geen lange, toekomstige of openstaande uren die controle vragen.</p>
-            </div>
-          </section>`}`
+        </section>
+      </details>`
   }
 }
 

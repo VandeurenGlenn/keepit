@@ -66,6 +66,8 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   @property({ type: Boolean }) accessor savingInvoice = false
   @property({ type: Boolean }) accessor billingLoading = false
   @property({ type: Boolean }) accessor billingLoadFailed = false
+  @property({ type: Object }) accessor attachment: File | null = null
+  @property({ type: Boolean }) accessor cameraReady = false
 
   @query('chip-field[label="jobs"]') accessor jobChips!: ChipField
   @query('chip-field[label="companies"]') accessor companyChips!: ChipField
@@ -74,13 +76,20 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   favoriteNames: Set<string> = new Set()
   private billingRequest = 0
   private billingJob?: string
+  private cameraRequest = 0
 
   dataUrl: string | null = null
 
   firstRender() {
     if (this.createForJob && this.jobs?.[this.createForJob]) {
-      void this._addInvoice(this.createForJob, false)
+      void this._addInvoice(this.createForJob)
     }
+  }
+
+  disconnectedCallback() {
+    this.stopInvoiceCamera()
+    ++this.billingRequest
+    super.disconnectedCallback()
   }
   static styles = [
     css`
@@ -109,6 +118,21 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
         box-shadow: var(--app-shadow-soft);
         box-sizing: border-box;
       }
+
+      .capture-panel[hidden] { display:none; }
+      .attachment-panel { display:grid; gap:9px; padding:14px; border:1px dashed var(--app-border); border-radius:var(--app-radius-control); }
+      .attachment-panel h3 { margin:0; font-size:.88rem; }
+      .attachment-panel p { margin:0; color:var(--md-sys-color-on-surface-variant); font-size:.78rem; overflow-wrap:anywhere; }
+      .attachment-panel .form-actions { justify-content:flex-start; flex-wrap:wrap; }
+      .attachment-panel img { width:min(100%,160px); max-height:140px; object-fit:contain; }
+      .invoice-selection { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+      .invoice-selection > div { min-width:0; display:grid; align-content:start; gap:7px; }
+      .invoice-selection h3 { margin:0; font-size:.88rem; }
+      .billing-summary { display:flex; flex-wrap:wrap; gap:10px; margin:0; }
+      .billing-summary > div { flex:1 1 140px; padding:10px 12px; border:1px solid var(--app-border); border-radius:10px; }
+      .billing-summary dt { color:var(--md-sys-color-on-surface-variant); font-size:.72rem; }
+      .billing-summary dd { margin:4px 0 0; font-weight:650; font-variant-numeric:tabular-nums; }
+      @media(max-width:640px) { .invoice-selection { grid-template-columns:minmax(0,1fr); } }
 
       .workspace-head,
       .panel-title-wrap,
@@ -732,10 +756,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     await this.selectInvoiceJob(this.prefillJobId)
   }
 
-  _addInvoice = async (jobId = '', captureImage = true) => {
-    // make sure to set the takingPicture to true before setting the addingInvoice to true
-    // to avoid flickering/seeing the final invoice step
-    this.takingPicture = captureImage
+  _addInvoice = async (jobId = '') => {
     this.addingInvoice = true
     this.prefillJobId = jobId
     this.notes = ''
@@ -744,31 +765,59 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     this.billableHours = {}
     this.hourUsers = {}
     this.openHourUsers = {}
-    await this.loadMaterialSuggestions()
+    if (jobId) await this.applyPrefilledJob()
+    else await this.loadMaterialSuggestions()
+  }
 
-    if (!captureImage) {
-      void this.applyPrefilledJob()
+  stopInvoiceCamera = () => {
+    ++this.cameraRequest
+    this.currentStream?.getTracks().forEach((track) => track.stop())
+    this.currentStream = null
+    this.cameraReady = false
+    this.takingPicture = false
+  }
+
+  startInvoiceCamera = async (facingMode = this.facingMode) => {
+    const request = ++this.cameraRequest
+    this.currentStream?.getTracks().forEach((track) => track.stop())
+    this.currentStream = null
+    this.cameraReady = false
+    this.takingPicture = true
+    const isCurrent = () => this.isConnected && request === this.cameraRequest && this.addingInvoice
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera niet beschikbaar')
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode, width: { ideal: 1600 }, height: { ideal: 2000 } }
+      })
+      const video = isCurrent() && this.shadowRoot?.querySelector('video')
+      if (!video) {
+        stream.getTracks().forEach((track) => track.stop())
+        if (isCurrent()) throw new Error('Camera niet beschikbaar')
+        return
+      }
+      this.currentStream = stream
+      this.facingMode = facingMode
+      video.srcObject = stream
+      await video.play()
+      if (isCurrent()) this.cameraReady = true
+    } catch {
+      if (!isCurrent()) return
+      this.stopInvoiceCamera()
+      showToast('De camera kon niet worden geopend. Je kunt een bestand kiezen of verdergaan zonder bijlage.')
+    }
+  }
+
+  selectInvoiceAttachment = (event: Event) => {
+    const input = event.target as HTMLInputElement
+    const file = input.files?.[0]
+    input.value = ''
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type) || file.size > 20 * 1024 * 1024) {
+      showToast('Kies een JPG, PNG, WebP of PDF van maximaal 20 MB.')
       return
     }
-
-    // Logic to add a new invoice
-    this.currentStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: this.facingMode,
-        width: { ideal: 2480 },
-        height: { ideal: 3508 }
-      }
-    })
-
-    const video = this.shadowRoot?.querySelector('video')
-    if (!video) return
-    video.srcObject = this.currentStream
-    video.setAttribute('playsinline', '')
-    video.setAttribute('autoplay', '')
-    video.setAttribute('muted', '')
-
-    video.play()
-    // You can add your logic here to add a new invoice
+    this.dataUrl = null
+    this.attachment = file
   }
   _handleFabKeyUp = (event: KeyboardEvent) => {
     if (event.key === 'Enter' || event.key === 'Space') {
@@ -797,10 +846,10 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
 
       context.drawImage(video, 0, 0)
 
-      const data = canvas.toDataURL('image/png', 1.0)
+      const data = canvas.toDataURL('image/jpeg', 0.9)
       this.dataUrl = data
-      this.takingPicture = false
-      void this.applyPrefilledJob()
+      this.attachment = this.dataURLtoFile(data, 'Camerafoto')
+      this.stopInvoiceCamera()
       resolve(data)
 
       //  photo.setAttribute('src', data)
@@ -826,12 +875,11 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     this.billingJob = undefined
     this.billingLoading = false
     this.billingLoadFailed = false
-    this.currentStream?.getTracks().forEach((track) => track.stop())
-    this.currentStream = null
+    this.stopInvoiceCamera()
     this.addingInvoice = false
-    this.takingPicture = false
     this.savingInvoice = false
     this.dataUrl = null
+    this.attachment = null
     this.prefillJobId = ''
     this.notes = ''
     this.billableMaterials = []
@@ -869,10 +917,9 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     this.savingInvoice = true
     try {
       let invoiceImages: string[] = []
-      if (this.dataUrl) {
-        const invoiceImage = this.dataURLtoFile(this.dataUrl, invoiceId)
+      if (this.attachment) {
         const formData = new FormData()
-        formData.append('files', invoiceImage)
+        formData.append('files', this.attachment, `${invoiceId}.${mimes.getExtension(this.attachment.type)}`)
         invoiceImages = await api.uploadInvoiceFile(formData)
       }
 
@@ -904,22 +951,10 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     }
   }
 
-  _switchcamera = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: this.facingMode === 'user' ? 'environment' : 'user'
-      }
-    })
-
-    const video = this.shadowRoot?.querySelector('video')
-    if (!video) return
-    video.srcObject = stream
-    video.play()
-  }
-
   renderAddInvoice() {
-    if (this.takingPicture) {
-      return html`
+    const euro = new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' })
+    return html`
+      ${this.takingPicture ? html`
         <section class="capture-panel">
           <div class="workspace-head">
           <span class="panel-kicker">Opname</span>
@@ -929,27 +964,26 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
             </div>
           </div>
           <span class="camera-wrapper"
-            ><video></video>
+            ><video playsinline autoplay muted></video>
             <span class="camera-bar">
               <button
                 class="primary"
+                ?disabled=${!this.cameraReady}
                 @click=${() => this._takePicture()}>
                 Neem foto
               </button>
-              <button @click=${() => this._switchcamera()}>Wissel camera</button>
-              <button @click=${() => this.closeInvoiceForm()}>Annuleren</button>
+              <button ?disabled=${!this.cameraReady} @click=${() => void this.startInvoiceCamera(this.facingMode === 'user' ? 'environment' : 'user')}>Wissel camera</button>
+              <button @click=${this.stopInvoiceCamera}>Terug naar factuur</button>
             </span>
           </span>
         </section>
-      `
-    }
-    return html`
-      <section class="capture-panel">
+      ` : ''}
+      <section class="capture-panel" ?hidden=${this.takingPicture}>
         <div class="workspace-head">
-        <span class="panel-kicker">Controle</span>
+        <span class="panel-kicker">Facturatie</span>
           <div class="panel-title-row">
             <div class="panel-title-wrap">
-              <h2 class="panel-title">Factuur bewaren</h2>
+              <h2 class="panel-title">Nieuwe factuur</h2>
               <p class="panel-description">Controleer de job, klant, factureerbare uren en resterende materialen.</p>
             </div>
             <div class="form-actions">
@@ -964,16 +998,13 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
           </div>
         </div>
 
-        ${this.dataUrl
-          ? html`<img src=${this.dataUrl} adding-invoice-image />`
-          : null}
-
         <div class="capture-form">
           ${this.billingLoading ? html`<p role="status">Factureerbare uren en materialen laden…</p>` : ''}
           ${this.billingLoadFailed ? html`<p role="alert">De jobgegevens konden niet geladen worden.
             <button type="button" @click=${() => void this.selectInvoiceJob(this.billingJob)}>Probeer opnieuw</button>
           </p>` : ''}
-          <chip-field
+          <div class="invoice-selection">
+          <div><h3>Job</h3><chip-field
             label="jobs"
             customEvent
             @chip-selected=${(event: CustomEvent<string[]>) => {
@@ -987,9 +1018,9 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
                 label: data.name,
                 value: uuid
               }
-            })}></chip-field>
+            })}></chip-field></div>
 
-          <chip-field
+          <div><h3>Klant</h3><chip-field
             label="companies"
             customEvent
             @add-chip=${() => {
@@ -1006,7 +1037,21 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
                 label: data.name,
                 value: uuid
               }))}
-            ></chip-field>
+            ></chip-field></div>
+          </div>
+
+          ${this.billingJob && !this.billingLoading && !this.billingLoadFailed ? html`<dl class="billing-summary">
+            <div><dt>Factureerbare uren</dt><dd>${(this.totalBillableDuration / 3_600_000).toLocaleString('nl-BE', { maximumFractionDigits: 2 })} u</dd></div>
+            <div><dt>Materialen · excl. btw</dt><dd>${euro.format(this.materialsTotal)}</dd></div>
+          </dl>` : ''}
+
+          <label class="invoice-kind-field">Factuurtype
+            <select .value=${this.invoiceKind} @change=${(event: Event) => (this.invoiceKind = (event.target as HTMLSelectElement).value as 'standard' | 'interim' | 'final')}>
+              <option value="standard">Gewone factuur</option>
+              <option value="interim">Tussenfactuur</option>
+              <option value="final">Eindfactuur</option>
+            </select>
+          </label>
 
           <div class="materials-panel">
             <div class="materials-header">
@@ -1179,13 +1224,17 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
                 `}
           </div>
 
-          <label class="invoice-kind-field">Factuurtype
-            <select .value=${this.invoiceKind} @change=${(event: Event) => (this.invoiceKind = (event.target as HTMLSelectElement).value as 'standard' | 'interim' | 'final')}>
-              <option value="standard">Gewone factuur</option>
-              <option value="interim">Tussenfactuur</option>
-              <option value="final">Eindfactuur</option>
-            </select>
-          </label>
+          <section class="attachment-panel" aria-labelledby="invoice-attachment-heading">
+            <h3 id="invoice-attachment-heading">Bijlage <small>· Optioneel</small></h3>
+            <p aria-live="polite">${this.attachment?.name || 'Voeg een foto of PDF toe (max. 20 MB).'}</p>
+            ${this.dataUrl ? html`<img src=${this.dataUrl} alt="Voorbeeld van de camerafoto">` : ''}
+            <input id="invoice-attachment" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" hidden @change=${this.selectInvoiceAttachment}>
+            <div class="form-actions">
+              <button type="button" ?disabled=${this.savingInvoice} @click=${() => this.shadowRoot?.getElementById('invoice-attachment')?.click()}>Bestand kiezen</button>
+              <button type="button" ?disabled=${this.savingInvoice} @click=${() => void this.startInvoiceCamera()}>Foto maken</button>
+              ${this.attachment ? html`<button type="button" ?disabled=${this.savingInvoice} @click=${() => { this.attachment = null; this.dataUrl = null }}>Bijlage verwijderen</button>` : ''}
+            </div>
+          </section>
 
           <md-outlined-text-field
             class="notes-field"
