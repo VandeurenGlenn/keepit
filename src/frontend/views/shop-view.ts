@@ -1,8 +1,11 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
+import '@vandeurenglenn/lite-elements/icon.js'
 import { arrayRepeatBy, createKeyedLazyRepeatState, type KeyedLazyRepeatState } from '@vandeurenglenn/lite/helpers.js'
 import { api } from '../api/client.js'
 import { showToast } from '../helpers/toast.js'
 import { ShopProduct } from '../../types/index.js'
+
+const euro = new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' })
 
 export class ShopView extends LiteElement {
   @property({ type: String }) accessor searchQuery = ''
@@ -18,6 +21,7 @@ export class ShopView extends LiteElement {
   @property({ type: String }) accessor categoryFilter = 'all'
   @property({ type: String }) accessor priceFilter = 'all'
   @property({ type: Boolean }) accessor favoritesOnly = false
+  @property({ type: Boolean }) accessor filtersOpen = false
   @property({ type: Object }) accessor selectedProduct: ShopProduct | undefined
 
   favoriteNames: Set<string> = new Set()
@@ -892,6 +896,41 @@ export class ShopView extends LiteElement {
           height: 160px;
         }
       }
+
+      :host { background:none; }
+      .controls { padding-bottom:12px; }
+      .shop-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+      .shop-heading h1 { margin:0; font-size:1.65rem; font-weight:650; }
+      .shop-heading p { margin:2px 0 0; color:var(--md-sys-color-on-surface-variant); font-size:.8rem; }
+      .search-bar { position:relative; min-width:0; }
+      .search-bar custom-icon { position:absolute; top:50%; left:12px; transform:translateY(-50%); color:var(--md-sys-color-on-surface-variant); pointer-events:none; }
+      custom-icon { --custom-icon-color:currentColor; --custom-icon-size:19px; }
+      .search-input { min-height:44px; padding:8px 12px 8px 38px; border:1px solid var(--app-border); border-radius:10px; background:var(--app-panel); box-shadow:none; }
+      .shop-heading .cart-button { min-height:44px; min-width:44px; width:auto; padding:0 12px; background:var(--app-panel); color:var(--md-sys-color-on-surface); border-color:var(--app-border); box-shadow:none; }
+      .catalog-status { display:flex; align-items:center; justify-content:space-between; min-height:24px; gap:8px; }
+      .result-count { margin:0; padding:0; white-space:normal; }
+      .filter-trigger { display:none; }
+      .product-card,.product-card:hover { background:var(--app-panel); box-shadow:none; }
+      .product-card { min-width:0; border-radius:var(--app-radius-panel); min-height:0; }
+      .product-name { display:block; height:auto; padding:0; border:0; background:none; color:inherit; font:inherit; font-size:.94rem; font-weight:650; text-align:left; cursor:pointer; overflow-wrap:anywhere; }
+      .product-name:hover { color:var(--app-accent-label); }
+      .product-name:focus-visible,.filter-trigger:focus-visible { outline:2px solid var(--app-accent-label); outline-offset:2px; }
+      .product-card .product-price { color:var(--app-accent-label); font-size:1.12rem; }
+      .product-identity { color:var(--md-sys-color-on-surface-variant); font-size:.72rem; line-height:1.35; overflow-wrap:anywhere; }
+      .products-scroll { scroll-padding-block:6px; }
+      @media(max-width:720px) {
+        .shop-heading h1 { font-size:1.35rem; }
+        .shop-heading p { display:none; }
+        .controls { gap:8px; }
+        .filter-trigger { display:inline-flex; align-items:center; justify-content:center; gap:6px; flex:none; min-height:44px; padding:0 10px; border:1px solid var(--app-border); border-radius:10px; background:var(--app-panel); color:inherit; font:inherit; font-size:.78rem; cursor:pointer; }
+        .filter-trigger[aria-expanded=true] { background:var(--app-accent-soft); color:var(--app-accent-label); }
+        .filter-bar { grid-template-columns:repeat(2,minmax(0,1fr)); padding:8px; border:1px solid var(--app-border); border-radius:10px; background:var(--app-panel); }
+        .filter-bar:not(.expanded) { display:none; }
+        .filter-select { padding-right:8px; }
+        .search-input { font-size:16px; }
+        .search-bar { flex:1 1 0; }
+        .header { flex-wrap:nowrap; }
+      }
     `
   ]
 
@@ -1272,7 +1311,7 @@ export class ShopView extends LiteElement {
             <div class="product-detail-header">
               <div>
                 <h2 class="product-detail-title">${product.name}</h2>
-                <div class="product-price">€${product.price.toFixed(2)}</div>
+                <div class="product-price">${euro.format(product.price)}</div>
                 ${product.unit ? html`<span class="product-unit">per ${product.unit}</span>` : ''}
               </div>
               <button
@@ -1412,13 +1451,12 @@ export class ShopView extends LiteElement {
                     }} />
                 </div>`
               : ''}
-            <div class="product-name">${product.name}</div>
-            <div class="product-price">€${product.price.toFixed(2)}</div>
-            <button
-              class="detail-button"
-              @click=${() => this.openProduct(product)}>
-              Bekijk product
-            </button>
+            <button type="button" class="product-name" @click=${(event: Event) => {
+              event.stopPropagation()
+              this.openProduct(product)
+            }}>${product.name}</button>
+            <span class="product-identity">${[product.source === 'alelek' ? 'Alelek' : product.source === 'desco' ? 'Desco' : '', product.articleNumber || product.productNumber, product.unit].filter(Boolean).join(' · ')}</span>
+            <div class="product-price">${euro.format(product.price)}</div>
             <div
               class="product-actions"
               @click=${(event: Event) => event.stopPropagation()}
@@ -1514,17 +1552,27 @@ export class ShopView extends LiteElement {
 
   render() {
     const filteredProducts = this.getFilteredProducts()
+    const filterCount = [this.sourceFilter !== 'all', this.categoryFilter !== 'all', this.priceFilter !== 'all', this.favoritesOnly].filter(Boolean).length
     return html`
       <div class="container">
         <div class="controls">
+          <div class="shop-heading">
+            <div><h1>Shop</h1><p>Productcatalogus van Desco en Alelek</p></div>
+            <button type="button" class="cart-button" aria-expanded=${this.showCart ? 'true' : 'false'} aria-controls="shop-cart" @click=${this.toggleCart}>
+              <custom-icon icon="shopping_cart"></custom-icon>Winkelmand
+              ${this.getCartItemCount() > 0 ? html`<span class="cart-count">${this.getCartItemCount()}</span>` : ''}
+            </button>
+          </div>
           <div class="header">
             <div class="search-bar">
+              <custom-icon icon="search"></custom-icon>
               <input
                 class="search-input"
-                type="text"
+                type="search"
+                aria-label="Shopproducten zoeken"
                 list="shop-autocomplete"
                 autocomplete="off"
-                placeholder="Zoek op product, artikel- of productnummer..."
+                placeholder="Zoek product, merk of nr."
                 .value=${this.searchQuery}
                 @input=${this.handleSearch} />
               <datalist id="shop-autocomplete">
@@ -1532,16 +1580,14 @@ export class ShopView extends LiteElement {
               </datalist>
             </div>
 
-            <button
-              class="cart-button"
-              @click=${this.toggleCart}>
-              Winkelmand
-              ${this.getCartItemCount() > 0 ? html`<span class="cart-count">${this.getCartItemCount()}</span>` : ''}
+            <button type="button" class="filter-trigger" aria-expanded=${this.filtersOpen ? 'true' : 'false'} aria-controls="shop-filters" @click=${() => { this.filtersOpen = !this.filtersOpen }}>
+              <custom-icon icon="filter_list"></custom-icon>Filters${filterCount ? ` (${filterCount})` : ''}
             </button>
           </div>
 
           <div
-            class="filter-bar"
+            id="shop-filters"
+            class=${this.filtersOpen ? 'filter-bar expanded' : 'filter-bar'}
             aria-label="Productfilters">
             <select
               class="filter-select"
@@ -1602,26 +1648,28 @@ export class ShopView extends LiteElement {
               @click=${this.clearFilters}>
               Wis filters
             </button>
-            <span class="result-count">${this.totalProducts} producten</span>
           </div>
+          <div class="catalog-status"><span class="result-count" role="status">${this.loading ? 'Producten laden…' : this.productLoadFailed ? 'Catalogus niet beschikbaar' : `${this.totalProducts} ${this.totalProducts === 1 ? 'product' : 'producten'}`}${filterCount && !this.loading && !this.productLoadFailed ? ` · ${filterCount} actief` : ''}</span></div>
         </div>
 
         <div
           class="products-scroll"
           @scroll=${this.handleProductScroll}>
           ${this.loading
-            ? html`<div class="loading">Producten laden...</div>`
+            ? html`<div class="loading" aria-hidden="true">Producten laden…</div>`
             : this.productLoadFailed
               ? html`<div class="empty" role="alert">De producten konden niet geladen worden. <button class="filter-reset" type="button" @click=${() => void this.loadProducts()}>Opnieuw proberen</button></div>`
             : filteredProducts.length === 0
-              ? html`<div class="empty">Geen producten gevonden met deze zoekopdracht en filters.</div>`
+              ? html`<div class="empty">Geen producten gevonden. Pas je zoekopdracht of filters aan.
+                  ${filterCount ? html`<button class="filter-reset" type="button" @click=${this.clearFilters}>Wis filters</button>` : ''}
+                </div>`
               : html` <div class="products-grid">${this.renderProducts(filteredProducts)}</div> `}
         </div>
       </div>
 
       ${this.renderProductDetail(this.selectedProduct)}
 
-      <div class="cart-modal ${this.showCart ? 'open' : ''}">
+      <div id="shop-cart" class="cart-modal ${this.showCart ? 'open' : ''}" ?inert=${!this.showCart}>
         <div class="cart-content">
           <div class="cart-header">
             <h2>Winkelwagen</h2>
@@ -1661,7 +1709,7 @@ export class ShopView extends LiteElement {
                       </div>
                     `
                 )}
-                <div class="cart-total">Totaal: €${this.getCartTotal().toFixed(2)}</div>
+                <div class="cart-total">Totaal: ${euro.format(this.getCartTotal())}</div>
                 <button
                   class="checkout-button"
                   ?disabled=${this.ordering}

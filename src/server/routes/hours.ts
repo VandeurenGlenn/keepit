@@ -230,7 +230,7 @@ router.patch('/job/:jobId/:userId/:prestationId', serializeEmployeeWork, async (
   }
   const { jobId, userId, prestationId } = ctx.params
   const prestation = hours[userId]?.[prestationId]
-  if (!jobs[jobId] || !prestation || !jobs[jobId].hours?.[userId]?.includes(prestationId)) {
+  if (!jobs[jobId] || !prestation || prestation.jobId !== jobId || !jobs[jobId].hours?.[userId]?.includes(prestationId)) {
     ctx.status = 404
     ctx.body = { error: 'Urenregistratie niet gevonden.' }
     return
@@ -254,11 +254,20 @@ router.patch('/job/:jobId/:userId/:prestationId', serializeEmployeeWork, async (
     ctx.body = { error: 'Geef een reden van minstens 3 en maximaal 500 tekens.' }
     return
   }
+  if (checkout === undefined && (jobs[jobId].archivedAt || jobs[jobId].status === 'completed')) {
+    ctx.status = 409
+    ctx.body = { error: 'Heropen eerst de job voordat je deze registratie zonder eindtijd opslaat.' }
+    return
+  }
+  if (hasOverlappingWorkSession(hours[userId], checkin, checkout, prestationId)) {
+    ctx.status = 409
+    ctx.body = { error: 'Deze correctie overlapt met een andere urenregistratie van deze medewerker.' }
+    return
+  }
   const before = { checkin: prestation.checkin, checkout: prestation.checkout }
   prestation.checkin = checkin
   prestation.checkout = checkout
   prestation.duration = checkout === undefined ? 0 : checkout - checkin
-  if (isAdmin) prestation.source = 'admin'
   prestation.corrections = [...(prestation.corrections || []), {
     id: crypto.randomUUID(), actorId: ctx.state.userid, correctedAt: new Date().toISOString(), reason,
     before, after: { checkin, checkout }
@@ -270,7 +279,7 @@ router.patch('/job/:jobId/:userId/:prestationId', serializeEmployeeWork, async (
     jobsStore.put(jobs),
     userSessionChanged ? usersStore.put(users) : Promise.resolve()
   ])
-  ctx.body = { id: prestationId, ...prestation }
+  ctx.body = { ...prestationForRoles(prestation, actor?.roles), id: prestationId }
 })
 
 router.get('/me', async (ctx) => {

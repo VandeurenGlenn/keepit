@@ -57,7 +57,118 @@ export class QuoteView extends LiteElement{
  formatDate(value?:string){if(!value)return '—';const date=new Date(value.length===10?`${value}T12:00:00`:value);return Number.isFinite(date.getTime())?date.toLocaleDateString('nl-BE'):'—'}
  renderPrintDocument(){const job=this.jobs[this.selectedJob];const date=this.quote?.createdAt||new Date().toISOString();const reference=this.quote?.id?String(this.quote.id).slice(0,8).toUpperCase():'CONCEPT';return html`<article class="print-document" aria-hidden="true"><header class="print-head"><img class="print-brand" src="/assets/dimac.svg" alt="Dimac" /><div class="print-title"><span class="print-kicker">Offerte</span><h1>${this.name||'Naamloze offerte'}</h1></div></header><section class="print-meta"><div class="print-meta-block wide"><span class="print-label">Klant / werf</span><strong>${job?.name||'Nog geen job geselecteerd'}</strong><span>${job?.place?.formattedAddress||'Adres niet beschikbaar'}</span></div><div class="print-meta-block"><span class="print-label">Offertedatum</span><strong>${this.formatDate(date)}</strong></div><div class="print-meta-block"><span class="print-label">Geldig tot</span><strong>${this.formatDate(this.validUntil)}</strong></div><div class="print-meta-block"><span class="print-label">Referentie</span><strong>${reference}</strong></div><div class="print-meta-block"><span class="print-label">Status</span><strong>${labels[this.status]}</strong></div></section><table class="print-table"><thead><tr><th>Omschrijving</th><th>Aantal</th><th>Eenheidsprijs</th><th>Totaal</th></tr></thead><tbody>${this.materials.map(item=>html`<tr><td class="print-description"><strong>${item.name}</strong>${item.articleNumber||item.description?html`<span>${item.articleNumber||item.description}</span>`:''}</td><td>${item.quantity}${item.unit?` ${item.unit}`:''}</td><td>${euro.format(item.unitPrice||0)}</td><td>${euro.format(item.quantity*(item.unitPrice||0))}</td></tr>`)}${this.laborAmount>0?html`<tr><td class="print-description"><strong>Werkuren en uitvoering</strong></td><td>1</td><td>${euro.format(this.laborAmount)}</td><td>${euro.format(this.laborAmount)}</td></tr>`:''}${!this.materials.length&&!this.laborAmount?html`<tr><td class="print-empty" colspan="4">Nog geen offertelijnen.</td></tr>`:''}</tbody></table><section class="print-summary"><div class="print-notes">${this.notes?html`<h2>Opmerkingen</h2><p>${this.notes}</p>`:''}</div><div class="print-totals"><div class="print-total"><span>Subtotaal</span><strong>${euro.format(this.subtotal)}</strong></div>${this.discountAmount?html`<div class="print-total"><span>Korting</span><strong>− ${euro.format(this.discountAmount)}</strong></div>`:''}<div class="print-total"><span>Btw (${this.vatRate}%)</span><strong>${euro.format(this.vat)}</strong></div><div class="print-total grand"><span>Totaal</span><strong>${euro.format(this.total)}</strong></div></div></section><footer class="print-footer">Deze offerte is geldig tot ${this.formatDate(this.validUntil)}.</footer></article>`}
  renderPicker(){return html`<div class="layer" @click=${(event:Event)=>{if(event.target===event.currentTarget)this.closePicker()}}><aside class="picker" role="dialog" aria-modal="true" aria-label="Materiaal toevoegen" @keydown=${(event:KeyboardEvent)=>this.pickerKey(event)}><header class="picker-head"><div><h3>Materiaal toevoegen</h3><p>Zoek in Desco en Alelek of kies een vaak gebruikt artikel.</p></div><button class="close" aria-label="Sluiten" @click=${()=>this.closePicker()}><custom-icon icon="close"></custom-icon></button></header><div class="tools"><input type="search" aria-label="Materiaal zoeken" placeholder="Zoek naam, merk of artikelnummer…" .value=${this.pickerQuery} @input=${(event:Event)=>this.search(event)} /></div><div class="picker-body">${this.pickerLoading?html`<div class="empty">Materialen laden…</div>`:this.products.length?html`<div class="products">${this.products.map(product=>html`<article class="product">${product.image?html`<img src=${product.image} alt="" loading="lazy" />`:html`<span class="placeholder">${product.source==='desco'?'D':'A'}</span>`}<div class="product-copy"><strong>${product.name}</strong><small>${product.articleNumber||product.productNumber||product.source} · ${euro.format(product.price)}</small></div><input type="number" min="1" aria-label=${`Aantal ${product.name}`} .value=${String(this.quantities[product.id]||1)} @input=${(event:Event)=>(this.quantities={...this.quantities,[product.id]:Math.max(1,Number((event.target as HTMLInputElement).value)||1)})} /><button @click=${()=>this.addProduct(product)}>Toevoegen</button></article>`)}</div>`:html`<div class="empty">Geen materialen gevonden.</div>`}<details class="import"><summary>Winkelwagen importeren</summary><div class="import-grid"><select aria-label="Leverancier" .value=${this.importSource} @change=${(event:Event)=>(this.importSource=(event.target as HTMLSelectElement).value as 'desco'|'alelek')}><option value="desco">Desco</option><option value="alelek">Alelek</option></select><textarea aria-label="Winkelwagenregels" placeholder="Plak artikelnummer, omschrijving en aantal…" .value=${this.importText} @input=${(event:Event)=>(this.importText=(event.target as HTMLTextAreaElement).value)}></textarea><button class="button" ?disabled=${this.importing} @click=${()=>this.importCart()}>${this.importing?'Importeren…':'Importeren'}</button>${this.unmatched.length?html`<p>${this.unmatched.length} regels niet herkend.</p>`:''}</div></details></div><footer class="picker-foot"><span>${this.materials.length} regels · ${euro.format(this.total)}</span><button class="button primary" @click=${()=>this.closePicker()}>Klaar</button></footer></aside></div>`}
- render(){const job=this.jobs[this.selectedJob];const jobs=Object.entries(this.jobs||{}).filter(([id,item])=>id===this.selectedJob||(item.status!=='completed'&&!item.archivedAt));return html`${this.renderPrintDocument()}<header class="header"><div class="heading"><a class="back" href="#!/quotes" aria-label="Terug naar offertes"><custom-icon icon="arrow_back"></custom-icon></a><div><span class="eyebrow">${this.quote?'Offerte bewerken':'Nieuwe offerte'}</span><div class="title"><h1>${this.name||'Naamloze offerte'}</h1>${this.dirty?html`<span class="dirty">Niet opgeslagen</span>`:''}</div><p class="subtitle">${job?.name||'Kies een job'}</p></div></div><div class="actions"><button class="button print" aria-label="Afdrukken" @click=${()=>window.print()}><custom-icon icon="print"></custom-icon></button><button class="button primary" ?disabled=${this.saving||!this.dirty} @click=${()=>this.save()}><custom-icon icon="save"></custom-icon>${this.saving?'Opslaan…':'Opslaan'}</button></div></header>${this.message?html`<div class="message" role="status">${this.message}</div>`:''}<section class="layout"><aside class="panel settings"><label class="field">Offertenaam<input .value=${this.name} @input=${(e:Event)=>(this.name=(e.target as HTMLInputElement).value)} /></label><label class="field">Job<select @change=${(e:Event)=>(this.selectedJob=(e.target as HTMLSelectElement).value)}><option value="" ?selected=${!this.selectedJob}>Kies een job</option>${jobs.map(([id,item])=>html`<option value=${id} ?selected=${id===this.selectedJob}>${item.name}</option>`)}</select></label><label class="field">Status<select @change=${(e:Event)=>(this.status=(e.target as HTMLSelectElement).value as QuoteStatus)}>${Object.entries(labels).map(([value,label])=>html`<option value=${value} ?selected=${value===this.status}>${label}</option>`)}</select></label><label class="field">Geldig tot<input type="date" .value=${this.validUntil} @input=${(e:Event)=>(this.validUntil=(e.target as HTMLInputElement).value)} /></label><div class="financials"><label class="field">Werkbedrag<input type="number" min="0" step="0.01" .value=${String(this.laborAmount)} @input=${(e:Event)=>(this.laborAmount=Math.max(0,Number((e.target as HTMLInputElement).value)||0))} /></label><label class="field">Vaste korting<input type="number" min="0" step="0.01" .value=${String(this.discountAmount)} @input=${(e:Event)=>(this.discountAmount=Math.max(0,Number((e.target as HTMLInputElement).value)||0))} /></label><label class="field">Btw (%)<input type="number" min="0" max="100" step="0.01" .value=${String(this.vatRate)} @input=${(e:Event)=>(this.vatRate=Math.min(100,Math.max(0,Number((e.target as HTMLInputElement).value)||0)))} /></label></div><label class="field">Notities<textarea .value=${this.notes} @input=${(e:Event)=>(this.notes=(e.target as HTMLTextAreaElement).value)}></textarea></label></aside><div class="panel"><div class="quote-head"><div><h2>${job?.name||'Conceptofferte'}</h2><p>${job?.place?.formattedAddress||'Nog geen job geselecteerd'}</p></div><strong class="amount">${euro.format(this.total)}</strong></div><div class="material-head"><h3>Materiaal</h3><button class="button" @click=${()=>this.openPicker()}><custom-icon icon="add_shopping_cart"></custom-icon>Materiaal kiezen</button></div><div class="manual"><input aria-label="Vrije omschrijving" placeholder="Vrije omschrijving" .value=${this.description} @input=${(e:Event)=>(this.description=(e.target as HTMLInputElement).value)} /><input type="number" min="1" aria-label="Aantal" .value=${String(this.quantity)} @input=${(e:Event)=>(this.quantity=Number((e.target as HTMLInputElement).value))} /><input type="number" min="0" step="0.01" aria-label="Stukprijs" .value=${String(this.unitPrice)} @input=${(e:Event)=>(this.unitPrice=Number((e.target as HTMLInputElement).value))} /><button class="button" aria-label="Regel toevoegen" @click=${()=>this.addManual()}><custom-icon icon="add"></custom-icon></button></div>${this.materials.length?html`<div class="lines">${this.materials.map((item,index)=>html`<div class="line"><div class="line-name"><strong>${item.name}</strong><small>${item.articleNumber||item.unit||'Vrije regel'}</small></div><input type="number" min="0.01" aria-label=${`Aantal ${item.name}`} .value=${String(item.quantity)} @input=${(e:Event)=>this.update(index,'quantity',Number((e.target as HTMLInputElement).value))} /><input class="price" type="number" min="0" step="0.01" aria-label=${`Stukprijs ${item.name}`} .value=${String(item.unitPrice||0)} @input=${(e:Event)=>this.update(index,'unitPrice',Number((e.target as HTMLInputElement).value))} /><strong class="money">${euro.format(item.quantity*(item.unitPrice||0))}</strong><button class="delete" aria-label=${`${item.name} verwijderen`} @click=${()=>this.materials=this.materials.filter((_,i)=>i!==index)}><custom-icon icon="delete"></custom-icon></button></div>`)}</div>`:html`<div class="empty">Nog geen materiaalregels.</div>`}<div class="totals"><div class="total-line"><span>Materiaal</span><strong>${euro.format(this.materialTotal)}</strong></div><div class="total-line"><span>Werk</span><strong>${euro.format(this.laborAmount)}</strong></div><div class="total-line"><span>Korting</span><strong>− ${euro.format(this.discountAmount)}</strong></div><div class="total-line"><span>Btw (${this.vatRate}%)</span><strong>${euro.format(this.vat)}</strong></div><div class="total-line grand"><span>Totaal</span><strong>${euro.format(this.total)}</strong></div></div></div></section>${this.pickerOpen?this.renderPicker():''}`}
+ render() {
+   const job = this.jobs[this.selectedJob]
+   const jobs = Object.entries(this.jobs || {}).filter(([id, item]) => id === this.selectedJob || (item.status !== 'completed' && !item.archivedAt))
+   const read = (event: Event) => (event.target as HTMLInputElement).value
+   const money = (event: Event) => Math.max(0, Number(read(event)) || 0)
+   return html`
+     ${this.renderPrintDocument()}
+     <header class="header">
+       <div class="heading">
+         <a class="back" href="#!/quotes" aria-label="Terug naar offertes"><custom-icon icon="arrow_back"></custom-icon></a>
+         <div class="heading-copy">
+           <span class="eyebrow">${this.quote ? labels[this.status] : 'Nieuwe offerte'}</span>
+           <h1>${this.name || 'Naamloze offerte'}</h1>
+           <p class="subtitle">${job?.name || 'Nog geen job geselecteerd'}</p>
+         </div>
+       </div>
+       <div class="actions">
+         <button class="button print" aria-label="Offerte afdrukken" @click=${() => window.print()}><custom-icon icon="print"></custom-icon></button>
+         <button class="button primary" ?disabled=${this.saving || !this.dirty} @click=${() => this.save()}><custom-icon icon="save"></custom-icon>${this.saving ? 'Opslaan…' : 'Opslaan'}</button>
+       </div>
+     </header>
+     ${this.message ? html`<div class="message" role="status">${this.message}</div>` : ''}
+     <section class="layout">
+       <aside class="panel settings" aria-labelledby="quote-details">
+         <h2 id="quote-details">Offertegegevens</h2>
+         <label class="field">Offertenaam<input .value=${this.name} @input=${(event: Event) => { this.name = read(event) }}></label>
+         <label class="field">Job<select @change=${(event: Event) => { this.selectedJob = read(event) }}>
+           <option value="" ?selected=${!this.selectedJob}>Kies een job</option>${jobs.map(([id, item]) => html`<option value=${id} ?selected=${id === this.selectedJob}>${item.name}</option>`)}
+         </select></label>
+         <div class="details-pair">
+           <label class="field">Status<select @change=${(event: Event) => { this.status = read(event) as QuoteStatus }}>${Object.entries(labels).map(([value, label]) => html`<option value=${value} ?selected=${value === this.status}>${label}</option>`)}</select></label>
+           <label class="field">Geldig tot<input type="date" .value=${this.validUntil} @input=${(event: Event) => { this.validUntil = read(event) }}></label>
+         </div>
+         <details class="quote-extra" ?open=${Boolean(this.quote?.notes || this.quote?.laborAmount || this.quote?.discountAmount || (this.quote?.vatRate ?? 21) !== 21)}>
+           <summary>Werkbedrag, korting, btw en notities</summary>
+           <div class="financials">
+             <label class="field">Werkbedrag (€)<input type="number" min="0" step="0.01" .value=${String(this.laborAmount)} @input=${(event: Event) => { this.laborAmount = money(event) }}></label>
+             <label class="field">Vaste korting (€)<input type="number" min="0" step="0.01" .value=${String(this.discountAmount)} @input=${(event: Event) => { this.discountAmount = money(event) }}></label>
+             <label class="field">Btw (%)<input type="number" min="0" max="100" step="0.01" .value=${String(this.vatRate)} @input=${(event: Event) => { this.vatRate = Math.min(100, money(event)) }}></label>
+           </div>
+           <label class="field">Notities<textarea .value=${this.notes} @input=${(event: Event) => { this.notes = (event.target as HTMLTextAreaElement).value }}></textarea></label>
+         </details>
+       </aside>
+       <section class="panel material-panel" aria-labelledby="quote-material">
+         <div class="quote-head">
+           <div><h2 id="quote-material">Materialen</h2><p>${this.materials.length} ${this.materials.length === 1 ? 'regel' : 'regels'}</p></div>
+           <button type="button" class="button" @click=${() => this.openPicker()}><custom-icon icon="add_shopping_cart"></custom-icon>Materiaal kiezen</button>
+         </div>
+         <details class="manual-details"><summary>Vrije materiaalregel toevoegen</summary>
+           <div class="manual">
+             <label class="field">Omschrijving<input .value=${this.description} @input=${(event: Event) => { this.description = read(event) }}></label>
+             <label class="field">Aantal<input type="number" min="0.01" step="any" .value=${String(this.quantity)} @input=${(event: Event) => { this.quantity = Number(read(event)) }}></label>
+             <label class="field">Stukprijs (€)<input type="number" min="0" step="0.01" .value=${String(this.unitPrice)} @input=${(event: Event) => { this.unitPrice = Number(read(event)) }}></label>
+             <button type="button" class="button" aria-label="Regel toevoegen" @click=${() => this.addManual()}><custom-icon icon="add"></custom-icon></button>
+           </div>
+         </details>
+         ${this.materials.length ? html`<div class="lines">${this.materials.map((item, index) => html`<div class="line">
+           <div class="line-name"><strong>${item.name}</strong><small>${[item.articleNumber, item.unit].filter(Boolean).join(' · ') || 'Vrije regel'}</small></div>
+           <label class="field">Aantal<input type="number" min="0.01" step="any" aria-label=${`Aantal ${item.name}`} .value=${String(item.quantity)} @input=${(event: Event) => this.update(index, 'quantity', Number(read(event)))}></label>
+           <label class="field">Stukprijs<input class="price" type="number" min="0" step="0.01" aria-label=${`Stukprijs ${item.name}`} .value=${String(item.unitPrice || 0)} @input=${(event: Event) => this.update(index, 'unitPrice', Number(read(event)))}></label>
+           <strong class="money">${euro.format(item.quantity * (item.unitPrice || 0))}</strong>
+           <button type="button" class="delete" aria-label=${`${item.name} verwijderen`} @click=${() => { this.materials = this.materials.filter((_, i) => i !== index) }}><custom-icon icon="delete"></custom-icon></button>
+         </div>`)}</div>` : html`<div class="empty">Voeg een shopproduct of een vrije materiaalregel toe.</div>`}
+         <div class="totals">
+           <div class="total-line"><span>Materiaal</span><strong>${euro.format(this.materialTotal)}</strong></div>
+           <div class="total-line"><span>Werk</span><strong>${euro.format(this.laborAmount)}</strong></div>
+           <div class="total-line"><span>Korting</span><strong>− ${euro.format(this.discountAmount)}</strong></div>
+           <div class="total-line"><span>Btw (${this.vatRate}%)</span><strong>${euro.format(this.vat)}</strong></div>
+           <div class="total-line grand"><span>Totaal incl. btw</span><strong>${euro.format(this.total)}</strong></div>
+         </div>
+       </section>
+     </section>
+     ${this.pickerOpen ? this.renderPicker() : ''}
+   `
+ }
 }
-QuoteView.styles=[...QuoteView.styles,css`@media(max-width:820px){.header{align-items:stretch;flex-direction:column}.actions{display:grid;grid-template-columns:42px minmax(0,1fr);width:100%}.actions .button{width:100%;box-sizing:border-box}}`]
+QuoteView.styles = [...QuoteView.styles, css`
+  @media screen {
+    .header,.panel { box-shadow:none; min-width:0; }
+    .heading,.heading-copy { min-width:0; }
+    .heading h1 { overflow-wrap:anywhere; }
+    .back { flex:none; }
+    .eyebrow { color:var(--app-accent-label); }
+    .settings { position:static; }
+    .settings h2 { font-size:1rem; }
+    .details-pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; }
+    .details-pair input,.details-pair select { min-width:0; }
+    .quote-extra,.manual-details { border-top:1px solid var(--app-border); }
+    .quote-extra summary,.manual-details summary { padding:12px 0; cursor:pointer; color:var(--app-accent-label); font-size:.8rem; }
+    .manual-details { border-top:0; }
+    .quote-extra .field:has(textarea) { margin-top:10px; }
+    .quote-head { align-items:center; flex-wrap:wrap; }
+    .manual,.line { align-items:end; }
+    .line { grid-template-columns:minmax(0,1.3fr) minmax(54px,.55fr) minmax(68px,.65fr) minmax(max-content,.5fr) 40px; }
+    .line-name { align-self:center; }
+    .line-name strong,.line-name small { white-space:normal; overflow-wrap:anywhere; }
+    .money { align-self:center; font-variant-numeric:tabular-nums; }
+    .delete { width:40px; height:40px; }
+    .totals { padding:10px 12px; border:1px solid var(--app-border); border-radius:10px; box-sizing:border-box; background:var(--md-sys-color-surface); font-variant-numeric:tabular-nums; }
+    .total-line.grand strong { color:var(--app-accent-label); }
+  }
+  @media screen and (max-width:820px) {
+    .header { align-items:stretch; flex-direction:column; }
+    .actions { display:grid; grid-template-columns:44px minmax(0,1fr); width:100%; }
+    .actions .button { width:100%; box-sizing:border-box; }
+  }
+  @media screen and (max-width:620px) {
+    .manual { grid-template-columns:minmax(0,1fr) minmax(0,1fr) 44px; }
+    .manual .field:first-child { grid-column:1/-1; }
+    .line { grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(max-content,.85fr) 40px; }
+    .line-name { grid-column:1/-1; }
+    .line input,.field input,.field select,.field textarea { font-size:16px; }
+  }
+`]
 customElements.define('quote-view',QuoteView)

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 // @ts-ignore -- Node's test runner executes TypeScript source directly.
-import { collectRemainingMaterials, findMaterialOverbilling } from '../server/helpers/billable-materials.ts'
+import { collectRemainingMaterials, findMaterialOverbilling, otherJobInvoices } from '../server/helpers/billable-materials.ts'
+import type { Invoice } from '../types/index.js'
 
 test('tussenfacturen trekken reeds gefactureerde materiaalhoeveelheden af', () => {
   const remaining = collectRemainingMaterials(
@@ -52,4 +53,25 @@ test('klein materiaal wordt bij tussenfacturen op bedrag gecontroleerd', () => {
   assert.equal(findMaterialOverbilling([line, line], [surcharge], remaining), line)
   assert.equal(findMaterialOverbilling([{ ...line, unitPrice: 10 }], [surcharge], remaining), undefined)
   assert.equal(findMaterialOverbilling([line], [surcharge], []), line)
+})
+
+test('hetzelfde artikel behoudt aparte prijzen en eerdere facturen verbruiken eerst de passende prijsregel', () => {
+  const cable = { name: 'Kabel', articleNumber: 'K-10', unit: 'stuk', quantity: 1 }
+  const cheap = { ...cable, unitPrice: 10 }
+  const expensive = { ...cable, unitPrice: 20 }
+  const source = [cheap, expensive]
+  assert.deepEqual(collectRemainingMaterials(source), source)
+  assert.deepEqual(collectRemainingMaterials(source, [expensive]), [cheap])
+  assert.deepEqual(collectRemainingMaterials(source, [{ ...cable, unitPrice: 15 }]), [expensive])
+  assert.equal(findMaterialOverbilling([cheap, expensive], source, collectRemainingMaterials(source)), undefined)
+})
+
+test('bij wijzigen verbruiken alleen andere facturen van die job de beschikbare aantallen', () => {
+  const material = { name: 'Kabel', quantity: 2 }
+  const current = { job: 'job', materials: [{ ...material, quantity: 1 }] } as Invoice
+  const other = { ...current }
+  const others = otherJobInvoices({ current, other, unrelated: { ...current, job: 'elsewhere' } }, 'job', 'current')
+  const remaining = collectRemainingMaterials([material], others.flatMap((item) => item.materials!))
+  assert.equal(findMaterialOverbilling(current.materials!, [material], remaining), undefined)
+  assert.equal(findMaterialOverbilling([material], [material], remaining), material)
 })

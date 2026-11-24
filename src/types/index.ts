@@ -129,14 +129,17 @@ export interface Job extends BaseInput {
   materials?: MaterialLine[]
   materialDiscountPercent?: number
   // Optional notes attached to the job
-  notes?: {
-    id: string
-    text: string
-    createdAt: string
-    author?: string
-  }[]
+  notes?: JobNote[]
   status?: 'active' | 'completed'
   archivedAt?: string
+}
+
+export type JobNote = {
+  id: string
+  text: string
+  createdAt: string
+  author?: string
+  authorName?: string
 }
 
 export type JobCompletionCheck = {
@@ -218,6 +221,8 @@ export interface Invoice extends BaseInput {
   quoteId?: quoteId
   laborAmount?: number
   discountAmount?: number
+  jobMaterialDiscountPercent?: number
+  jobMaterialDiscountAmount?: number
   vatRate?: number
   kind?: 'standard' | 'interim' | 'final'
 }

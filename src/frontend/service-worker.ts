@@ -1,9 +1,15 @@
+import { isCacheableStaticResponse, staticCacheKey } from './helpers/static-cache-policy.js'
+
 const worker: any = globalThis
-const STATIC_CACHE = 'keepit-static-v1'
+const STATIC_CACHE = 'keepit-static-v2'
 
 worker.addEventListener('install', (event) => {
-  event.waitUntil(worker.caches.open(STATIC_CACHE).then((cache) => cache.addAll(['/'])))
-  worker.skipWaiting()
+  event.waitUntil(worker.caches.open(STATIC_CACHE).then(async (cache) => {
+    const response = await fetch('/', { cache: 'reload' })
+    if (!isCacheableStaticResponse(response, true)) throw new Error('Keepit-startpagina niet beschikbaar')
+    await cache.put('/', response)
+    await worker.skipWaiting()
+  }))
 })
 
 worker.addEventListener('activate', (event) => {
@@ -18,31 +24,21 @@ worker.addEventListener('fetch', (event) => {
   const request = event.request as Request
   if (request.method !== 'GET') return
   const url = new URL(request.url)
-  if (url.origin !== worker.location.origin || url.pathname.startsWith('/api/') || url.pathname === '/ws') return
-
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone()
-          void worker.caches.open(STATIC_CACHE).then((cache) => cache.put('/', copy))
-          return response
-        })
-        .catch(() => worker.caches.match('/'))
-    )
-    return
-  }
-
-  // Prefer the deployed version while online; fall back to the last verified
-  // response offline. This avoids serving an old JS bundle after an update.
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        if (response.ok) void worker.caches.open(STATIC_CACHE).then((cache) => cache.put(request, response.clone()))
-        return response
-      })
-      .catch(() => worker.caches.match(request))
-  )
+  const key = staticCacheKey(url, worker.location.origin, request.mode)
+  if (!key || request.headers.has('authorization')) return
+  const cache = worker.caches.open(STATIC_CACHE)
+  const network = fetch(request)
+  const cachedResponse = () => cache.then((value) => value.match(key)).catch(() => undefined)
+  // Keep the worker alive until the cache write finishes without delaying the page.
+  event.waitUntil(network.then((response) => {
+    if (!isCacheableStaticResponse(response, request.mode === 'navigate')) return
+    const copy = response.clone()
+    return cache.then((value) => value.put(key, copy))
+  }).catch(() => undefined))
+  event.respondWith(network.then(async (response) => {
+    if (response.status >= 500) return await cachedResponse() || response
+    return response
+  }, async () => await cachedResponse() || Response.error()))
 })
 
 worker.addEventListener('notificationclick', (event) => {

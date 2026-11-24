@@ -20,7 +20,9 @@ import {
   isFavorite
 } from '../helpers/material-preferences.js'
 import { databasePath } from '../helpers/paths.js'
-import { collectRemainingMaterials, findMaterialOverbilling } from '../helpers/billable-materials.js'
+import { collectRemainingMaterials, findMaterialOverbilling, otherJobInvoices } from '../helpers/billable-materials.js'
+import { normalizeInvoiceMaterials } from '../helpers/invoice-materials.js'
+import { allocateMaterialDiscount, materialDiscountContext, materialSubtotal } from '../../helpers/material-discount.js'
 import { findQuoteInvoiceId } from '../helpers/quote-invoices.js'
 import { createKeyedQueue } from '../helpers/keyed-queue.js'
 
@@ -49,50 +51,6 @@ const router = new Router({
   prefix: '/api/invoices'
 })
 
-const normalizeMaterials = (value: unknown): MaterialLine[] => {
-  if (!Array.isArray(value)) return []
-
-  const normalized: MaterialLine[] = []
-
-  for (const item of value) {
-    const name = typeof item?.name === 'string' ? item.name.trim() : ''
-    const quantity = Number(item?.quantity)
-    const unit = typeof item?.unit === 'string' ? item.unit.trim() : ''
-    const unitPriceRaw = item?.unitPrice
-    const unitPrice =
-      unitPriceRaw === undefined || unitPriceRaw === null || unitPriceRaw === '' ? undefined : Number(unitPriceRaw)
-    const validPrice = unitPrice !== undefined && Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : undefined
-    const small = item?.kind === 'small-materials'
-    const fallbackAmount = Number(item?.smallMaterialAmount)
-    const surcharge = validPrice ?? (Number.isFinite(fallbackAmount) && fallbackAmount >= 0 ? fallbackAmount : 0)
-
-    if (!name) continue
-
-    normalized.push({
-      name,
-      quantity: !small && Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
-      unit: unit || undefined,
-      unitPrice: small ? surcharge : validPrice,
-      kind: small ? 'small-materials' : 'material',
-      smallMaterialAmount: small ? surcharge : undefined,
-      articleNumber: typeof item?.articleNumber === 'string' ? item.articleNumber.trim() || undefined : undefined,
-      productNumber: typeof item?.productNumber === 'string' ? item.productNumber.trim() || undefined : undefined,
-      packagingQuantity: Number.isFinite(Number(item?.packagingQuantity)) ? Number(item.packagingQuantity) : undefined,
-      description: typeof item?.description === 'string' ? item.description : undefined,
-      image: typeof item?.image === 'string' ? item.image : undefined,
-      technicalData: item?.technicalData && typeof item.technicalData === 'object' ? item.technicalData : undefined
-    })
-  }
-
-  return normalized
-}
-
-const billableMaterialsForJob = (jobId: string): MaterialLine[] => {
-  const alreadyInvoiced = Object.values(invoices)
-    .filter((invoice) => invoice.job === jobId)
-    .flatMap((invoice) => invoice.materials || [])
-  return collectRemainingMaterials(jobs[jobId]?.materials || [], alreadyInvoiced)
-}
 
 const collectBillableHoursForJob = (jobId: string): InvoiceHourLine[] => {
   if (!jobId) return []
@@ -158,7 +116,11 @@ router.get('/billable/:jobId', async (ctx) => {
     ctx.body = { error: 'Job niet gevonden.' }
     return
   }
-  ctx.body = { materials: billableMaterialsForJob(jobId) }
+  const others = otherJobInvoices(invoices, jobId)
+  ctx.body = {
+    materials: collectRemainingMaterials(jobs[jobId].materials, others.flatMap((invoice) => invoice.materials || [])),
+    materialDiscount: materialDiscountContext(jobs[jobId].materialDiscountPercent, others)
+  }
 })
 
 router.get('/materials', async (ctx) => {
@@ -456,7 +418,7 @@ router.post('/', async (ctx, next) => {
     user: ctx.state.userid,
     notes: quote.notes
   } : body
-  const materials = normalizeMaterials(quote ? quote.materials : body.materials)
+  const materials = normalizeInvoiceMaterials(quote ? quote.materials : body.materials)
   const year = new Date().getFullYear()
   if (!name || !description || !invoiceImages || !company || !job || !user) {
     ctx.status = 400
@@ -474,12 +436,17 @@ router.post('/', async (ctx, next) => {
     return
   }
   const hoursSnapshot = job ? collectBillableHoursForJob(job) : []
-  const overbilled = findMaterialOverbilling(materials, jobs[job]?.materials || [], billableMaterialsForJob(job))
+  const others = otherJobInvoices(invoices, job)
+  const jobMaterials = jobs[job].materials || []
+  const overbilled = findMaterialOverbilling(materials, jobMaterials, collectRemainingMaterials(
+    jobMaterials, others.flatMap((invoice) => invoice.materials || [])
+  ))
   if (overbilled) {
     ctx.status = 409
     ctx.body = { error: `${overbilled.name}: je factureert meer dan er nog beschikbaar is voor deze job.` }
     return
   }
+  const materialDiscount = materialDiscountContext(jobs[job].materialDiscountPercent, others)
 
   const invoice: Invoice = {
     name,
@@ -498,6 +465,11 @@ router.post('/', async (ctx, next) => {
     quoteId,
     laborAmount: Math.max(0, Number(quote ? quote.laborAmount : body.laborAmount) || 0),
     discountAmount: Math.max(0, Number(quote ? quote.discountAmount : body.discountAmount) || 0),
+    // An accepted quote has its own negotiated amounts; do not stack the job discount.
+    ...(!quote && {
+      jobMaterialDiscountPercent: materialDiscount.rate,
+      jobMaterialDiscountAmount: allocateMaterialDiscount(materialSubtotal(materials), materialDiscount)
+    }),
     vatRate: Math.min(100, Math.max(0, Number(quote ? quote.vatRate ?? 21 : body.vatRate) || 0))
   }
 

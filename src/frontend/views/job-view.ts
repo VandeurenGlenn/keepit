@@ -1,6 +1,7 @@
 import { LiteElement, html, css, property } from '@vandeurenglenn/lite'
 import '@vandeurenglenn/lite-elements/icon.js'
 import { Companies, Job, MaterialLine, Place, Prestation, ShopProduct, User } from '../../types/index.js'
+import type { JobNote } from '../../types/index.js'
 import { api } from '../api/client.js'
 import { setUnsavedChanges } from '../helpers/unsaved-changes.js'
 import { showToast } from '../helpers/toast.js'
@@ -125,7 +126,7 @@ export class JobView extends LiteElement {
   materialBaseline='[]'
   detailBaseline=''
   get materialState(){return JSON.stringify({materials:this.sanitizedMaterials,discountPercent:this.normalizedMaterialDiscountPercent})}
-  get jobDirty(){return this.materialState!==this.materialBaseline||(this.editingDetails&&JSON.stringify([this.detailName.trim(),this.detailDescription.trim(),this.detailPlace?.id||'',this.detailCustomerId])!==this.detailBaseline)}
+  get jobDirty(){return Boolean(this.newNoteText.trim())||this.materialState!==this.materialBaseline||(this.editingDetails&&JSON.stringify([this.detailName.trim(),this.detailDescription.trim(),this.detailPlace?.id||'',this.detailCustomerId])!==this.detailBaseline)}
   get customerOptions(){return [['','Geen klant gekoppeld'],...Object.entries(this.companies||{}).filter(([,company])=>(company.relationshipType||'customer')==='customer').sort(([,left],[,right])=>(left.name||'').localeCompare(right.name||'','nl')).map(([id,company])=>[id,company.name||'Naamloze klant'])] as Array<[string,string]>}
   disconnectedCallback(){this.closeMaterialPickerPanel();setUnsavedChanges('job',false);super.disconnectedCallback()}
 
@@ -1641,6 +1642,9 @@ export class JobView extends LiteElement {
         return
       }
       if (this.selectedJobId !== selected) {
+        this.receivedNotes = []
+        this.newNoteText = ''
+        this.noteAttempt = undefined
         const tab = params.get('tab')
         this.activeSection = tab === 'materials' || tab === 'notes' ? tab : 'hours'
         this.openMaterials = this.activeSection === 'materials'
@@ -1681,7 +1685,7 @@ export class JobView extends LiteElement {
         this.openUsers = {}
       }
     }
-    queueMicrotask(()=>setUnsavedChanges('job',this.jobDirty))
+    queueMicrotask(()=>{if(this.isConnected)setUnsavedChanges('job',this.jobDirty)})
   }
 
   normalizeMaterials(value: MaterialLine[] | undefined): MaterialDraft[] {
@@ -2197,6 +2201,7 @@ export class JobView extends LiteElement {
   }
 
   async saveAddedHours() {
+    if (this.savingAddedHours) return
     const checkin = new Date(this.addHoursStart).getTime()
     const checkout = new Date(this.addHoursEnd).getTime()
     const reason = this.addHoursReason.trim()
@@ -2225,7 +2230,7 @@ export class JobView extends LiteElement {
   }
 
   startHourCorrection(userId: string, prestation: Prestation) {
-    if (!prestation.id) return
+    if (!prestation.id || this.correctingHours) return
     this.correctionId = prestation.id
     this.correctionUserId = userId
     this.correctionStart = this.toLocalDateTime(Number(prestation.checkin))
@@ -2233,22 +2238,32 @@ export class JobView extends LiteElement {
     this.correctionReason = ''
   }
 
-  cancelHourCorrection() { this.correctionId = ''; this.correctionUserId = ''; this.correctionReason = '' }
+  cancelHourCorrection() {
+    this.correctionId = ''
+    this.correctionUserId = ''
+    this.correctionReason = ''
+  }
 
   async saveHourCorrection() {
+    if (this.correctingHours) return
+    const jobId = this.selectedJobId
+    const userId = this.correctionUserId
+    const id = this.correctionId
     const checkin = new Date(this.correctionStart).getTime()
     const checkout = this.correctionEnd ? new Date(this.correctionEnd).getTime() : undefined
     if (!this.selectedJobId || !this.correctionId || !this.correctionUserId || !Number.isFinite(checkin) || (checkout !== undefined && (!Number.isFinite(checkout) || checkout < checkin))) return showToast('Controleer de begin- en eindtijd.')
     if (this.correctionReason.trim().length < 3) return showToast('Geef kort aan waarom je de uren corrigeert.')
     this.correctingHours = true
     try {
-      const updated = await api.correctHours(this.selectedJobId, this.correctionUserId, this.correctionId, { checkin, checkout, reason: this.correctionReason.trim() })
-      this.hours = { ...this.hours, [this.correctionUserId]: (this.hours[this.correctionUserId] || []).map((item) => item.id === this.correctionId ? updated : item) }
+      const updated = await api.correctHours(jobId, userId, id, { checkin, checkout, reason: this.correctionReason.trim() })
+      if (!this.isConnected || this.selectedJobId !== jobId) return
+      this.hours = { ...this.hours, [userId]: (this.hours[userId] || []).map((item) => item.id === id ? updated : item)
+        .sort((left, right) => Number(left.checkin) - Number(right.checkin)) }
       this.cancelHourCorrection()
       showToast('Uren gecorrigeerd en vastgelegd in het auditlog.')
     } catch (error) {
       console.error(error)
-      showToast('De urencorrectie kon niet opgeslagen worden.')
+      showToast(error instanceof Error ? error.message : 'De urencorrectie kon niet opgeslagen worden.')
     } finally { this.correctingHours = false }
   }
 
@@ -2256,36 +2271,39 @@ export class JobView extends LiteElement {
 
   @property({ type: String }) accessor newNoteText = ''
 
+  @property({ type: Boolean }) accessor savingNote = false
+  @property({ type: Array }) accessor receivedNotes: JobNote[] = []
+  private noteAttempt?: { jobId: string; text: string; id: string }
+
+  get currentNotes() {
+    const notes = new Map((this.job?.notes || []).map((note) => [note.id, note]))
+    for (const note of this.receivedNotes) notes.set(note.id, note)
+    return [...notes.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  }
+
   async _addNote() {
-    if (!this.job) return
-
-    const text = (this.newNoteText || '').trim()
+    if (!this.job || this.savingNote) return
+    const text = this.newNoteText.trim()
     if (!text) return showToast('Vul eerst een notitie in.')
-
-    const note = {
-      id: crypto.randomUUID(),
-      text,
-      createdAt: new Date().toISOString(),
-      author: (this.user as User & { id?: string })?.id || undefined
-    }
-
-    const updatedNotes = [...(this.job.notes || []), note]
-
-    // try to determine job uuid key; shell provides this.job from consuming context and may include uuid elsewhere
+    if (text.length > 4000) return showToast('Een notitie mag maximaal 4000 tekens bevatten.')
     const jobId = this.selectedJobId
-    if (!jobId) {
-      return showToast('De job kon niet bepaald worden.')
-    }
+    if (!jobId) return showToast('De job kon niet bepaald worden.')
 
+    if (this.noteAttempt?.jobId !== jobId || this.noteAttempt.text !== text) {
+      this.noteAttempt = { jobId, text, id: crypto.randomUUID() }
+    }
+    this.savingNote = true
     try {
-      const updated = await api.updateJob(jobId, { notes: updatedNotes })
-      this.job = updated
-      this.newNoteText = ''
-      this.requestRender()
+      const { notes } = await api.addJobNote(jobId, this.noteAttempt.id, text)
+      if (!this.isConnected || this.selectedJobId !== jobId) return
+      this.receivedNotes = notes
+      if (this.newNoteText.trim() === text) this.newNoteText = ''
+      this.noteAttempt = undefined
       showToast('Notitie toegevoegd.')
     } catch (error) {
-      console.error('Failed to save note:', error)
-      showToast('De notitie kon niet bewaard worden.')
+      if (this.isConnected) showToast(error instanceof Error ? error.message : 'De notitie kon niet bewaard worden.')
+    } finally {
+      this.savingNote = false
     }
   }
 
@@ -2544,7 +2562,7 @@ export class JobView extends LiteElement {
     const tabs = [
       { id: 'hours', icon: 'schedule', label: 'Uren', count: Object.values(this.hours).flat().length },
       { id: 'materials', icon: 'inventory2', label: 'Materialen', count: this.sanitizedMaterials.length },
-      { id: 'notes', icon: 'notes', label: 'Notities', count: (job.notes || []).length }
+      { id: 'notes', icon: 'notes', label: 'Notities', count: this.currentNotes.length }
     ] as const
     const materialDirty = this.materialState !== this.materialBaseline
 
@@ -2958,13 +2976,13 @@ export class JobView extends LiteElement {
           <div><h2>Notities</h2><p>Afspraken en werfinfo</p></div>
         </div>
         <div class="notes-list">
-          ${(job.notes || []).length === 0
+          ${this.currentNotes.length === 0
             ? html`<div class="notes-empty">Nog geen notities voor deze job.</div>`
-            : html`${(job.notes || []).map(
+            : html`${this.currentNotes.map(
                 (n) =>
                   html`<div class="note-item">
                     <div class="note-meta">
-                      ${new Date(n.createdAt).toLocaleString('nl-BE')}${n.author ? ' — ' + n.author : ''}
+                      ${new Date(n.createdAt).toLocaleString('nl-BE')}${n.authorName ? ' — ' + n.authorName : ''}
                     </div>
                     <div>${n.text}</div>
                   </div>`
@@ -2982,9 +3000,9 @@ export class JobView extends LiteElement {
             }}></textarea>
           <button
             class="primary"
-            ?disabled=${!this.newNoteText.trim()}
+            ?disabled=${this.savingNote || !this.newNoteText.trim()}
             @click=${this._addNote.bind(this)}>
-            Notitie toevoegen
+            ${this.savingNote ? 'Notitie opslaan…' : 'Notitie toevoegen'}
           </button>
         </div>
       </section>

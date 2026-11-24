@@ -1,5 +1,6 @@
 import {
   Job,
+  JobNote,
   JobCompletionCheck,
   Invoice,
   User,
@@ -25,12 +26,21 @@ import {
   userId,
   invoiceId
 } from '../../types/index.js'
+import type { MaterialDiscountContext } from '../../helpers/material-discount.js'
 
 interface ApiResponse<T> {
   ok: boolean
   status: number
   data?: T
   error?: string
+}
+
+export class ApiError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
 }
 
 class ApiClient {
@@ -78,7 +88,7 @@ class ApiClient {
           message = responseBody
         }
       }
-      throw new Error(message)
+      throw new ApiError(message, response.status)
     }
 
     const contentType = response.headers.get('content-type')
@@ -148,6 +158,10 @@ class ApiClient {
 
   async getJobCompletionCheck(jobId: jobId): Promise<JobCompletionCheck> {
     return this.request('GET', `/job/${jobId}/completion-check`)
+  }
+
+  async addJobNote(jobId: string, id: string, text: string): Promise<{ notes: JobNote[] }> {
+    return this.request('POST', `/job/${encodeURIComponent(jobId)}/notes`, { id, text })
   }
 
   async updateJob(jobId: jobId, updates: Omit<Partial<Job>, 'customerId'> & { customerId?: string | null }): Promise<Job> {
@@ -255,9 +269,8 @@ class ApiClient {
     return this.request('GET', `/invoices/materials?${params.toString()}`)
   }
 
-  async getBillableJobMaterials(jobId: string): Promise<MaterialLine[]> {
-    const response = await this.request<{ materials: MaterialLine[] }>('GET', `/invoices/billable/${encodeURIComponent(jobId)}`)
-    return response.materials
+  async getBillableJobMaterials(jobId: string): Promise<{ materials: MaterialLine[]; materialDiscount?: MaterialDiscountContext }> {
+    return this.request('GET', `/invoices/billable/${encodeURIComponent(jobId)}`)
   }
 
   async uploadInvoiceFile(formData: FormData): Promise<string[]> {
@@ -283,8 +296,8 @@ class ApiClient {
   }
 
   // Users API
-  async getUser(userId: userId): Promise<User> {
-    return this.request('GET', `/users/${userId}`)
+  async getUser(userId: userId, signal?: AbortSignal): Promise<User> {
+    return this.request('GET', `/users/${encodeURIComponent(userId)}`, undefined, signal)
   }
 
   async updateContinuousTimelinePreference(enabled: boolean): Promise<{ continuousTimelineLocation: boolean }> {
@@ -321,8 +334,8 @@ class ApiClient {
     return this.request('DELETE', '/timeline/me')
   }
 
-  async getHandshake(): Promise<string> {
-    return this.request('GET', '/handshake')
+  async getHandshake(signal?: AbortSignal): Promise<string> {
+    return this.request('GET', '/handshake', undefined, signal)
   }
 
   async registerUser(user: Partial<User> & { inviteId?: string }): Promise<User> {

@@ -63,6 +63,8 @@ export default html` <custom-icon-set>
     <span name="description">@symbol-description</span>
     <span name="content_copy">@symbol-content_copy</span>
     <span name="add_shopping_cart">@symbol-add_shopping_cart</span>
+    <span name="shopping_cart">@symbol-shopping_cart</span>
+    <span name="filter_list">@symbol-filter_list</span>
     <span name="source_environment">@symbol-source_environment</span>
     <span name="local_shipping">@symbol-local_shipping</span>
     <span name="fact_check">@symbol-fact_check</span>

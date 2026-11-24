@@ -1,4 +1,4 @@
-import type { MaterialLine } from '../../types/index.js'
+import type { Invoice, Invoices, MaterialLine } from '../../types/index.js'
 
 const normalized = (value: unknown) => String(value || '').trim().toLocaleLowerCase('nl')
 
@@ -22,7 +22,11 @@ export const findMaterialOverbilling = (
   remaining: MaterialLine[]
 ): MaterialLine | undefined => {
   const trackedKeys = new Set(jobMaterials.map(materialBillingKey))
-  const available = new Map(remaining.map((line) => [materialBillingKey(line), billingAmount(line)]))
+  const available = new Map<string, number>()
+  for (const line of remaining) {
+    const key = materialBillingKey(line)
+    available.set(key, (available.get(key) || 0) + billingAmount(line))
+  }
   const totals = new Map<string, number>()
   for (const line of requested) {
     const key = materialBillingKey(line)
@@ -37,58 +41,63 @@ export const collectRemainingMaterials = (
   jobMaterials: MaterialLine[] = [],
   invoicedMaterials: MaterialLine[] = []
 ): MaterialLine[] => {
-  const invoicedQuantities = new Map<string, number>()
+  const invoicedByKey = new Map<string, MaterialLine[]>()
   let invoicedSmallMaterialAmount = 0
   for (const material of invoicedMaterials) {
     const key = materialBillingKey(material)
     if (key === 'kind:small-materials') {
-      invoicedSmallMaterialAmount += Number(material.smallMaterialAmount ?? material.unitPrice) || 0
+      invoicedSmallMaterialAmount += billingAmount(material)
       continue
     }
-    invoicedQuantities.set(key, (invoicedQuantities.get(key) || 0) + Math.max(0, Number(material.quantity) || 0))
+    const billed = invoicedByKey.get(key) || []
+    billed.push(material)
+    invoicedByKey.set(key, billed)
   }
 
-  const available = new Map<string, MaterialLine>()
+  const groups = new Map<string, MaterialLine[]>()
+  let surcharge: MaterialLine | undefined
+  let surchargeAmount = 0
   for (const material of jobMaterials) {
     const key = materialBillingKey(material)
-    const existing = available.get(key)
     if (key === 'kind:small-materials') {
-      const amount = Number(material.smallMaterialAmount ?? material.unitPrice) || 0
-      available.set(key, {
-        ...(existing || material),
-        ...material,
-        quantity: 1,
-        unitPrice: (Number(existing?.unitPrice) || 0) + amount,
-        smallMaterialAmount: (Number(existing?.smallMaterialAmount) || 0) + amount
-      })
+      surcharge = material
+      surchargeAmount += billingAmount(material)
       continue
     }
-    available.set(key, {
-      ...(existing || material),
-      ...material,
-      quantity: (Number(existing?.quantity) || 0) + Math.max(0, Number(material.quantity) || 0)
-    })
+    const lines = groups.get(key) || []
+    lines.push({ ...material, quantity: billingAmount(material) })
+    groups.set(key, lines)
   }
 
   const remaining: MaterialLine[] = []
-  for (const [key, material] of available) {
-    if (key === 'kind:small-materials') {
-      const currentAmount = Number(material.smallMaterialAmount ?? material.unitPrice) || 0
-      const amount = Math.max(0, currentAmount - invoicedSmallMaterialAmount)
-      if (amount > 0.000_001) {
-        remaining.push({
-          ...material,
-          name: 'Klein materiaal',
-          quantity: 1,
-          unit: material.unit || 'toeslag',
-          unitPrice: amount,
-          smallMaterialAmount: amount
-        })
+  for (const [key, lines] of groups) {
+    const consume = (quantity: number, matches: (line: MaterialLine) => boolean) => {
+      for (const line of lines) {
+        if (quantity <= 0) break
+        if (!matches(line)) continue
+        const taken = Math.min(quantity, line.quantity)
+        line.quantity -= taken
+        quantity -= taken
       }
-      continue
+      return quantity
     }
-    const quantity = Math.max(0, Number(material.quantity) - (invoicedQuantities.get(key) || 0))
-    if (quantity > 0.000_001) remaining.push({ ...material, quantity })
+    let unmatched = 0
+    for (const billed of invoicedByKey.get(key) || []) {
+      unmatched += consume(billingAmount(billed), (line) =>
+        line.unitPrice === billed.unitPrice && normalized(line.unit) === normalized(billed.unit))
+    }
+    // A legacy line with a changed or missing price still consumed a quantity.
+    consume(unmatched, () => true)
+    remaining.push(...lines.filter((line) => line.quantity > 0.000_001))
   }
+  const amount = Math.max(0, surchargeAmount - invoicedSmallMaterialAmount)
+  if (surcharge && amount > 0.000_001) remaining.push({
+    ...surcharge, name: 'Klein materiaal', quantity: 1, unit: surcharge.unit || 'toeslag',
+    unitPrice: amount, smallMaterialAmount: amount
+  })
   return remaining
+}
+
+export function otherJobInvoices(invoices: Invoices, jobId: string, excludeId?: string): Invoice[] {
+  return Object.entries(invoices).flatMap(([id, invoice]) => id !== excludeId && invoice.job === jobId ? [invoice] : [])
 }

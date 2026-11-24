@@ -45,9 +45,15 @@ export const findOpenPrestationId = (
 export const hasOverlappingWorkSession = (
   userHours: Record<string, Prestation>,
   checkin: number,
-  checkout: number
-): boolean => Object.values(userHours).some((entry) => {
-  const existingStart = Number(entry.checkin)
-  const existingEnd = entry.checkout === undefined ? Number.POSITIVE_INFINITY : Number(entry.checkout)
-  return Number.isFinite(existingStart) && checkin < existingEnd && checkout > existingStart
-})
+  checkout: number | undefined,
+  excludeId?: string
+): boolean => {
+  const end = checkout ?? Number.POSITIVE_INFINITY
+  if (end <= checkin) return false
+  return Object.entries(userHours).some(([id, entry]) => {
+    if (id === excludeId) return false
+    const existingStart = Number(entry.checkin)
+    const existingEnd = entry.checkout == null ? Number.POSITIVE_INFINITY : Number(entry.checkout)
+    return Number.isFinite(existingStart) && existingEnd > existingStart && checkin < existingEnd && end > existingStart
+  })
+}

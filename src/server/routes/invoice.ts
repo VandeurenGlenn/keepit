@@ -3,8 +3,10 @@ import { createReadStream } from 'node:fs'
 import { realpath, stat } from 'node:fs/promises'
 import { sep } from 'node:path'
 
-import { invoices, invoicesStore } from '../database/database.js'
-import { MaterialLine } from '../../types/index.js'
+import { invoices, invoicesStore, jobs } from '../database/database.js'
+import { collectRemainingMaterials, findMaterialOverbilling, otherJobInvoices } from '../helpers/billable-materials.js'
+import { normalizeInvoiceMaterials } from '../helpers/invoice-materials.js'
+import { allocateMaterialDiscount, materialDiscountContext, materialSubtotal } from '../../helpers/material-discount.js'
 import { databasePath } from '../helpers/paths.js'
 import { invoiceAttachmentPath } from '../helpers/invoice-attachment.js'
 
@@ -40,39 +42,6 @@ router.get('/:uuid/attachment/:index', async (ctx) => {
   ctx.body = { error: 'Factuurbijlage niet gevonden.' }
 })
 
-const normalizeMaterials = (value: unknown): MaterialLine[] => {
-  if (!Array.isArray(value)) return []
-
-  const normalized: MaterialLine[] = []
-
-  for (const item of value) {
-    const name = typeof item?.name === 'string' ? item.name.trim() : ''
-    const quantity = Number(item?.quantity)
-    const unit = typeof item?.unit === 'string' ? item.unit.trim() : ''
-    const unitPriceRaw = item?.unitPrice
-    const unitPrice =
-      unitPriceRaw === undefined || unitPriceRaw === null || unitPriceRaw === '' ? undefined : Number(unitPriceRaw)
-
-    if (!name) continue
-
-    normalized.push({
-      name,
-      quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
-      unit: unit || undefined,
-      unitPrice: unitPrice !== undefined && Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : undefined,
-      kind: item?.kind === 'small-materials' ? 'small-materials' : 'material',
-      smallMaterialAmount: Number.isFinite(Number(item?.smallMaterialAmount)) ? Number(item.smallMaterialAmount) : undefined,
-      articleNumber: typeof item?.articleNumber === 'string' ? item.articleNumber.trim() || undefined : undefined,
-      productNumber: typeof item?.productNumber === 'string' ? item.productNumber.trim() || undefined : undefined,
-      packagingQuantity: Number.isFinite(Number(item?.packagingQuantity)) ? Number(item.packagingQuantity) : undefined,
-      description: typeof item?.description === 'string' ? item.description : undefined,
-      image: typeof item?.image === 'string' ? item.image : undefined,
-      technicalData: item?.technicalData && typeof item.technicalData === 'object' ? item.technicalData : undefined
-    })
-  }
-
-  return normalized
-}
 
 router.get('/:uuid', async (ctx) => {
   const uuid = ctx.params.uuid
@@ -117,8 +86,41 @@ router.patch('/:uuid', async (ctx) => {
   const nextDescription =
     typeof payload.description === 'string' ? payload.description : invoices[uuid].description || ''
   const nextNotes = typeof payload.notes === 'string' ? payload.notes : invoices[uuid].notes || ''
-  const nextMaterials =
-    payload.materials === undefined ? invoices[uuid].materials || [] : normalizeMaterials(payload.materials)
+  const current = invoices[uuid]
+  let nextMaterials = current.materials || []
+  let jobMaterialDiscountAmount = current.jobMaterialDiscountAmount
+  if (payload.materials !== undefined) {
+    if (!Array.isArray(payload.materials)) {
+      ctx.status = 400
+      ctx.body = { error: 'Geef een geldige materiaallijst op.' }
+      return
+    }
+    nextMaterials = normalizeInvoiceMaterials(payload.materials)
+    if (nextMaterials.length !== payload.materials.length) {
+      ctx.status = 400
+      ctx.body = { error: 'Controleer de materiaalregels.' }
+      return
+    }
+    const job = Object.hasOwn(jobs, current.job) ? jobs[current.job] : undefined
+    if (!job) {
+      ctx.status = 409
+      ctx.body = { error: 'De gekoppelde job ontbreekt; de factureerbare materialen kunnen niet gecontroleerd worden.' }
+      return
+    }
+    const others = otherJobInvoices(invoices, current.job, uuid)
+    const jobMaterials = job.materials || []
+    const overbilled = findMaterialOverbilling(nextMaterials, jobMaterials, collectRemainingMaterials(
+      jobMaterials, others.flatMap((invoice) => invoice.materials || [])
+    ))
+    if (overbilled) {
+      ctx.status = 409
+      ctx.body = { error: `${overbilled.name}: je factureert meer dan er nog beschikbaar is voor deze job.` }
+      return
+    }
+    if (current.jobMaterialDiscountPercent !== undefined) {
+      jobMaterialDiscountAmount = allocateMaterialDiscount(materialSubtotal(nextMaterials), materialDiscountContext(current.jobMaterialDiscountPercent, others))
+    }
+  }
 
   invoices[uuid] = {
     ...invoices[uuid],
@@ -126,6 +128,7 @@ router.patch('/:uuid', async (ctx) => {
     description: nextDescription,
     notes: nextNotes,
     materials: nextMaterials,
+    jobMaterialDiscountAmount,
     updatedAt: new Date().toISOString()
   }
 

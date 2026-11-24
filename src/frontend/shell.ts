@@ -10,7 +10,7 @@ import './elements/user/account-bar.js'
 import './views/loading-view.js'
 import './elements/build-info.js'
 import './elements/global-search.js'
-import { api } from './api/client.js'
+import { api, ApiError } from './api/client.js'
 import { TimelineTracker } from './helpers/timeline-tracker.js'
 import type { AppNotification } from '../types/index.js'
 import { mergeUnreadNotifications, notificationTarget } from './helpers/notification-queue.js'
@@ -55,6 +55,8 @@ export class AppShell extends LiteElement {
   @property({ type: Boolean }) accessor routeLoading = false
   @property({ type: Boolean, attribute: 'is-menu-open', reflect: true }) accessor isMenuOpen = false
   @property({ type: Boolean, attribute: 'auth-resolving' }) accessor authResolving = false
+  @property({ type: Boolean }) accessor authUnavailable = false
+  private authAttempt = 0
   @property({ type: Array }) accessor unreadNotifications: AppNotification[] = []
   @property({ type: Boolean }) accessor notificationBusy = false
   get appNotification() { return this.unreadNotifications[0] }
@@ -291,6 +293,9 @@ export class AppShell extends LiteElement {
     this.registerServiceWorker()
     if (!this.notificationListenerBound) {
       this.notificationListenerBound = true
+      window.addEventListener('online', () => {
+        if (this.authUnavailable) this.checkUserStatus()
+      })
       window.addEventListener('focus', () => void this.loadUnreadNotifications())
       navigator.serviceWorker?.addEventListener('message', (event) => {
         if (!this.userSignedIn || event.data?.type !== 'keepit-notification-open') return
@@ -337,6 +342,8 @@ export class AppShell extends LiteElement {
   }
 
   clearStoredAuth() {
+    this.authAttempt++
+    this.authUnavailable = false
     this.routeRequest?.abort()
     this.routeLoading = false
     this.error = null
@@ -526,7 +533,7 @@ export class AppShell extends LiteElement {
     if (cached) return cached
 
     try {
-      const response = await fetch(pictureUrl)
+      const response = await fetch(pictureUrl, { signal: AbortSignal.timeout(3000) })
 
       if (!response.ok) return pictureUrl
 
@@ -686,18 +693,26 @@ export class AppShell extends LiteElement {
   }
 
   async setUser(credential) {
+    const attempt = ++this.authAttempt
+    const current = () => attempt === this.authAttempt && localStorage.getItem('token') === credential
     this.authResolving = true
+    this.authUnavailable = false
     this.capturePendingInvite()
     const token = localStorage.getItem('token')
     if ((token && token !== credential) || !token) localStorage.setItem('token', credential)
 
-    const user = this._decodeToken(credential)
-
     try {
-      const handshakeData = await api.getHandshake()
+      let user
+      try { user = this._decodeToken(credential) }
+      catch { this.clearStoredAuth(); return }
+      if (!navigator.onLine) throw new Error('Offline')
+      const signal = AbortSignal.timeout(12_000)
+      const handshakeData = await api.getHandshake(signal)
+      if (!current()) return
 
       if (handshakeData === 'NOT_REGISTERED') {
         user.picture = (await this.cacheProfilePicture(user.picture)) || user.picture
+        if (!current()) return
         this.user = user
         this.userSignedIn = true
         this.authResolving = false
@@ -707,15 +722,20 @@ export class AppShell extends LiteElement {
         return
       }
 
+      const userData = await api.getUser(user.id, signal)
+      if (!current()) return
+      if (!userData || typeof userData !== 'object' || Array.isArray(userData) || !Object.keys(userData).length ||
+          typeof handshakeData !== 'string' || !handshakeData.trim()) {
+        throw new Error('Ongeldig antwoord bij aanmelden.')
+      }
       localStorage.setItem('ticket', handshakeData)
-
-      const userData = await api.getUser(user.id)
       const mergedUser = { ...user, ...userData }
       setOfflineActionOwner(user.id)
       const pendingWork = getPendingWorkState(mergedUser.currentJob, mergedUser.currentPrestationId)
       mergedUser.currentJob = pendingWork.currentJob
       mergedUser.currentPrestationId = pendingWork.currentPrestationId
       mergedUser.picture = (await this.cacheProfilePicture(mergedUser.picture)) || mergedUser.picture
+      if (!current()) return
       this.user = mergedUser
       this.userSignedIn = true
       void flushOfflineActions()
@@ -738,8 +758,16 @@ export class AppShell extends LiteElement {
 
       this.initWSClient()
     } catch (error) {
-      console.error('Auth failed:', error)
-      this.clearStoredAuth()
+      if (!current()) return
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        this.clearStoredAuth()
+        return
+      }
+      this.authResolving = false
+      this.authUnavailable = true
+      this.userSignedIn = false
+      this.timelineTracker.stop()
+      setOfflineActionOwner()
     }
   }
 
@@ -793,9 +821,16 @@ export class AppShell extends LiteElement {
       `
     }
 
-    if (!this.userSignedIn && this.selected !== 'register') {
+    if (!this.userSignedIn) {
       if (this.authResolving) {
         return html` <loading-view type="loading"></loading-view> `
+      }
+      if (this.authUnavailable) {
+        return html`<section class="signed-out-shell"><div class="signed-out-panel">
+          <h1>Keepit is niet bereikbaar</h1>
+          <p role="status">Je aanmelding en lokaal opgeslagen uren blijven bewaard. Probeer opnieuw zodra je verbinding terug is.</p>
+          <button class="global-search-trigger" type="button" @click=${() => this.checkUserStatus()}>Opnieuw proberen</button>
+        </div></section>`
       }
 
       queueMicrotask(() => {

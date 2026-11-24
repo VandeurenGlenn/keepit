@@ -24,6 +24,7 @@ export class TimelineView extends LiteElement {
   @property({ type: String }) accessor editEnd = ''
   @property({ type: String }) accessor editReason = ''
   @property({ type: Boolean }) accessor savingEdit = false
+  @property({ type: Number }) accessor rangeDays = 30
 
   static styles = [
     css`
@@ -145,36 +146,41 @@ export class TimelineView extends LiteElement {
         font-weight: 650;
       }
 
-      .location-chip {
-        position: relative;
+      .location-chip { max-width:100%; color:var(--app-accent-label); }
+
+      .location-chip summary {
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        color: var(--app-accent);
+        min-height: 36px;
+        padding: 0 7px;
+        box-sizing: border-box;
+        border: 1px solid var(--app-border);
+        border-radius: 8px;
         font-weight: 550;
-        cursor: help;
+        font-size: .77rem;
+        cursor: pointer;
       }
+
+      .location-chip summary::-webkit-details-marker { display:none; }
+      .location-chip summary:focus-visible { outline:2px solid var(--app-accent-label); outline-offset:2px; }
+      .location-chip[open] { flex-basis:100%; }
 
       .location-chip.off-site {
         color: var(--md-sys-color-error);
       }
 
       .location-preview {
-        position: absolute;
-        z-index: 20;
-        left: 0;
-        bottom: calc(100% + 9px);
-        width: max-content;
-        max-width: min(320px, 72vw);
-        display: none;
+        display: flex;
         flex-direction: column;
         gap: 4px;
+        margin-top: 5px;
         padding: 10px 12px;
         border: 1px solid var(--app-border);
         border-radius: 12px;
         background: var(--app-panel-strong);
         color: var(--md-sys-color-on-surface);
-        box-shadow: var(--app-shadow-strong);
+        overflow-wrap: anywhere;
         font-size: 0.78rem;
         font-weight: 500;
         line-height: 1.4;
@@ -186,11 +192,6 @@ export class TimelineView extends LiteElement {
 
       .location-preview small {
         color: var(--md-sys-color-on-surface-variant);
-      }
-
-      .location-chip:hover .location-preview,
-      .location-chip:focus-visible .location-preview {
-        display: flex;
       }
 
       .location-warning {
@@ -405,6 +406,33 @@ export class TimelineView extends LiteElement {
           grid-column: auto;
         }
       }
+
+      .header { gap:6px; }
+      .eyebrow,.duration { color:var(--app-accent-label); }
+      h1 { font-size:clamp(1.65rem,4vw,2.15rem); }
+      .timeline-tools { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+      .range-picker { display:flex; padding:3px; gap:4px; border:1px solid var(--app-border); border-radius:10px; background:var(--app-panel); }
+      .range-picker button,.retry { min-height:40px; padding:0 10px; border:1px solid transparent; border-radius:7px; background:transparent; color:inherit; font:inherit; font-size:.8rem; cursor:pointer; }
+      .range-picker button[aria-pressed=true],.retry { color:var(--app-accent-label); background:var(--app-accent-soft); }
+      .range-picker button:focus-visible,.retry:focus-visible { outline:2px solid var(--app-accent-label); outline-offset:2px; }
+      .timeline-total { color:var(--md-sys-color-on-surface-variant); font-size:.8rem; }
+      .timeline-total strong { color:var(--md-sys-color-on-surface); font-variant-numeric:tabular-nums; }
+      .day-heading { display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; padding:0 0 6px; border-bottom:1px solid var(--app-border); }
+      .day-title { color:var(--md-sys-color-on-surface); }
+      .day-total { color:var(--md-sys-color-on-surface-variant); font-size:.77rem; font-variant-numeric:tabular-nums; }
+      .entry { grid-template-columns:8px minmax(0,1fr) auto; gap:12px; box-shadow:none; }
+      .marker { width:8px; height:8px; box-shadow:none; margin-top:8px; }
+      .entry-side .duration { border-radius:8px; font-variant-numeric:tabular-nums; }
+      .entry-side .duration.live { color:color-mix(in srgb,var(--app-success) 60%,var(--md-sys-color-on-surface) 40%); background:var(--app-success-soft); }
+      .meta-time { font-variant-numeric:tabular-nums; }
+      @media(max-width:620px) {
+        :host { gap:14px; }
+        .entry { grid-template-columns:6px minmax(0,1fr); padding:12px; gap:9px; }
+        .marker { width:6px; height:6px; }
+        .entry-side { align-items:center; justify-content:space-between; }
+        .edit-button { min-height:40px; }
+        .correction-form input { font-size:16px; }
+      }
     `
   ]
 
@@ -441,6 +469,7 @@ export class TimelineView extends LiteElement {
   }
 
   startEditing(entry: TimelineEntry) {
+    if (this.savingEdit) return
     this.editingId = entry.id
     this.editStart = this.toLocalDateTime(Number(entry.checkin))
     this.editEnd = this.toLocalDateTime(Number(entry.checkout))
@@ -456,6 +485,7 @@ export class TimelineView extends LiteElement {
   }
 
   async saveCorrection(entry: TimelineEntry) {
+    if (this.savingEdit) return
     const userId = this.user?.id
     const jobId = entry.jobId
     const checkin = new Date(this.editStart).getTime()
@@ -472,7 +502,10 @@ export class TimelineView extends LiteElement {
         checkout,
         reason: this.editReason.trim()
       })
-      this.entries = this.entries.map((item) => item.id === entry.id ? { ...item, ...updated, id: entry.id } : item)
+      if (!this.isConnected || this.user?.id !== userId) return
+      this.entries = this.entries.map((item) => item.id === entry.id
+        ? { ...item, ...updated, id: entry.id, checkout: updated.checkout }
+        : item)
       this.cancelEditing()
       showToast('Uren aangepast. De wijziging is bewaard in het correctielog.')
     } catch (error) {
@@ -488,11 +521,14 @@ export class TimelineView extends LiteElement {
   }
 
   formatDuration(entry: TimelineEntry) {
-    const duration = this.getDuration(entry)
-    const minutes = Math.max(0, Math.round(duration / 60_000))
+    return this.formatElapsed(this.getDuration(entry))
+  }
+
+  formatElapsed(duration: number) {
+    const minutes = Number.isFinite(duration) ? Math.max(0, Math.round(duration / 60_000)) : 0
     const hours = Math.floor(minutes / 60)
     const rest = minutes % 60
-    return hours ? `${hours}u ${rest.toString().padStart(2, '0')}` : `${rest} min`
+    return hours ? `${hours} u ${rest.toString().padStart(2, '0')}` : `${rest} min`
   }
 
   renderHoursWarning(entry: TimelineEntry) {
@@ -523,18 +559,14 @@ export class TimelineView extends LiteElement {
     verification?: LocationVerification
   ) {
     return html`
-      <span
-        class="location-chip ${this.canViewLocationFlags() && verification?.status === 'off-site' ? 'off-site' : ''}"
-        tabindex="0">
-        <custom-icon icon=${icon}></custom-icon>${label}
-        <span
-          class="location-preview"
-          role="tooltip">
+      <details class="location-chip ${this.canViewLocationFlags() && verification?.status === 'off-site' ? 'off-site' : ''}">
+        <summary><custom-icon icon=${icon}></custom-icon>${label}</summary>
+        <div class="location-preview">
           <strong>${place?.name || 'Plaats wordt opgezocht'}</strong>
           ${place?.formattedAddress ? html`<span>${place.formattedAddress}</span>` : ''}
           ${!place ? html`<small>Vernieuw de tijdlijn om de plaatsnaam aan te vullen.</small>` : ''}
-        </span>
-      </span>
+        </div>
+      </details>
     `
   }
 
@@ -550,13 +582,28 @@ export class TimelineView extends LiteElement {
     </span>`
   }
 
-  get groupedEntries() {
+  get visibleEntries() {
+    if (this.rangeDays === 30) return this.entries
+    const from = new Date()
+    from.setHours(0, 0, 0, 0)
+    from.setDate(from.getDate() - (this.rangeDays - 1))
+    return this.entries.filter((entry) => entry.checkin >= from.getTime())
+  }
+
+  finishedDuration(entries: TimelineEntry[]) {
+    return entries.reduce((total, entry) => {
+      const duration = this.getDuration(entry)
+      return entry.checkout && Number.isFinite(duration) && duration >= 0 ? total + duration : total
+    }, 0)
+  }
+
+  groupEntries(entries: TimelineEntry[]) {
     const formatter = new Intl.DateTimeFormat('nl-BE', {
       weekday: 'long',
       day: 'numeric',
       month: 'long'
     })
-    return this.entries.reduce<Record<string, TimelineEntry[]>>((groups, entry) => {
+    return [...entries].sort((a, b) => b.checkin - a.checkin).reduce<Record<string, TimelineEntry[]>>((groups, entry) => {
       const label = formatter.format(entry.checkin)
       ;(groups[label] ||= []).push(entry)
       return groups
@@ -565,13 +612,14 @@ export class TimelineView extends LiteElement {
 
   renderEntry(entry: TimelineEntry) {
     const job = entry.jobId ? this.jobs?.[entry.jobId] : undefined
+    const overnight = entry.checkout && new Date(entry.checkin).toDateString() !== new Date(entry.checkout).toDateString()
     return html`
       <article class="entry">
         <span class="marker"></span>
         <div class="entry-copy">
           <h3>${job?.name || 'Onbekende job'}</h3>
           <div class="meta">
-            <span>${this.formatTime(entry.checkin)} – ${this.formatTime(entry.checkout)}</span>
+            <span class="meta-time">${this.formatTime(entry.checkin)} – ${entry.checkout ? this.formatTime(entry.checkout) : 'nu'}${overnight ? ` (${new Date(entry.checkout).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })})` : ''}</span>
             ${job?.place?.formattedAddress ? html`<span>${job.place.formattedAddress}</span>` : ''}
           </div>
           <span class="source-badge">${entry.source === 'offline-sync' ? 'Offline geregistreerd' : entry.source === 'admin' ? 'Door admin ingevoerd' : entry.source === 'legacy' ? 'Oude registratie' : 'Manueel gestart'}</span>
@@ -609,36 +657,43 @@ export class TimelineView extends LiteElement {
             ? html`<section class="correction-form" aria-label="Uren aanpassen"><h4>Uren aanpassen</h4><label>Starttijd<input type="datetime-local" .value=${this.editStart} @input=${(event:Event)=>(this.editStart=(event.target as HTMLInputElement).value)} /></label><label>Eindtijd <span class="muted">(leeg indien bezig)</span><input type="datetime-local" .value=${this.editEnd} @input=${(event:Event)=>(this.editEnd=(event.target as HTMLInputElement).value)} /></label><label class="correction-reason">Reden<input maxlength="500" placeholder="Bijvoorbeeld: verkeerde starttijd gekozen" .value=${this.editReason} @input=${(event:Event)=>(this.editReason=(event.target as HTMLInputElement).value)} /></label><div class="correction-actions"><button @click=${()=>this.cancelEditing()}>Annuleren</button><button class="save" ?disabled=${this.savingEdit} @click=${()=>this.saveCorrection(entry)}>${this.savingEdit?'Opslaan…':'Aanpassing opslaan'}</button></div></section>`
             : ''}
         </div>
-        <div class="entry-side"><span class="duration">${this.formatDuration(entry)}</span>${entry.jobId&&!entry.invoiceId&&!entry.invoicedAt&&this.editingId!==entry.id?html`<button class="edit-button" @click=${()=>this.startEditing(entry)}><custom-icon icon="edit"></custom-icon>Aanpassen</button>`:''}</div>
+        <div class="entry-side"><span class=${entry.checkout ? 'duration' : 'duration live'}>${entry.checkout ? this.formatDuration(entry) : 'Lopend'} </span>${entry.jobId&&!entry.invoiceId&&!entry.invoicedAt&&this.editingId!==entry.id?html`<button class="edit-button" @click=${()=>this.startEditing(entry)}><custom-icon icon="edit"></custom-icon>Aanpassen</button>`:''}</div>
       </article>
     `
   }
 
   render() {
+    const entries = this.visibleEntries
     return html`
       <section class="header">
-        <span class="eyebrow">Laatste 30 dagen</span>
+        <span class="eyebrow">Werkregistratie</span>
         <h1>Mijn tijdlijn</h1>
-        <p class="muted">Je bevestigde werkuren, aankomsten en vertrekken.</p>
+        <p class="muted">Bekijk je werkuren en de start- en eindlocaties per job.</p>
       </section>
 
+      <div class="timeline-tools">
+        <div class="range-picker" role="group" aria-label="Periode">
+          ${[7, 30].map((days) => html`<button type="button" aria-pressed=${this.rangeDays === days ? 'true' : 'false'} @click=${() => { this.rangeDays = days }}>${days} dagen</button>`)}
+        </div>
+        ${!this.loading && !this.error ? html`<span class="timeline-total" aria-live="polite"><strong>${this.formatElapsed(this.finishedDuration(entries))}</strong> afgerond · ${entries.length} ${entries.length === 1 ? 'registratie' : 'registraties'}</span>` : ''}
+      </div>
       ${this.loading
-        ? html`<div class="empty"><p class="muted">Tijdlijn laden…</p></div>`
+        ? html`<div class="empty" role="status"><p class="muted">Tijdlijn laden…</p></div>`
         : this.error
-          ? html`<div class="empty"><p>${this.error}</p></div>`
-          : this.entries.length === 0
+          ? html`<div class="empty" role="alert"><p>${this.error}</p><button class="retry" type="button" @click=${() => void this.loadTimeline()}>Opnieuw proberen</button></div>`
+          : entries.length === 0
             ? html`
                 <div class="empty">
-                  <h2>Nog geen werkmomenten</h2>
-                  <p class="muted">Start je eerste job; je bevestigde manuele start verschijnt daarna hier.</p>
-                  <a href="#!/checkin">Werk starten</a>
+                  <h2>Geen registraties in deze periode</h2>
+                  <p class="muted">Een bevestigde start verschijnt hier zodra je een job begint.</p>
+                  ${this.rangeDays === 7 ? html`<button type="button" class="retry" @click=${() => { this.rangeDays = 30 }}>Bekijk 30 dagen</button>` : html`<a href="#!/checkin">Werk starten</a>`}
                 </div>
               `
             : html`
-                ${Object.entries(this.groupedEntries).map(
+                ${Object.entries(this.groupEntries(entries)).map(
                   ([label, entries]) => html`
                     <section class="day">
-                      <h2 class="day-title">${label} · Werkuren</h2>
+                      <div class="day-heading"><h2 class="day-title">${label}</h2><span class="day-total">${this.formatElapsed(this.finishedDuration(entries))} afgerond</span></div>
                       ${entries.map((entry) => this.renderEntry(entry))}
                     </section>
                   `

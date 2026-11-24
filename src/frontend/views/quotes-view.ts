@@ -40,6 +40,98 @@ export class QuotesView extends LiteElement{
      if(this.isConnected)showToast(error instanceof Error?error.message:'Factuur aanmaken mislukt.')
    }finally{this.converting=false}
  }
- render(){const query=this.searchQuery.trim().toLowerCase();const entries=Object.values(this.quotes||{}).filter(quote=>{const job=this.jobs?.[quote.jobId];return(this.statusFilter==='all'||quote.status===this.statusFilter)&&(!query||`${quote.name} ${job?.name||''}`.toLowerCase().includes(query))}).sort((a,b)=>Date.parse(b.updatedAt)-Date.parse(a.updatedAt));const customers=Object.entries(this.companies||{}).filter(([,company])=>company.relationshipType!=='supplier');return html`<header class="page-header"><div class="heading"><span class="page-icon"><custom-icon icon="request_quote"></custom-icon></span><div><span class="eyebrow">Verkoop</span><h1>Offertes</h1><p class="subtitle">Bewaar, keur goed en zet prijsvoorstellen om naar facturen.</p></div></div><a class="primary" href="#!/quote" aria-label="Nieuwe offerte"><custom-icon icon="add"></custom-icon><span>Nieuwe offerte</span></a></header><div class="toolbar"><div class="search-wrap"><custom-icon icon="search"></custom-icon><input type="search" aria-label="Offertes zoeken" placeholder="Zoek offerte of job…" .value=${this.searchQuery} @input=${(event:Event)=>(this.searchQuery=(event.target as HTMLInputElement).value)} /></div><select aria-label="Filter op status" .value=${this.statusFilter} @change=${(event:Event)=>(this.statusFilter=(event.target as HTMLSelectElement).value)}><option value="all">Alle statussen</option>${Object.entries(statusLabels).map(([value,label])=>html`<option value=${value}>${label}</option>`)}</select></div><div class="list-heading"><h2>Opgeslagen offertes</h2><span class="count" aria-live="polite">${entries.length} ${entries.length===1?'resultaat':'resultaten'}</span></div>${entries.length?html`<section class="grid">${entries.map(quote=>{const job=this.jobs?.[quote.jobId];return html`<article class="card"><a class="card-link" href=${`#!/quote?selected=${quote.id}`} aria-label=${`${quote.name} openen`}></a><span class="card-icon"><custom-icon icon="description"></custom-icon></span><div class="copy"><h3>${quote.name}</h3><p>${job?.name||'Onbekende job'} · ${new Date(quote.updatedAt).toLocaleDateString('nl-BE')}</p><span class="status">${statusLabels[quote.status]}</span></div><div class="meta"><strong class="amount">${euro.format(this.total(quote))}</strong><div class="actions">${quote.convertedInvoiceId?html`<a class="icon-button converted" href=${`#!/invoice?selected=${quote.convertedInvoiceId}`} aria-label="Aangemaakte factuur openen"><custom-icon icon="receipt"></custom-icon></a>`:quote.status==='approved'?html`<button class="icon-button" aria-label="Offerte omzetten naar factuur" @click=${(event:Event)=>this.openConversion(event,quote)}><custom-icon icon="receipt_long"></custom-icon></button>`:''}<button class="icon-button" aria-label="Offerte dupliceren" ?disabled=${this.busyId===quote.id} @click=${(event:Event)=>this.duplicate(event,quote.id)}><custom-icon icon="content_copy"></custom-icon></button><button class="icon-button" aria-label="Offerte verwijderen" ?disabled=${this.busyId===quote.id} @click=${(event:Event)=>this.removeQuote(event,quote.id)}><custom-icon icon="delete"></custom-icon></button></div></div></article>`})}</section>`:html`<div class="empty">Nog geen offertes gevonden.</div>`}${this.convertQuoteId?html`<div class="layer" @click=${(event:Event)=>{if(event.target===event.currentTarget)this.closeConversion()}}><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="convert-title"><h2 id="convert-title">Offerte omzetten naar factuur</h2><p>Materiaal, werkbedrag, korting, btw en nog niet gefactureerde uren worden overgenomen.</p><label>Klant<select .value=${this.convertCompany} @change=${(event:Event)=>(this.convertCompany=(event.target as HTMLSelectElement).value)}><option value="">Kies een klant</option>${customers.map(([id,company])=>html`<option value=${id}>${company.name}</option>`)}</select></label><div class="dialog-actions"><button class="button" @click=${()=>this.closeConversion()}>Annuleren</button><button class="primary" ?disabled=${this.converting||!this.convertCompany} @click=${()=>this.convert()}>${this.converting?'Aanmaken…':'Factuur aanmaken'}</button></div></section></div>`:''}`}
+ render() {
+   const all = Object.values(this.quotes || {})
+   const query = this.searchQuery.trim().toLocaleLowerCase('nl-BE')
+   const clear = () => { this.searchQuery = ''; this.statusFilter = 'all' }
+   const entries = all.filter(quote => {
+     const job = this.jobs?.[quote.jobId]
+     const customer = job?.customerId ? this.companies?.[job.customerId] : undefined
+     return (this.statusFilter === 'all' || quote.status === this.statusFilter) &&
+       (!query || `${quote.name} ${job?.name || ''} ${customer?.name || ''}`.toLocaleLowerCase('nl-BE').includes(query))
+   }).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+   const customers = Object.entries(this.companies || {}).filter(([, company]) => company.relationshipType !== 'supplier')
+   return html`
+     <header class="page-header">
+       <div class="heading"><span class="page-icon"><custom-icon icon="request_quote"></custom-icon></span>
+         <div><span class="eyebrow">Facturatie</span><h1>Offertes</h1><p class="subtitle">Van prijsvoorstel naar factuur.</p></div>
+       </div>
+       <a class="primary" href="#!/quote" aria-label="Nieuwe offerte"><custom-icon icon="add"></custom-icon><span>Nieuwe offerte</span></a>
+     </header>
+     <div class="toolbar">
+       <div class="search-wrap"><custom-icon icon="search"></custom-icon>
+         <input type="search" aria-label="Offertes zoeken" placeholder="Zoek offerte, job of klant…" .value=${this.searchQuery}
+           @input=${(event: Event) => { this.searchQuery = (event.target as HTMLInputElement).value }}>
+       </div>
+       <div class="status-filters" role="group" aria-label="Filter op status">
+         ${[['all', 'Alles'], ...Object.entries(statusLabels)].map(([value, label]) => html`
+           <button type="button" aria-pressed=${this.statusFilter === value ? 'true' : 'false'} @click=${() => { this.statusFilter = value }}>
+             ${label} <span>${value === 'all' ? all.length : all.filter(quote => quote.status === value).length}</span>
+           </button>`)}
+       </div>
+     </div>
+     <div class="list-heading"><h2>Opgeslagen offertes</h2><span class="count" aria-live="polite">${entries.length} ${entries.length === 1 ? 'offerte' : 'offertes'}</span></div>
+     ${entries.length ? html`<section class="grid" aria-label="Opgeslagen offertes">${entries.map(quote => {
+       const job = this.jobs?.[quote.jobId]
+       const customer = job?.customerId ? this.companies?.[job.customerId] : undefined
+       return html`<article class="card">
+         <a class="quote-link" href=${`#!/quote?selected=${encodeURIComponent(quote.id)}`}>
+           <span class="card-icon"><custom-icon icon="description"></custom-icon></span>
+           <div class="copy"><h3>${quote.name}</h3>
+             <p>${[job?.name, customer?.name].filter(Boolean).join(' · ') || 'Geen job gekoppeld'}</p>
+             <span class="status" data-status=${quote.status}>${statusLabels[quote.status]}</span>
+             <time datetime=${quote.updatedAt}>${new Date(quote.updatedAt).toLocaleDateString('nl-BE')}</time>
+           </div>
+           <div class="price"><strong class="amount">${euro.format(this.total(quote))}</strong><small>incl. btw</small></div>
+         </a>
+         <div class="actions">
+           ${quote.convertedInvoiceId ? html`<a class="button converted" href=${`#!/invoice?selected=${encodeURIComponent(quote.convertedInvoiceId)}`}><custom-icon icon="receipt"></custom-icon>Factuur openen</a>`
+           : quote.status === 'approved' ? html`<button class="button" @click=${(event: Event) => this.openConversion(event, quote)}><custom-icon icon="receipt_long"></custom-icon>Maak factuur</button>` : ''}
+           <button class="icon-button" title="Dupliceren" aria-label=${`Offerte ${quote.name} dupliceren`} ?disabled=${this.busyId === quote.id} @click=${(event: Event) => this.duplicate(event, quote.id)}><custom-icon icon="content_copy"></custom-icon></button>
+           <button class="icon-button" title="Verwijderen" aria-label=${`Offerte ${quote.name} verwijderen`} ?disabled=${this.busyId === quote.id} @click=${(event: Event) => this.removeQuote(event, quote.id)}><custom-icon icon="delete"></custom-icon></button>
+         </div>
+       </article>`
+     })}</section>` : html`<div class="empty"><h3>${all.length ? 'Geen overeenkomende offertes' : 'Nog geen offertes'}</h3>
+       <p>${all.length ? 'Pas je zoekopdracht of statusfilter aan.' : 'Maak je eerste prijsvoorstel voor een job.'}</p>
+       ${all.length ? html`<button class="button" @click=${clear}>Filters wissen</button>` : html`<a class="button" href="#!/quote">Nieuwe offerte</a>`}
+     </div>`}
+     ${this.convertQuoteId ? html`<div class="layer" @click=${(event: Event) => { if (event.target === event.currentTarget && !this.converting) this.closeConversion() }}>
+       <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="convert-title" @keydown=${(event: KeyboardEvent) => { if (event.key === 'Escape' && !this.converting) this.closeConversion() }}>
+         <h2 id="convert-title">Offerte omzetten naar factuur</h2>
+         <p>Materiaal, werkbedrag, korting, btw en nog niet gefactureerde uren worden overgenomen.</p>
+         <label>Klant<select .value=${this.convertCompany} ?disabled=${this.converting} @change=${(event: Event) => { this.convertCompany = (event.target as HTMLSelectElement).value }}>
+           <option value="">Kies een klant</option>${customers.map(([id, company]) => html`<option value=${id}>${company.name}</option>`)}</select>
+         </label>
+         <div class="dialog-actions"><button class="button" ?disabled=${this.converting} @click=${() => this.closeConversion()}>Annuleren</button><button class="primary" ?disabled=${this.converting || !this.convertCompany} @click=${() => this.convert()}>${this.converting ? 'Aanmaken…' : 'Factuur aanmaken'}</button></div>
+       </section></div>` : ''}
+   `
+ }
 }
+QuotesView.styles = [...QuotesView.styles, css`
+  .page-header,.card { box-shadow:none; }
+  .eyebrow { color:var(--app-accent-label); }
+  .toolbar { display:flex; flex-direction:column; gap:10px; }
+  .status-filters { display:flex; flex-wrap:wrap; gap:6px; }
+  .status-filters button { min-height:42px; padding:0 10px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel); color:inherit; cursor:pointer; font-size:.78rem; }
+  .status-filters button[aria-pressed=true] { background:var(--app-accent-soft); color:var(--app-accent-label); border-color:currentColor; }
+  .status-filters span { margin-left:4px; font-variant-numeric:tabular-nums; opacity:.8; }
+  .card { display:flex; flex-direction:column; align-items:stretch; gap:0; padding:0; overflow:hidden; }
+  .quote-link { display:grid; grid-template-columns:42px minmax(0,1fr) auto;align-items:start;gap:12px; flex:1; padding:14px; color:inherit; text-decoration:none; }
+  .quote-link:hover { background:var(--app-panel-strong); }
+  .quote-link:focus-visible { outline-offset:-3px; }
+  .copy h3,.copy p { white-space:normal; overflow-wrap:anywhere; }
+  .copy time { margin-left:6px; color:var(--md-sys-color-on-surface-variant); font-size:.68rem; font-variant-numeric:tabular-nums; }
+  .status { color:var(--app-accent-label); }
+  .status[data-status=approved] { color:color-mix(in srgb,var(--app-success) 70%,var(--md-sys-color-on-surface) 30%); background:var(--app-success-soft); }
+  .status[data-status=rejected] { color:var(--md-sys-color-error); background:color-mix(in srgb,currentColor 12%,transparent); }
+  .price { display:grid; justify-items:end; gap:3px; text-align:right; font-variant-numeric:tabular-nums; }
+  .price small { color:var(--md-sys-color-on-surface-variant); font-size:.68rem; }
+  .actions { justify-content:flex-end; align-items:center; flex-wrap:wrap; padding:7px 12px; border-top:1px solid var(--app-border); }
+  .actions :is(.button,.icon-button) { min-height:40px; font-size:.75rem; }
+  .actions .icon-button { width:40px; }
+  .empty { display:grid; justify-items:center; gap:10px; padding:28px 14px; }
+  .empty h3 { color:var(--md-sys-color-on-surface); }
+  @media(max-width:760px) { .quote-link { grid-template-columns:minmax(0,1fr) auto; padding:12px; } .card-icon { display:none; } }
+  @media(max-width:360px) { .status-filters button { padding:0 8px; } .copy time { display:block; margin:5px 0 0; } }
+`]
 customElements.define('quotes-view',QuotesView)

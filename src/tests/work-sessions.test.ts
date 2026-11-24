@@ -53,3 +53,14 @@ test('een open registratie blokkeert latere adminuren',()=>{
   assert.equal(hasOverlappingWorkSession(hours,1_100,1_500),true)
   assert.equal(hasOverlappingWorkSession(hours,100,900),false)
 })
+
+test('een correctie vergelijkt met andere jobs, niet met de eigen registratie', () => {
+  const hours = {
+    edited: { ...base, checkin: 1000, checkout: 2000 },
+    other: { ...base, jobId: 'job-2', checkin: 2200, checkout: 2800 }
+  }
+  assert.equal(hasOverlappingWorkSession(hours, 1000, 2200, 'edited'), false)
+  assert.equal(hasOverlappingWorkSession(hours, 1000, 2201, 'edited'), true)
+  assert.equal(hasOverlappingWorkSession(hours, 1000, undefined, 'edited'), true)
+  assert.equal(hasOverlappingWorkSession(hours, 2800, undefined, 'edited'), false)
+})

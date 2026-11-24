@@ -9,6 +9,7 @@ import { CompaniesMixin } from '../mixins/companies.js'
 import { Invoice, Job, MaterialLine, Prestation, User } from './../../types/index.js'
 import { ChipField } from './../elements/chip/field.js'
 import { api } from '../api/client.js'
+import { allocateMaterialDiscount, type MaterialDiscountContext } from '../../helpers/material-discount.js'
 import mimes from 'mime'
 import './../elements/list/item.js'
 import './../elements/view/header.js'
@@ -60,6 +61,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   @property({ type: Object }) accessor openHourUsers: Record<string, boolean> = {}
   @property({ type: Boolean }) accessor openMaterials = false
   @property({ type: Array }) accessor billableMaterials: MaterialLine[] = []
+  @property({ type: Object }) accessor materialDiscount: MaterialDiscountContext | undefined
   @property({ type: String }) accessor invoiceKind: 'standard' | 'interim' | 'final' = 'standard'
   @property({ type: String }) accessor prefillJobId = ''
   @property({ type: String }) accessor createForJob = ''
@@ -623,6 +625,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     const request = ++this.billingRequest
     const current = () => this.isConnected && this.addingInvoice && request === this.billingRequest
     this.billableMaterials = []
+    this.materialDiscount = undefined
     this.billableHours = {}
     this.hourUsers = {}
     this.openHourUsers = {}
@@ -637,9 +640,10 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
       void this.loadMaterialSuggestions(linkedCustomer)
     }
     try {
-      const [materials, hours] = await Promise.all([api.getBillableJobMaterials(jobId), api.getJobHours(jobId, true)])
+      const [billing, hours] = await Promise.all([api.getBillableJobMaterials(jobId), api.getJobHours(jobId, true)])
       if (!current()) return
-      this.billableMaterials = materials
+      this.billableMaterials = billing.materials
+      this.materialDiscount = billing.materialDiscount
       this.billableHours = Object.fromEntries(Object.entries(hours).filter(([, entries]) => entries.length))
       this.loadJobMaterials()
       void this.loadHourUsers(Object.keys(this.billableHours), current)
@@ -883,6 +887,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
     this.prefillJobId = ''
     this.notes = ''
     this.billableMaterials = []
+    this.materialDiscount = undefined
     this.billableHours = {}
     this.hourUsers = {}
     this.openHourUsers = {}
@@ -952,6 +957,9 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
   }
 
   renderAddInvoice() {
+    const discountedMaterials = this.materialDiscount
+      ? Math.max(0, this.materialsTotal - allocateMaterialDiscount(this.materialsTotal, this.materialDiscount))
+      : this.materialsTotal
     const euro = new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' })
     return html`
       ${this.takingPicture ? html`
@@ -1042,7 +1050,7 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
 
           ${this.billingJob && !this.billingLoading && !this.billingLoadFailed ? html`<dl class="billing-summary">
             <div><dt>Factureerbare uren</dt><dd>${(this.totalBillableDuration / 3_600_000).toLocaleString('nl-BE', { maximumFractionDigits: 2 })} u</dd></div>
-            <div><dt>Materialen · excl. btw</dt><dd>${euro.format(this.materialsTotal)}</dd></div>
+            <div><dt>Materialen${this.materialDiscount?.rate ? ' na materiaalkorting' : ''} · excl. btw</dt><dd>${euro.format(discountedMaterials)}</dd></div>
           </dl>` : ''}
 
           <label class="invoice-kind-field">Factuurtype
@@ -1058,6 +1066,10 @@ export class InvoicesView extends JobsMixin(CompaniesMixin(LiteElement)) {
               <div class="materials-header-meta">
                 <h3>Gebruikte materialen</h3>
                 <span class="materials-total-inline">Totaal € ${this.materialsTotal.toFixed(2)}</span>
+                ${this.materialDiscount?.rate ? html`<span class="materials-total-inline">
+                  Na materiaalkorting (${this.materialDiscount.rate}%): €
+                  ${Math.max(0, this.materialsTotal - allocateMaterialDiscount(this.materialsTotal, this.materialDiscount)).toFixed(2)}
+                </span>` : ''}
               </div>
               <button
                 type="button"
