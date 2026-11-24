@@ -1,5 +1,4 @@
 import { LiteElement, customElement, css, html, property } from '@vandeurenglenn/lite'
-import '@vandeurenglenn/lite-elements/theme.js'
 import '@vandeurenglenn/flex-elements/container.js'
 import '@vandeurenglenn/flex-elements/wrap-around.js'
 import '@vandeurenglenn/lite-elements/icon-button.js'
@@ -39,6 +38,7 @@ export class AppShell extends LiteElement {
   @property({ type: Boolean, attribute: 'signed-in', reflect: true }) accessor userSignedIn
 
   @property({ type: Boolean, provides: true }) accessor darkMode
+  @property({ type: String }) accessor appearance = document.documentElement.dataset.appearance || 'system'
 
   @property({ type: Object, provides: true }) accessor user
 
@@ -327,9 +327,7 @@ export class AppShell extends LiteElement {
       window.addEventListener('keepit-timeline-preference', () => this.syncTimelineTracker())
       this.timelinePreferenceListenerBound = true
     }
-    this.setupMediaQuery('(prefers-color-scheme: dark)', ({ matches }) => {
-      this.darkMode = matches
-    })
+    this.setupMediaQuery('(prefers-color-scheme: dark)', () => this.updateDarkMode())
 
     this.setupMediaQuery('(min-width: 1200px)', ({ matches }) => {
       this.isNarrow = !matches
@@ -1048,6 +1046,19 @@ export class AppShell extends LiteElement {
     }
   }
 
+  updateDarkMode() {
+    this.darkMode = this.appearance === 'dark' ||
+      (this.appearance === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
+  }
+
+  setAppearance(value: string) {
+    this.appearance = value === 'light' || value === 'dark' ? value : 'system'
+    if (this.appearance === 'system') delete document.documentElement.dataset.appearance
+    else document.documentElement.dataset.appearance = this.appearance
+    try { localStorage.setItem('keepit.appearance', this.appearance) } catch { /* Theme still applies to this page. */ }
+    this.updateDarkMode()
+  }
+
   render() {
     const showWorkspace = this.userSignedIn && this.selected !== 'register'
     return html`
@@ -1089,10 +1100,6 @@ export class AppShell extends LiteElement {
           </section>`
         : ''}
 
-      <custom-theme
-        load-symbols="false"
-        load-fonts="false"></custom-theme>
-
       ${showWorkspace
         ? html`<custom-icon-button
             class="menu-toggle"
@@ -1115,7 +1122,7 @@ export class AppShell extends LiteElement {
                 if (event.key === 'Escape') this._closeMenu(true)
               }}>
               <div class="drawer-head">
-                <span>Menu</span>
+                <span>Keepit</span>
                 <custom-icon-button
                   class="drawer-close"
                   icon="close"
@@ -1205,7 +1212,15 @@ export class AppShell extends LiteElement {
                   <a href="#!/reports" aria-current=${this.selected === 'reports' ? 'page' : undefined} class=${this.selected === 'reports' ? 'nav-item active' : 'nav-item'}><custom-icon icon="analytics"></custom-icon>Rapporten</a>
                 </section>` : ''}
               </nav>
-              <div class="drawer-bottom"><div class="drawer-profile">${this.user?.picture?html`<img src=${this.user.picture} alt="" referrerpolicy="no-referrer" />`:html`<span class="drawer-avatar">${this.user?.name?.trim().charAt(0).toUpperCase()||'U'}</span>`}<div class="drawer-profile-copy"><strong>${this.user?.name||'Gebruiker'}</strong><span>${this.user?.roles?.includes('admin')?'Administrator':'Medewerker'}</span></div></div><build-info></build-info></div>
+              <div class="drawer-bottom">
+                <label class="appearance-control">Thema
+                  <select @change=${(event: Event) => this.setAppearance((event.target as HTMLSelectElement).value)}>
+                    ${[['system', 'Systeem'], ['light', 'Licht'], ['dark', 'Donker']].map(([value, label]) => html`<option value=${value} ?selected=${this.appearance === value}>${label}</option>`)}
+                  </select>
+                </label>
+                <div class="drawer-profile">${this.user?.picture?html`<img src=${this.user.picture} alt="" referrerpolicy="no-referrer" />`:html`<span class="drawer-avatar">${this.user?.name?.trim().charAt(0).toUpperCase()||'U'}</span>`}<div class="drawer-profile-copy"><strong>${this.user?.name||'Gebruiker'}</strong><span>${this.user?.roles?.includes('admin')?'Administrator':'Medewerker'}</span></div></div>
+                <build-info></build-info>
+              </div>
             </aside>`
         : ''}
 

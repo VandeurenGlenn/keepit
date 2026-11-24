@@ -229,11 +229,7 @@ export class JobView extends LiteElement {
       }
 
       .materials-save {
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--app-accent) 88%, white 12%),
-          var(--app-accent-strong)
-        );
+        background: var(--app-accent);
         color: var(--md-sys-color-on-primary);
       }
 
@@ -854,14 +850,10 @@ export class JobView extends LiteElement {
       }
 
       button.primary {
-        border: 1px solid color-mix(in srgb, var(--app-accent) 82%, white 18%);
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--app-accent) 88%, white 12%),
-          var(--app-accent-strong)
-        );
+        border: 1px solid var(--app-accent-strong);
+        background: var(--app-accent);
         color: var(--md-sys-color-on-primary);
-        border-radius: 999px;
+        border-radius: var(--app-radius-control);
         padding: 12px 18px;
         font: inherit;
         cursor: pointer;
@@ -1598,16 +1590,24 @@ export class JobView extends LiteElement {
         }
       }
       @media screen {
-        .job-hero { padding:18px 20px; background:var(--app-panel); box-shadow:none; }
+        .job-hero { padding:6px 0 12px; border:0; border-bottom:1px solid var(--app-border); border-radius:0; background:none; box-shadow:none; }
         .job-hero::before { display:none; }
         .job-icon, .stat-icon { color:var(--app-accent-label); }
+        .job-icon { width:40px; height:40px; border-radius:8px; --custom-icon-size:21px; }
+        .job-title { font-size:clamp(1.35rem,3vw,1.8rem); letter-spacing:-.02em; }
+        .job-kicker { color:var(--app-accent-label); }
+        .stats-grid { gap:0; padding:4px; box-sizing:border-box; border:1px solid var(--app-border); border-radius:var(--app-radius-panel); background:var(--app-panel); }
+        .stat-card { padding:8px 12px; border:0; border-radius:0; background:none; }
+        .stat-card + .stat-card { border-left:1px solid var(--app-border); }
+        .stat-value { font-size:1.15rem; }
+        .stats-grid .stat-icon { display:none; }
         .job-content-grid { grid-template-columns:minmax(0,1fr); }
         .main-column, .side-column { display:contents; }
         .section-panel[hidden] { display:none; }
         .section-panel { box-shadow:none; min-width:0; }
-        .section-nav { position:static; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); background:var(--app-panel); backdrop-filter:none; box-shadow:none; padding:4px; gap:4px; }
-        .section-nav button { min-width:0; min-height:44px; justify-content:center; padding:0 6px; }
-        .section-nav button[aria-selected=true] { color:var(--app-accent-label); background:var(--app-accent-soft); }
+        .section-nav { position:static; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); background:none; backdrop-filter:none; box-shadow:none; padding:0; gap:4px; border:0; border-bottom:1px solid var(--app-border); border-radius:0; }
+        .section-nav button { min-width:0; min-height:44px; justify-content:center; padding:0 6px; border-radius:0; border-bottom:2px solid transparent; }
+        .section-nav button[aria-selected=true] { color:var(--app-accent-label); border-bottom-color:currentColor; background:none; }
         .section-nav button:focus-visible { outline:2px solid var(--app-accent-label); outline-offset:-2px; }
         .tab-count { padding:1px 6px; border-radius:9px; background:var(--app-panel-strong); font-variant-numeric:tabular-nums; }
         .material-save-bar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:10px 12px; border:1px solid var(--app-border); border-radius:12px; background:var(--md-sys-color-surface); }
@@ -1617,9 +1617,9 @@ export class JobView extends LiteElement {
         .material-save-bar .materials-save:disabled { opacity:.58; cursor:default; }
       }
       @media screen and (max-width: 580px) {
-        .job-hero { padding:14px; gap:12px; }
-        .stats-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
-        .stat-card { padding:9px 7px; border-radius:10px; }
+        .job-hero { padding:4px 0 12px; gap:12px; }
+        .stats-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+        .stat-card { padding:7px; }
         .stat-label { font-size:.66rem; overflow-wrap:anywhere; }
         .stat-value { font-size:1rem; }
         .section-nav custom-icon, .stats-grid .stat-icon { display:none; }

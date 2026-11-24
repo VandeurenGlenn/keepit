@@ -1,0 +1,56 @@
+:root {
+  color-scheme: light dark;
+  --md-sys-color-background: light-dark(#f2f5f5, #10181c);
+  --md-sys-color-surface: light-dark(#ffffff, #172126);
+  --md-sys-color-surface-container: light-dark(#edf2f2, #202d32);
+  --md-sys-color-surface-container-high: light-dark(#e6ecec, #28383e);
+  --md-sys-color-on-surface: light-dark(#132328, #ecf5f4);
+  --md-sys-color-on-background: var(--md-sys-color-on-surface);
+  --md-sys-color-on-surface-variant: light-dark(#4c6268, #a5b8bc);
+  --md-sys-color-on-surface-container: var(--md-sys-color-on-surface);
+  --md-sys-color-on-surface-container-high: var(--md-sys-color-on-surface);
+  --md-sys-color-outline: light-dark(#687d82, #84999e);
+  --md-sys-color-outline-variant: light-dark(#c9d6d7, #36494f);
+  --md-sys-color-inverse-surface: light-dark(#17292e, #e1efee);
+  --md-sys-color-inverse-on-surface: light-dark(#eff7f7, #15282d);
+  --md-sys-color-shadow: #000000;
+  --md-sys-color-scrim: #000000;
+  --app-accent: light-dark(#12695e, #7bd4c4);
+  --app-accent-strong: light-dark(#0e584f, #98dfd2);
+  --app-accent-label: light-dark(#0e6358, #9ae0d3);
+  --app-accent-soft: light-dark(#dbeeea, #203b39);
+  --app-accent-soft-strong: light-dark(#cbe5df, #294842);
+  --md-sys-color-primary: var(--app-accent);
+  --md-sys-color-on-primary: light-dark(#ffffff, #112f2c);
+  --md-sys-color-primary-container: var(--app-accent-soft);
+  --md-sys-color-on-primary-container: var(--app-accent-label);
+  --md-sys-color-secondary: light-dark(#465f69, #a9c5cf);
+  --md-sys-color-on-secondary: light-dark(#ffffff, #182e37);
+  --md-sys-color-secondary-container: light-dark(#dfe9ed, #243a43);
+  --md-sys-color-on-secondary-container: light-dark(#243943, #dceaf0);
+  --md-sys-color-tertiary: var(--md-sys-color-secondary);
+  --md-sys-color-on-tertiary: var(--md-sys-color-on-secondary);
+  --md-sys-color-tertiary-container: var(--md-sys-color-secondary-container);
+  --md-sys-color-on-tertiary-container: var(--md-sys-color-on-secondary-container);
+  --md-sys-color-error: light-dark(#a5353d, #ffaaa9);
+  --md-sys-color-on-error: light-dark(#ffffff, #4b151a);
+  --md-sys-color-error-container: light-dark(#f9e0e1, #4c2529);
+  --md-sys-color-on-error-container: light-dark(#701d24, #ffd9d9);
+  --app-success: light-dark(#226d48, #79d7a8);
+  --app-success-soft: light-dark(#e0f1e7, #203c32);
+  --app-warning: light-dark(#865909, #edc175);
+  --app-warning-soft: light-dark(#f9eedb, #3d3222);
+  --app-border: light-dark(#d5e0e1, #304147);
+  --app-panel: var(--md-sys-color-surface);
+  --app-panel-strong: var(--md-sys-color-surface-container);
+  --app-navigation: light-dark(#f9fbfb, #141e23);
+  background: var(--md-sys-color-background);
+  color: var(--md-sys-color-on-background);
+}
+
+:root[data-appearance='light'] { color-scheme: light; }
+:root[data-appearance='dark'] { color-scheme: dark; }
+
+@media print {
+  :root { color-scheme: only light !important; }
+}

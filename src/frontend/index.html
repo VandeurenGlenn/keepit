@@ -6,6 +6,13 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0" />
     <title>Keepit</title>
+    <script>
+      try {
+        const appearance = localStorage.getItem('keepit.appearance')
+        if (appearance === 'light' || appearance === 'dark') document.documentElement.dataset.appearance = appearance
+      } catch {}
+    </script>
+    <link rel="stylesheet" href="/assets/keepit-theme.css" />
 
     <meta
       name="google-signin-scope"

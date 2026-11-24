@@ -416,10 +416,23 @@ export class JobsView extends jobsMixin {
         }
       }
       .page-header::before { display:none; }
-      .page-header,.job-card { box-shadow:none; }
+      .page-header { padding:4px 0 12px; border:0; border-bottom:1px solid var(--app-border); border-radius:0; background:none; box-shadow:none; }
+      .page-header h1 { font-size:1.65rem; letter-spacing:-.02em; }
+      .page-icon { display:none; }
       .eyebrow,.job-icon { color:var(--app-accent-label); }
       .job-title,.job-address { white-space:normal; overflow-wrap:anywhere; }
-      .delete-button { width:42px; height:42px; opacity:1; }
+      .jobs-grid { grid-template-columns:minmax(0,1fr); gap:0; border-top:1px solid var(--app-border); }
+      .job-card { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:0; min-height:0; padding-right:2px; overflow:visible; border:0; border-bottom:1px solid var(--app-border); border-radius:0; background:none; box-shadow:none; }
+      .job-card:hover { border-color:var(--app-border); background:var(--app-panel); }
+      .job-link { grid-template-columns:32px minmax(0,1fr) 18px; min-height:68px; padding:8px 7px; gap:9px; border-radius:6px; }
+      .job-title { font-weight:650; font-size:.92rem; }
+      .job-address { margin-top:3px; }
+      .job-icon { width:32px; height:32px; border-radius:7px; }
+      .job-icon custom-icon { --custom-icon-size:17px; --custom-icon-color:currentColor; }
+      .job-meta { margin-top:4px; flex-wrap:wrap; color:var(--md-sys-color-on-surface-variant); font-size:.73rem; }
+      .job-meta .status { min-height:19px; border-radius:5px; padding:0 5px; }
+      .job-meta .material-count { min-height:0; padding:0; border:0; background:none; }
+      .delete-button { position:static; width:40px; height:40px; margin:0 0 0 3px; opacity:1; }
       .reset-filters { min-height:42px; padding:0 12px; border:1px solid var(--app-border); border-radius:9px; background:var(--app-panel); color:inherit; cursor:pointer; }
       @media (max-width:720px) {
         .search,.status-filter,.customer-filter { font-size:16px; }
@@ -528,7 +541,7 @@ export class JobsView extends jobsMixin {
                 <a
                   class="job-link"
                   href=${`#!/job?selected=${encodeURIComponent(key)}`}>
-                  <span class="job-icon">${job.name?.trim().charAt(0) || '?'}</span>
+                  <span class="job-icon"><custom-icon icon="work"></custom-icon></span>
                   <div class="job-info">
                     <h3 class="job-title">${job.name || 'Naamloze job'}</h3>
                     <p class="job-address">${job.place?.formattedAddress || 'Locatie ontbreekt'}</p>
@@ -542,7 +555,7 @@ export class JobsView extends jobsMixin {
                   </div>
                   <custom-icon
                     class="job-arrow"
-                    icon="arrow-forward"></custom-icon>
+                    icon="chevron_right"></custom-icon>
                 </a>
                 ${this.user?.roles?.includes('admin') ? html`<button
                   type="button"

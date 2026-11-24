@@ -7,18 +7,10 @@
   box-sizing: border-box;
   position: relative;
   overflow: hidden;
-  --app-accent: #a85427;
-  --app-accent-label: color-mix(in srgb, var(--app-accent) 68%, var(--md-sys-color-on-surface) 32%);
-  --app-accent-strong: #8e451f;
-  --app-accent-soft: color-mix(in srgb, var(--app-accent) 16%, transparent 84%);
-  --app-accent-soft-strong: color-mix(in srgb, var(--app-accent) 24%, transparent 76%);
-  --app-border: color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent 70%);
-  --app-panel: color-mix(in srgb, var(--md-sys-color-surface) 94%, white 6%);
-  --app-panel-strong: color-mix(in srgb, var(--md-sys-color-surface) 88%, white 12%);
-  --app-shadow-soft: 0 1px 2px color-mix(in srgb, var(--md-sys-color-shadow) 10%, transparent 90%);
+  --app-shadow-soft: none;
   --app-shadow-strong: 0 12px 32px color-mix(in srgb, var(--md-sys-color-shadow) 18%, transparent 82%);
-  --app-radius-control: 10px;
-  --app-radius-panel: 14px;
+  --app-radius-control: 8px;
+  --app-radius-panel: 10px;
   --app-radius-dialog: 16px;
   --app-space-1: 4px;
   --app-space-2: 8px;
@@ -26,35 +18,15 @@
   --app-space-4: 16px;
   --app-space-6: 24px;
   --app-focus-ring: 0 0 0 3px color-mix(in srgb, var(--app-accent) 24%, transparent 76%);
-  --app-sidebar-background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--md-sys-color-background) 92%, var(--app-accent) 8%) 0%,
-    color-mix(in srgb, var(--md-sys-color-background) 98%, black 2%) 100%
-  );
-  --app-main-background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--md-sys-color-background) 97%, var(--app-accent) 3%),
-      var(--md-sys-color-background)
-    );
-  --app-success: #2f8f5b;
-  --app-success-soft: color-mix(in srgb, var(--app-success) 18%, transparent 82%);
-  --md-sys-color-primary: var(--app-accent);
-  --md-sys-color-on-primary: #fff7f2;
-  --md-sys-color-primary-container: color-mix(in srgb, var(--app-accent) 20%, white 80%);
-  --md-sys-color-on-primary-container: #402111;
-  --md-sys-color-tertiary: color-mix(in srgb, var(--app-accent) 82%, #21130c 18%);
-  --md-sys-color-on-tertiary: #fff8f3;
-  --md-sys-color-tertiary-container: color-mix(in srgb, var(--app-accent) 18%, white 82%);
-  --md-sys-color-on-tertiary-container: #472414;
-  --md-sys-color-error: #b84a3d;
-  --md-sys-color-on-error: #fff8f7;
-  font-family: 'Avenir Next', 'Segoe UI', sans-serif;
+  --app-main-background: var(--md-sys-color-background);
+  --app-sidebar-width: 216px;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
 header {
   width: 100%;
-  height: 72px;
+  height: 60px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -80,13 +52,13 @@ aside {
   top: 0;
   left: 0;
   bottom: 0;
-  width: 264px;
+  width: var(--app-sidebar-width);
   pointer-events: auto;
   box-shadow: none;
   color: var(--md-sys-color-on-surface);
   border-radius: 0;
   overflow: hidden;
-  background: var(--md-sys-color-surface);
+  background: var(--app-navigation);
   border: 0;
   border-right: 1px solid var(--app-border);
 }
@@ -100,7 +72,7 @@ main {
   flex-direction: column;
   position: absolute;
   top: 0;
-  left: 264px;
+  left: var(--app-sidebar-width);
   bottom: 0;
   right: 0;
   min-width: 0;
@@ -153,27 +125,7 @@ button:disabled,
 
 .signed-out-shell::before,
 .signed-out-shell::after {
-  content: '';
-  position: absolute;
-  pointer-events: none;
-  border-radius: 999px;
-  filter: blur(10px);
-}
-
-.signed-out-shell::before {
-  width: 280px;
-  height: 280px;
-  top: 8%;
-  left: 10%;
-  background: color-mix(in srgb, var(--app-accent) 16%, transparent 84%);
-}
-
-.signed-out-shell::after {
-  width: 360px;
-  height: 360px;
-  right: 8%;
-  bottom: 6%;
-  background: color-mix(in srgb, white 9%, transparent 91%);
+  content: none;
 }
 
 .signed-out-panel {
@@ -183,28 +135,16 @@ button:disabled,
   gap: 24px;
   width: min(100%, 980px);
   padding: 34px;
-  border-radius: 36px;
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, white 9%, transparent 91%), transparent 26%),
-    linear-gradient(180deg, color-mix(in srgb, var(--app-panel) 97%, white 3%), var(--app-panel));
-  border: 1px solid color-mix(in srgb, var(--app-border) 76%, transparent 24%);
-  box-shadow: var(--app-shadow-strong);
+  border-radius: var(--app-radius-dialog);
+  background: var(--app-panel);
+  border: 1px solid var(--app-border);
   position: relative;
   z-index: 1;
   overflow: hidden;
 }
 
 .signed-out-panel::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--app-accent) 44%, transparent 56%),
-    transparent
-  );
+  content: none;
 }
 
 .signed-out-brand-row {
@@ -364,13 +304,14 @@ main::before {
 }
 
 .drawer-head {
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: space-between;
   min-height: 54px;
   padding: max(6px, env(safe-area-inset-top)) 14px 6px;
   border-bottom: 1px solid var(--app-border);
   flex-shrink: 0;
+  font-size: .95rem;
   font-weight: 650;
 }
 
@@ -422,8 +363,28 @@ flex-container {
   --flex-display-max-width: 1800px;
 }
 
-flex-container.wide-workspace {
-  --flex-display-max-width: none;
+@media screen and (min-width: 1024px) {
+  :host([signed-in]) {
+    --workspace-width: 760px;
+  }
+
+  /* Give editors and data-heavy views room without spanning the desktop. */
+  :host([signed-in]:is([selected='job'], [selected='quote'], [selected='invoice'], [selected='invoices'], [selected='reports'])) {
+    --workspace-width: 900px;
+  }
+
+  :host([signed-in][selected='planning']) {
+    --workspace-width: 1020px;
+  }
+
+  :host([signed-in][selected='shop']) {
+    --workspace-width: 1080px;
+  }
+
+  :host([signed-in]) main > :is(header, flex-container) {
+    /* The light-DOM max-width overrides the component's internal limit. */
+    max-width: min(100%, var(--workspace-width));
+  }
 }
 
 .menu-toggle {
@@ -448,11 +409,11 @@ flex-container.wide-workspace {
   box-sizing: border-box;
   text-decoration: none;
   font-size: 0.88rem;
-  font-weight: 560;
-  min-height: 42px;
+  font-weight: 500;
+  min-height: 37px;
   cursor: pointer;
   gap: 10px;
-  border-radius: 10px;
+  border-radius: 7px;
   border: 1px solid transparent;
   color: var(--md-sys-color-on-surface-variant);
   background: transparent;
@@ -489,7 +450,7 @@ flex-container.wide-workspace {
   margin: 0;
   padding: 7px 10px 5px;
   font-size: 0.63rem;
-  font-weight: 750;
+  font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   line-height: 1.2;
@@ -524,7 +485,7 @@ flex-container.wide-workspace {
   height: 100dvh;
   border-radius: 0 18px 18px 0;
   box-shadow: var(--app-shadow-strong);
-  background: color-mix(in srgb, var(--md-sys-color-surface) 97%, var(--app-accent) 3%);
+  background: var(--app-navigation);
   border-right: 1px solid var(--app-border);
   transition:
     opacity 0.3s ease-out,
@@ -585,16 +546,16 @@ flex-container.wide-workspace {
 }
 
 .nav-item.active {
-  background: color-mix(in srgb, var(--app-accent) 11%, transparent);
+  background: var(--app-accent-soft);
   color: var(--app-accent-label);
-  border-radius: 10px;
-  font-weight: 650;
+  border-radius: 7px;
+  font-weight: 600;
   cursor: pointer;
   border-color: transparent;
 }
 
 .nav-item.active:hover {
-  background: color-mix(in srgb, var(--app-accent) 15%, transparent);
+  background: var(--app-accent-soft-strong);
 }
 
 @media (hover: hover) {
@@ -647,16 +608,37 @@ flex-container.wide-workspace {
   opacity: .72;
 }
 
+.appearance-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: .8rem;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.appearance-control select {
+  min-height: 36px;
+  padding: 0 7px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-control);
+  background: var(--app-panel);
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+}
+
+.appearance-control select:focus-visible { outline: 2px solid var(--app-accent-label); outline-offset: 2px; }
+:host([is-narrow]) .appearance-control select { min-height: 44px; }
+.app-toast button { color: inherit; }
+.offline-status { background: var(--app-warning-soft); color: var(--app-warning); border-color: var(--app-border); }
+
 .drawer-profile {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding: 9px;
-  border: 1px solid var(--app-border);
-  border-radius: 12px;
-  background: var(--app-panel);
+  padding: 5px 0;
 }
 
 .drawer-avatar,

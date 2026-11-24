@@ -216,10 +216,10 @@ export class TimelineView extends LiteElement {
         align-items: center;
         gap: 6px;
         padding: 6px 9px;
-        border: 1px solid color-mix(in srgb, #f0a13a 46%, var(--app-border));
+        border: 1px solid var(--app-border);
         border-radius: 10px;
-        background: color-mix(in srgb, #f0a13a 11%, transparent);
-        color: color-mix(in srgb, #f0a13a 82%, white);
+        background: var(--app-warning-soft);
+        color: var(--app-warning);
         font-size: 0.78rem;
         font-weight: 600;
         max-width: 100%;

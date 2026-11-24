@@ -43,7 +43,7 @@ export class ShopView extends LiteElement {
         overflow: hidden;
         box-sizing: border-box;
         padding: 18px;
-        font-family: 'Avenir Next', 'Segoe UI', sans-serif;
+        font-family: inherit;
         background:
           radial-gradient(
             1200px 500px at 10% -20%,
@@ -898,6 +898,7 @@ export class ShopView extends LiteElement {
       }
 
       :host { background:none; }
+      .cart-button,.cart-icon-button,.checkout-button { background:var(--app-accent); border-color:var(--app-accent-strong); border-radius:var(--app-radius-control); box-shadow:none; }
       .controls { padding-bottom:12px; }
       .shop-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; }
       .shop-heading h1 { margin:0; font-size:1.65rem; font-weight:650; }

@@ -286,8 +286,8 @@ export class HomeView extends LiteElement {
         width: 40px;
         height: 40px;
         border-radius: 11px;
-        background: color-mix(in srgb, #f0a13a 14%, transparent);
-        color: #e69a38;
+        background: var(--app-warning-soft);
+        color: var(--app-warning);
       }
 
       .alert.critical {
@@ -411,6 +411,8 @@ export class HomeView extends LiteElement {
         color: var(--md-sys-color-on-primary);
         background: var(--app-accent);
       }
+
+      .primary custom-icon { --custom-icon-color: var(--md-sys-color-on-primary); }
 
       .secondary {
         color: var(--md-sys-color-on-surface);
@@ -551,6 +553,47 @@ export class HomeView extends LiteElement {
         }
 
         .settings-field select { width: 100%; }
+      }
+      .dashboard-hero { gap:5px; padding:4px 0 9px; border-bottom:1px solid var(--app-border); }
+      .dashboard-hero h1 { font-size:clamp(1.45rem,3vw,1.9rem); font-weight:650; letter-spacing:-.025em; }
+      .dashboard-date { color:var(--md-sys-color-on-surface-variant); font-size:.8rem; }
+      .dashboard-date span { margin:0 3px; color:var(--app-accent-label); }
+      .dashboard-top { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); align-items:stretch; gap:18px; }
+      .dashboard-work { flex-direction:column; align-items:flex-start; padding:17px; gap:12px; }
+      .dashboard-work::before { display:none; }
+      .dashboard-kicker { color:var(--app-accent-label); font-size:.72rem; font-weight:650; }
+      .dashboard-work h2 { font-size:1.24rem; font-weight:650; overflow-wrap:anywhere; }
+      .dashboard-work .muted { font-size:.84rem; }
+      .dashboard-work .primary { min-height:44px; padding:0 13px; font-size:.84rem; }
+      .shortcut-panel { display:flex; flex-direction:column; justify-content:center; min-width:0; gap:0; }
+      .shortcut-panel h2 { padding:4px 8px; color:var(--md-sys-color-on-surface-variant); font-size:.72rem; font-weight:600; }
+      .shortcut-panel a { display:grid; grid-template-columns:17px minmax(0,1fr) 16px; align-items:center; gap:9px; min-height:36px; padding:0 8px; border-radius:7px; font-size:.84rem; }
+      .shortcut-panel custom-icon,.review custom-icon { --custom-icon-color:currentColor; --custom-icon-size:17px; }
+      .shortcut-panel a custom-icon { color:var(--md-sys-color-on-surface-variant); }
+      .shortcut-panel a:hover,.dashboard-metrics a:hover { background:var(--app-panel-strong); }
+      .dashboard-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); padding:5px; border:1px solid var(--app-border); border-radius:var(--app-radius-panel); background:var(--app-panel); }
+      .dashboard-metrics a { display:grid; align-content:center; min-height:63px; padding:5px 11px; border-radius:7px; }
+      .dashboard-metrics a + a { border-left:1px solid var(--app-border); }
+      .dashboard-metrics strong { font-size:1.3rem; font-weight:600; font-variant-numeric:tabular-nums; }
+      .dashboard-metrics span { color:var(--md-sys-color-on-surface-variant); font-size:.74rem; overflow-wrap:anywhere; }
+      .shortcut-panel a:focus-visible,.dashboard-metrics a:focus-visible { outline:2px solid var(--app-accent-label); outline-offset:-2px; }
+      .review .section-heading { margin-bottom:5px; }
+      .review .section-heading h2 { display:flex; align-items:center; gap:8px; font-size:1rem; font-weight:650; }
+      .review-count { padding:1px 6px; border-radius:6px; background:var(--app-panel-strong); font-size:.72rem; font-variant-numeric:tabular-nums; }
+      .review .section-link { padding:0 2px; border:0; }
+      .review .alerts { gap:0; }
+      .review .alert { min-height:52px; padding:7px 6px; border:0; border-top:1px solid var(--app-border); border-radius:0; background:none; box-shadow:none; }
+      .review .alert:hover { transform:none; background:var(--app-panel); }
+      .review .alert-icon { width:28px; height:28px; border-radius:7px; }
+      .review-empty { padding:10px 0; font-size:.84rem; }
+      @media (max-width: 580px) {
+        .dashboard-top { grid-template-columns:minmax(0,1fr); gap:12px; }
+        .shortcut-panel { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:4px; }
+        .shortcut-panel h2 { grid-column:1/-1; }
+        .shortcut-panel a { min-height:44px; }
+        .dashboard-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+        .dashboard-metrics a:nth-child(3) { border-left:0; }
+        .dashboard-metrics a:nth-child(n+3) { border-top:1px solid var(--app-border); }
       }
     `
   ]
@@ -787,86 +830,59 @@ export class HomeView extends LiteElement {
   renderAdminDashboard() {
     const summary = this.control?.summary || {}
     const alerts = this.control?.alerts || []
-    const date = new Intl.DateTimeFormat('nl-BE', { weekday:'long', day:'numeric', month:'long' }).format(new Date())
-    return html` <section class="hero">
-        <span class="eyebrow dashboard-date">Vandaag · ${date}</span>
+    const date = new Intl.DateTimeFormat('nl-BE', { weekday:'long', day:'numeric', month:'long', timeZone:'Europe/Brussels' }).format(this.now)
+    const metrics = [
+      ['Vandaag gepland', summary.todayPlanning, '#!/planning'],
+      ['Actieve jobs', summary.activeJobs, '#!/jobs'],
+      ['Conceptoffertes', summary.draftQuotes, '#!/quotes'],
+      ['Facturen', summary.invoices, '#!/invoices']
+    ] as const
+    const shortcuts = [
+      ['calendar_month', 'Planning maken', '#!/planning?create=1'],
+      ['work', 'Nieuwe job', '#!/jobs?create=1'],
+      ['request_quote', 'Nieuwe offerte', '#!/quote'],
+      ['backup', 'Back-ups', '#!/backups']
+    ]
+    return html`
+      <header class="hero dashboard-hero">
+        <p class="dashboard-date">Vandaag <span aria-hidden="true">/</span> ${date}</p>
         <h1>${this.greeting} ${this.user?.name?.split(' ')[0] || ''}</h1>
-        <p class="muted">Planning, afwijkingen en administratie in één overzicht.</p>
+      </header>
+
+      <div class="dashboard-top">
+        <section class="work-card dashboard-work" aria-labelledby="work-title">
+          <div class="work-copy">
+            <span class="dashboard-kicker">Werkregistratie</span>
+            <h2 id="work-title">${this.currentJob?.name || 'Klaar om te starten'}</h2>
+            <p class="muted">${this.currentJob ? this.activeSessionLabel() : 'Kies de job waaraan je nu werkt.'}</p>
+          </div>
+          <a class="primary" href=${this.currentJob ? '#!/checkout' : '#!/checkin'}>
+            <custom-icon icon=${this.currentJob ? 'stop_circle' : 'play_arrow'}></custom-icon>${this.currentJob ? 'Werk stoppen' : 'Werk starten'}
+          </a>
+        </section>
+        <section class="shortcut-panel" aria-labelledby="shortcut-title">
+          <h2 id="shortcut-title">Snel naar</h2>
+          ${shortcuts.map(([icon, label, href]) => html`<a href=${href}><custom-icon icon=${icon}></custom-icon><span>${label}</span><custom-icon icon="chevron_right"></custom-icon></a>`)}
+        </section>
+      </div>
+
+      <section class="dashboard-metrics" aria-label="Overzicht">
+        ${metrics.map(([label, count, href]) => html`<a href=${href}><strong>${count ?? '–'}</strong><span>${label}</span></a>`)}
       </section>
-      <section class="work-card">
-        <div class="work-copy">
-          <span class="status">${this.currentJob ? 'Aan het werk' : 'Klaar om te starten'}</span>
-          <h2>${this.currentJob?.name || 'Eigen werkregistratie'}</h2>
-          <p class="muted">
-            ${this.currentJob ? this.activeSessionLabel() : 'Start ook als admin eenvoudig je eigen job.'}
-          </p>
+
+      <section class="review" aria-labelledby="review-title">
+        <div class="section-heading">
+          <h2 id="review-title">Te controleren uren ${alerts.length ? html`<span class="review-count">${alerts.length}</span>` : ''}</h2>
+          <a class="section-link" href="#!/timeline">Tijdlijn <custom-icon icon="chevron_right"></custom-icon></a>
         </div>
-        <a
-          class="primary"
-          href=${this.currentJob ? '#!/checkout' : '#!/checkin'}
-          ><custom-icon icon=${this.currentJob ? 'stop_circle' : 'play_arrow'}></custom-icon>${this.currentJob
-            ? 'Werk stoppen'
-            : 'Werk starten'}</a
-        >
+        ${alerts.length ? html`<div class="alerts">
+          ${alerts.slice(0, 8).map((item: any) => html`<a class=${`alert ${item.severity}`} href=${item.href}>
+            <span class="alert-icon"><custom-icon icon=${item.kind === 'open' ? 'timer' : item.kind === 'future' ? 'schedule' : 'warning'}></custom-icon></span>
+            <span class="alert-copy"><strong>${item.title}</strong><span>${item.detail}</span></span>
+            <custom-icon icon="chevron_right"></custom-icon>
+          </a>`)}
+        </div>` : html`<p class="review-empty muted">${this.control ? 'Geen urenregistraties die controle vragen.' : 'Geen overzicht beschikbaar.'}</p>`}
       </section>
-      <h2 class="dashboard-label">Overzicht</h2>
-      <section class="admin-grid" aria-label="Overzicht">
-        <a
-          class="admin-stat"
-          href="#!/jobs"
-          ><span class="stat-icon"><custom-icon icon="inventory2"></custom-icon></span
-          ><strong>${summary.activeJobs ?? '–'}</strong><span>Actieve jobs</span></a
-        ><a
-          class="admin-stat"
-          href="#!/planning"
-          ><span class="stat-icon"><custom-icon icon="calendar_month"></custom-icon></span
-          ><strong>${summary.todayPlanning ?? '–'}</strong><span>Vandaag gepland</span></a
-        ><a
-          class="admin-stat"
-          href="#!/quotes"
-          ><span class="stat-icon"><custom-icon icon="request_quote"></custom-icon></span
-          ><strong>${summary.draftQuotes ?? '–'}</strong><span>Conceptoffertes</span></a
-        ><a
-          class="admin-stat"
-          href="#!/invoices"
-          ><span class="stat-icon"><custom-icon icon="receipt"></custom-icon></span
-          ><strong>${summary.invoices ?? '–'}</strong><span>Facturen</span></a
-        >
-      </section>
-      <h2 class="dashboard-label">Snel aan de slag</h2>
-      <div class="quick-actions">
-        <a
-          class="quick-action"
-          href="#!/planning?create=1"
-          ><custom-icon icon="add"></custom-icon>Planning maken</a
-        ><a
-          class="quick-action"
-          href="#!/jobs?create=1"
-          ><custom-icon icon="add_task"></custom-icon>Nieuwe job</a
-        ><a
-          class="quick-action"
-          href="#!/quote"
-          ><custom-icon icon="request_quote"></custom-icon>Nieuwe offerte</a
-        ><a
-          class="quick-action"
-          href="#!/backups"
-          ><custom-icon icon="backup"></custom-icon>Back-ups</a
-        >
-      </div>
-      <div class="section-heading">
-        <h2>Te controleren uren${alerts.length ? ` · ${alerts.length}` : ''}</h2>
-        <a class="section-link" href="#!/timeline">Open tijdlijn<custom-icon icon="timeline"></custom-icon></a>
-      </div>
-      ${alerts.length
-        ? html`<div class="alerts">
-            ${alerts.slice(0, 8).map((item: any) => html`
-              <a class=${`alert ${item.severity}`} href=${item.href}>
-                <span class="alert-icon"><custom-icon icon=${item.kind === 'open' ? 'timer' : item.kind === 'future' ? 'schedule' : 'warning'}></custom-icon></span>
-                <span class="alert-copy"><strong>${item.title}</strong><span>${item.detail}</span></span>
-                <custom-icon icon="chevron_right"></custom-icon>
-              </a>`)}
-          </div>`
-        : html`<p class="muted">Geen urenregistraties die controle vragen.</p>`}
       <details class="dashboard-settings">
         <summary>Werkruimte-instellingen</summary>
         <section class="privacy-card settings-card">

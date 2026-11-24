@@ -5,9 +5,12 @@ const STATIC_CACHE = 'keepit-static-v2'
 
 worker.addEventListener('install', (event) => {
   event.waitUntil(worker.caches.open(STATIC_CACHE).then(async (cache) => {
-    const response = await fetch('/', { cache: 'reload' })
-    if (!isCacheableStaticResponse(response, true)) throw new Error('Keepit-startpagina niet beschikbaar')
-    await cache.put('/', response)
+    const themeUrl = new URL('/assets/keepit-theme.css', worker.location.origin)
+    const [page, theme] = await Promise.all([fetch('/', { cache: 'reload' }), fetch(themeUrl, { cache: 'reload' })])
+    if (!isCacheableStaticResponse(page, true) || !isCacheableStaticResponse(theme, false)) {
+      throw new Error('Keepit-startpagina of thema niet beschikbaar')
+    }
+    await Promise.all([cache.put('/', page), cache.put(themeUrl.href, theme)])
     await worker.skipWaiting()
   }))
 })
